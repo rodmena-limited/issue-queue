@@ -18,11 +18,12 @@ class Database:
         if db_path:
             self.db_path = Path(db_path)
         else:
-            # Default path: ~/.issuedb/issuedb.sqlite
-            self.db_path = Path.home() / ".issuedb" / "issuedb.sqlite"
+            # Default path: ./.issue.db in current directory
+            self.db_path = Path(".issue.db")
 
-        # Create directory if it doesn't exist
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Create parent directory if it doesn't exist (for custom paths)
+        if self.db_path.parent != Path("."):
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Initialize database on first use
         self._initialize_database()
@@ -37,7 +38,6 @@ class Database:
                 CREATE TABLE IF NOT EXISTS issues (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     title TEXT NOT NULL,
-                    project TEXT NOT NULL,
                     description TEXT,
                     priority TEXT NOT NULL DEFAULT 'medium',
                     status TEXT NOT NULL DEFAULT 'open',
@@ -55,17 +55,11 @@ class Database:
                     field_name TEXT,
                     old_value TEXT,
                     new_value TEXT,
-                    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    project TEXT NOT NULL
+                    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
             # Create indexes for performance
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_issues_project
-                ON issues(project)
-            """)
-
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_issues_status
                 ON issues(status)
@@ -77,11 +71,6 @@ class Database:
             """)
 
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_issues_project_status
-                ON issues(project, status)
-            """)
-
-            cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_issues_created_at
                 ON issues(created_at)
             """)
@@ -89,11 +78,6 @@ class Database:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_audit_logs_issue_id
                 ON audit_logs(issue_id)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_audit_logs_project
-                ON audit_logs(project)
             """)
 
             cursor.execute("""
@@ -159,10 +143,6 @@ class Database:
             cursor.execute("SELECT COUNT(*) as count FROM audit_logs")
             audit_count = cursor.fetchone()["count"]
 
-            # Get project count
-            cursor.execute("SELECT COUNT(DISTINCT project) as count FROM issues")
-            project_count = cursor.fetchone()["count"]
-
             # Get database file size
             db_size = self.db_path.stat().st_size if self.db_path.exists() else 0
 
@@ -170,7 +150,6 @@ class Database:
                 "database_path": str(self.db_path),
                 "issue_count": issue_count,
                 "audit_log_count": audit_count,
-                "project_count": project_count,
                 "database_size_bytes": db_size,
             }
 

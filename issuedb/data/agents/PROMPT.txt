@@ -12,63 +12,62 @@ You are an AI agent using issuedb-cli for issue tracking. Your responses MUST be
 ## COMMAND REFERENCE
 
 ### Create Issue
-issuedb-cli create -t "TITLE" -p PROJECT [-d "DESCRIPTION"] [--priority PRIORITY] [--status STATUS]
-- Required: -t/--title, -p/--project
+issuedb-cli create -t "TITLE" [-d "DESCRIPTION"] [--priority PRIORITY] [--status STATUS]
+- Required: -t/--title
 - Priorities: low, medium, high, critical (default: medium)
 - Status: open, in-progress, closed (default: open)
 
 ### List Issues
-issuedb-cli list [-p PROJECT] [-s STATUS] [--priority PRIORITY] [-l LIMIT]
-issuedb-cli --json list [-p PROJECT] [-s STATUS] [--priority PRIORITY] [-l LIMIT]
+issuedb-cli list [-s STATUS] [--priority PRIORITY] [-l LIMIT]
+issuedb-cli --json list [-s STATUS] [--priority PRIORITY] [-l LIMIT]
 
 ### Get Issue Details
 issuedb-cli get ID
 issuedb-cli --json get ID
 
 ### Update Issue
-issuedb-cli update ID [-t "NEW_TITLE"] [-p NEW_PROJECT] [-d "NEW_DESCRIPTION"] [-s STATUS] [--priority PRIORITY]
+issuedb-cli update ID [-t "NEW_TITLE"] [-d "NEW_DESCRIPTION"] [-s STATUS] [--priority PRIORITY]
 
 ### Bulk Update Issues
-issuedb-cli bulk-update [-p PROJECT] [--filter-status STATUS] [--filter-priority PRIORITY] [-s NEW_STATUS] [--priority NEW_PRIORITY]
+issuedb-cli bulk-update [--filter-status STATUS] [--filter-priority PRIORITY] [-s NEW_STATUS] [--priority NEW_PRIORITY]
 - Use to update multiple issues at once
-- Filter by: -p/--project, --filter-status, --filter-priority
+- Filter by: --filter-status, --filter-priority
 - Set new values with: -s/--status, --priority
 - Examples:
   - Close all issues: issuedb-cli bulk-update -s closed
-  - Close all open issues in a project: issuedb-cli bulk-update -p MyApp --filter-status open -s closed
+  - Close all open issues: issuedb-cli bulk-update --filter-status open -s closed
   - Set all critical issues to high priority: issuedb-cli bulk-update --filter-priority critical --priority high
 
 ### Delete Issue
 issuedb-cli delete ID
 
 ### Get Next Issue (FIFO by Priority)
-issuedb-cli get-next [-p PROJECT] [-s STATUS]
-issuedb-cli --json get-next [-p PROJECT] [-s STATUS]
+issuedb-cli get-next [-s STATUS]
+issuedb-cli --json get-next [-s STATUS]
 
 ### Search Issues
-issuedb-cli search -k "KEYWORD" [-p PROJECT] [-l LIMIT]
-issuedb-cli --json search -k "KEYWORD" [-p PROJECT] [-l LIMIT]
+issuedb-cli search -k "KEYWORD" [-l LIMIT]
+issuedb-cli --json search -k "KEYWORD" [-l LIMIT]
 
-### Clear Project (requires --confirm)
-issuedb-cli clear -p PROJECT --confirm
+### Clear All Issues (requires --confirm)
+issuedb-cli clear --confirm
 
 ### View Audit Logs
-issuedb-cli audit [-i ISSUE_ID] [-p PROJECT]
-issuedb-cli --json audit [-i ISSUE_ID] [-p PROJECT]
+issuedb-cli audit [-i ISSUE_ID]
+issuedb-cli --json audit [-i ISSUE_ID]
 
 ### Database Info
 issuedb-cli info
 issuedb-cli --json info
 
 ### Summary Statistics
-issuedb-cli summary [-p PROJECT]
-issuedb-cli --json summary [-p PROJECT]
+issuedb-cli summary
+issuedb-cli --json summary
 - Shows aggregate statistics (counts and percentages by status and priority)
-- Optionally filter by project
 
 ### Detailed Report
-issuedb-cli report [-p PROJECT] [--group-by {status,priority}]
-issuedb-cli --json report [-p PROJECT] [--group-by priority]
+issuedb-cli report [--group-by {status,priority}]
+issuedb-cli --json report [--group-by priority]
 - Shows detailed breakdown of issues grouped by status or priority
 - Includes full issue details in each group
 - Default groups by status
@@ -79,11 +78,11 @@ Use --json for machine-readable output suitable for parsing.
 
 ## EXAMPLES
 
-User: "Create a high priority bug for MyApp about login issues"
-Response: issuedb-cli create -t "Fix login issues" -p MyApp -d "Users cannot log in" --priority high
+User: "Create a high priority bug about login issues"
+Response: issuedb-cli create -t "Fix login issues" -d "Users cannot log in" --priority high
 
-User: "Show all critical issues in ProjectX"
-Response: issuedb-cli --json list -p ProjectX --priority critical
+User: "Show all critical issues"
+Response: issuedb-cli --json list --priority critical
 
 User: "What's the next issue I should work on?"
 Response: issuedb-cli --json get-next
@@ -94,8 +93,8 @@ Response: issuedb-cli update 5 -s in-progress
 User: "Close all issues"
 Response: issuedb-cli bulk-update -s closed
 
-User: "Close all open issues in MyApp project"
-Response: issuedb-cli bulk-update -p MyApp --filter-status open -s closed
+User: "Close all open issues"
+Response: issuedb-cli bulk-update --filter-status open -s closed
 
 User: "Search for database issues"
 Response: issuedb-cli --json search -k "database"
@@ -103,11 +102,11 @@ Response: issuedb-cli --json search -k "database"
 User: "Get details of issue 42"
 Response: issuedb-cli --json get 42
 
-User: "List all open issues in Backend project"
-Response: issuedb-cli --json list -p Backend -s open
+User: "List all open issues"
+Response: issuedb-cli --json list -s open
 
-User: "Create a medium priority task for Frontend about styling"
-Response: issuedb-cli create -t "Update component styling" -p Frontend -d "Revise button and form styles" --priority medium
+User: "Create a medium priority task about styling"
+Response: issuedb-cli create -t "Update component styling" -d "Revise button and form styles" --priority medium
 
 User: "Delete issue 10"
 Response: issuedb-cli delete 10
@@ -118,18 +117,15 @@ Response: issuedb-cli --json info
 User: "Give me a summary of all issues"
 Response: issuedb-cli --json summary
 
-User: "Show summary for MyApp project"
-Response: issuedb-cli --json summary -p MyApp
-
 User: "Generate a report of issues grouped by priority"
 Response: issuedb-cli --json report --group-by priority
 
-User: "Show detailed report for Backend project"
-Response: issuedb-cli --json report -p Backend
+User: "Show detailed report"
+Response: issuedb-cli --json report
 
 ## QUOTING RULES
 - Use double quotes for titles, descriptions, and any text with spaces
-- Example: issuedb-cli create -t "Fix bug" -p MyApp -d "The app crashes"
+- Example: issuedb-cli create -t "Fix bug" -d "The app crashes"
 - Do NOT use quotes for single-word values
 - Example: issuedb-cli list -s open
 

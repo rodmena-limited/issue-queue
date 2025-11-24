@@ -54,7 +54,6 @@ class TestIssue:
         issue = Issue()
         assert issue.id is None
         assert issue.title == ""
-        assert issue.project == ""
         assert issue.description is None
         assert issue.priority == Priority.MEDIUM
         assert issue.status == Status.OPEN
@@ -67,7 +66,6 @@ class TestIssue:
         issue = Issue(
             id=1,
             title="Test Issue",
-            project="TestProject",
             description="Test description",
             priority=Priority.HIGH,
             status=Status.IN_PROGRESS,
@@ -79,7 +77,6 @@ class TestIssue:
 
         assert result["id"] == 1
         assert result["title"] == "Test Issue"
-        assert result["project"] == "TestProject"
         assert result["description"] == "Test description"
         assert result["priority"] == "high"
         assert result["status"] == "in-progress"
@@ -92,7 +89,6 @@ class TestIssue:
         data = {
             "id": 1,
             "title": "Test Issue",
-            "project": "TestProject",
             "description": "Test description",
             "priority": "high",
             "status": "in-progress",
@@ -104,18 +100,16 @@ class TestIssue:
 
         assert issue.id == 1
         assert issue.title == "Test Issue"
-        assert issue.project == "TestProject"
         assert issue.description == "Test description"
         assert issue.priority == Priority.HIGH
         assert issue.status == Status.IN_PROGRESS
 
     def test_from_dict_partial(self):
         """Test creating Issue from partial dictionary."""
-        data = {"title": "Test", "project": "Project"}
+        data = {"title": "Test"}
         issue = Issue.from_dict(data)
 
         assert issue.title == "Test"
-        assert issue.project == "Project"
         assert issue.priority == Priority.MEDIUM
         assert issue.status == Status.OPEN
 
@@ -124,7 +118,6 @@ class TestIssue:
         issue = Issue(
             id=1,
             title="Test",
-            project="Project",
             priority=Priority.HIGH,
             status=Status.OPEN,
         )
@@ -134,7 +127,6 @@ class TestIssue:
 
         assert data["id"] == 1
         assert data["title"] == "Test"
-        assert data["project"] == "Project"
         assert data["priority"] == "high"
         assert data["status"] == "open"
 
@@ -152,7 +144,6 @@ class TestAuditLog:
         assert log.old_value is None
         assert log.new_value is None
         assert isinstance(log.timestamp, datetime)
-        assert log.project == ""
 
     def test_to_dict(self):
         """Test converting AuditLog to dictionary."""
@@ -165,7 +156,6 @@ class TestAuditLog:
             old_value="open",
             new_value="closed",
             timestamp=now,
-            project="TestProject",
         )
 
         result = log.to_dict()
@@ -177,4 +167,3 @@ class TestAuditLog:
         assert result["old_value"] == "open"
         assert result["new_value"] == "closed"
         assert result["timestamp"] == now.isoformat()
-        assert result["project"] == "TestProject"

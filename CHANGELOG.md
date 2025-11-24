@@ -5,6 +5,50 @@ All notable changes to IssueDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-11-24
+
+### BREAKING CHANGES
+- **Removed project concept**: IssueDB now uses a per-directory database model
+  - Each directory has its own `./issuedb.sqlite` database file
+  - No more `-p/--project` flags on any commands
+  - Projects are now organized by directory structure instead of database fields
+  - Migration: Use separate directories for different projects
+- **Removed project field from Issue model**: Issues no longer have a project field
+- **Removed project field from AuditLog model**: Audit logs no longer track project
+- **Removed project filtering**: All project-based filtering has been removed from commands
+  - `list`, `search`, `get-next`, `bulk-update`, `summary`, `report`, `audit`, `clear`
+- **Changed clear command**: `clear` now clears all issues in the current directory's database (was `clear -p PROJECT`)
+- **Changed database location**: Default database is now `./issuedb.sqlite` in current directory (was `~/.issuedb/issuedb.sqlite`)
+- **Updated CLI output**: Issue display no longer shows project field
+
+### Why This Change?
+The per-directory model provides:
+- **Better isolation**: Each project/directory has its own independent database
+- **Simpler mental model**: Your issues are where your code is
+- **Easier backup**: Just backup the directory to preserve all issues
+- **Natural organization**: Filesystem directories already organize projects
+- **Git-friendly**: Database file can be .gitignored or committed per project needs
+
+### Migration Guide
+**Before (v1.x):**
+```bash
+cd ~/my-code
+issuedb-cli create -t "Fix bug" -p ProjectA
+issuedb-cli list -p ProjectA
+```
+
+**After (v2.0):**
+```bash
+cd ~/my-code/ProjectA
+issuedb-cli create -t "Fix bug"
+issuedb-cli list
+```
+
+To migrate from v1.x:
+1. Export issues per project (use v1.x): `issuedb-cli list -p ProjectA --json > projecta-issues.json`
+2. Create project directory: `mkdir ProjectA && cd ProjectA`
+3. Re-create issues in new location using v2.0
+
 ## [1.1.0] - 2025-11-24
 
 ### Added

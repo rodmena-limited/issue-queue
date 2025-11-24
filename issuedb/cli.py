@@ -63,7 +63,6 @@ class CLI:
         lines = [
             f"ID: {issue.id}",
             f"Title: {issue.title}",
-            f"Project: {issue.project}",
             f"Status: {issue.status.value}",
             f"Priority: {issue.priority.value}",
         ]
@@ -98,7 +97,6 @@ class CLI:
     def create_issue(
         self,
         title: str,
-        project: str,
         description: Optional[str] = None,
         priority: str = "medium",
         status: str = "open",
@@ -108,7 +106,6 @@ class CLI:
 
         Args:
             title: Issue title.
-            project: Project name.
             description: Optional description.
             priority: Priority level.
             status: Initial status.
@@ -119,7 +116,6 @@ class CLI:
         """
         issue = Issue(
             title=title,
-            project=project,
             description=description,
             priority=Priority.from_string(priority),
             status=Status.from_string(status),
@@ -130,7 +126,6 @@ class CLI:
 
     def list_issues(
         self,
-        project: Optional[str] = None,
         status: Optional[str] = None,
         priority: Optional[str] = None,
         limit: Optional[int] = None,
@@ -139,7 +134,6 @@ class CLI:
         """List issues with filters.
 
         Args:
-            project: Filter by project.
             status: Filter by status.
             priority: Filter by priority.
             limit: Maximum number of issues.
@@ -149,7 +143,7 @@ class CLI:
             Formatted output.
         """
         issues = self.repo.list_issues(
-            project=project, status=status, priority=priority, limit=limit
+            status=status, priority=priority, limit=limit
         )
         return self.format_output(issues, as_json)
 
@@ -194,7 +188,6 @@ class CLI:
         self,
         new_status: Optional[str] = None,
         new_priority: Optional[str] = None,
-        filter_project: Optional[str] = None,
         filter_status: Optional[str] = None,
         filter_priority: Optional[str] = None,
         as_json: bool = False,
@@ -204,7 +197,6 @@ class CLI:
         Args:
             new_status: New status to set.
             new_priority: New priority to set.
-            filter_project: Filter by project name.
             filter_status: Filter by current status.
             filter_priority: Filter by current priority.
             as_json: Output as JSON.
@@ -218,7 +210,6 @@ class CLI:
         count = self.repo.bulk_update_issues(
             new_status=new_status,
             new_priority=new_priority,
-            filter_project=filter_project,
             filter_status=filter_status,
             filter_priority=filter_priority,
         )
@@ -249,19 +240,18 @@ class CLI:
         return self.format_output(result, as_json)
 
     def get_next_issue(
-        self, project: Optional[str] = None, status: Optional[str] = None, as_json: bool = False
+        self, status: Optional[str] = None, as_json: bool = False
     ) -> str:
         """Get next issue to work on.
 
         Args:
-            project: Filter by project.
             status: Filter by status.
             as_json: Output as JSON.
 
         Returns:
             Formatted output.
         """
-        issue = self.repo.get_next_issue(project=project, status=status)
+        issue = self.repo.get_next_issue(status=status)
         if not issue:
             result = {"message": "No issues found matching criteria"}
             return self.format_output(result, as_json)
@@ -270,7 +260,6 @@ class CLI:
     def search_issues(
         self,
         keyword: str,
-        project: Optional[str] = None,
         limit: Optional[int] = None,
         as_json: bool = False,
     ) -> str:
@@ -278,21 +267,19 @@ class CLI:
 
         Args:
             keyword: Search keyword.
-            project: Filter by project.
             limit: Maximum results.
             as_json: Output as JSON.
 
         Returns:
             Formatted output.
         """
-        issues = self.repo.search_issues(keyword=keyword, project=project, limit=limit)
+        issues = self.repo.search_issues(keyword=keyword, limit=limit)
         return self.format_output(issues, as_json)
 
-    def clear_project(self, project: str, confirm: bool = False, as_json: bool = False) -> str:
-        """Clear all issues for a project.
+    def clear_all(self, confirm: bool = False, as_json: bool = False) -> str:
+        """Clear all issues from database.
 
         Args:
-            project: Project name.
             confirm: Safety confirmation.
             as_json: Output as JSON.
 
@@ -303,29 +290,27 @@ class CLI:
             ValueError: If not confirmed.
         """
         if not confirm:
-            raise ValueError("Must use --confirm flag to clear project")
+            raise ValueError("Must use --confirm flag to clear all issues")
 
-        count = self.repo.clear_project(project)
-        result = {"message": f"Cleared {count} issues from project {project}"}
+        count = self.repo.clear_all_issues()
+        result = {"message": f"Cleared {count} issues from database"}
         return self.format_output(result, as_json)
 
     def get_audit_logs(
         self,
         issue_id: Optional[int] = None,
-        project: Optional[str] = None,
         as_json: bool = False,
     ) -> str:
         """Get audit logs.
 
         Args:
             issue_id: Filter by issue ID.
-            project: Filter by project.
             as_json: Output as JSON.
 
         Returns:
             Formatted output.
         """
-        logs = self.repo.get_audit_logs(issue_id=issue_id, project=project)
+        logs = self.repo.get_audit_logs(issue_id=issue_id)
 
         if as_json:
             return json.dumps([log.to_dict() for log in logs], indent=2)
@@ -338,7 +323,6 @@ class CLI:
                 lines.append("-" * 50)
                 lines.append(f"Timestamp: {log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
                 lines.append(f"Issue ID: {log.issue_id}")
-                lines.append(f"Project: {log.project}")
                 lines.append(f"Action: {log.action}")
 
                 if log.field_name:
@@ -364,36 +348,33 @@ class CLI:
         info = self.repo.db.get_database_info()
         return self.format_output(info, as_json)
 
-    def get_summary(self, project: Optional[str] = None, as_json: bool = False) -> str:
+    def get_summary(self, as_json: bool = False) -> str:
         """Get summary statistics of issues.
 
         Args:
-            project: Optional project name to filter by.
             as_json: Output as JSON.
 
         Returns:
             Formatted output.
         """
-        summary = self.repo.get_summary(project=project)
+        summary = self.repo.get_summary()
         return self.format_output(summary, as_json)
 
     def get_report(
         self,
-        project: Optional[str] = None,
         group_by: str = "status",
         as_json: bool = False,
     ) -> str:
         """Get detailed report of issues.
 
         Args:
-            project: Optional project name to filter by.
             group_by: Group by 'status' or 'priority'.
             as_json: Output as JSON.
 
         Returns:
             Formatted output.
         """
-        report = self.repo.get_report(project=project, group_by=group_by)
+        report = self.repo.get_report(group_by=group_by)
         return self.format_output(report, as_json)
 
 
@@ -455,7 +436,6 @@ def main() -> None:
     # Create command
     create_parser = subparsers.add_parser("create", help="Create a new issue")
     create_parser.add_argument("-t", "--title", required=True, help="Issue title")
-    create_parser.add_argument("-p", "--project", required=True, help="Project name")
     create_parser.add_argument("-d", "--description", help="Issue description")
     create_parser.add_argument(
         "--priority",
@@ -472,7 +452,6 @@ def main() -> None:
 
     # List command
     list_parser = subparsers.add_parser("list", help="List issues")
-    list_parser.add_argument("-p", "--project", help="Filter by project")
     list_parser.add_argument("-s", "--status", help="Filter by status (open, in-progress, closed)")
     list_parser.add_argument("--priority", help="Filter by priority (low, medium, high, critical)")
     list_parser.add_argument("-l", "--limit", type=int, help="Maximum number of issues")
@@ -485,7 +464,6 @@ def main() -> None:
     update_parser = subparsers.add_parser("update", help="Update an issue")
     update_parser.add_argument("id", type=int, help="Issue ID")
     update_parser.add_argument("-t", "--title", help="New title")
-    update_parser.add_argument("-p", "--project", help="New project")
     update_parser.add_argument("-d", "--description", help="New description")
     update_parser.add_argument(
         "--priority",
@@ -502,9 +480,6 @@ def main() -> None:
     # Bulk-update command
     bulk_update_parser = subparsers.add_parser(
         "bulk-update", help="Bulk update issues matching filters"
-    )
-    bulk_update_parser.add_argument(
-        "-p", "--project", help="Filter by project name"
     )
     bulk_update_parser.add_argument(
         "--filter-status",
@@ -536,35 +511,29 @@ def main() -> None:
     next_parser = subparsers.add_parser(
         "get-next", help="Get next issue to work on (FIFO by priority)"
     )
-    next_parser.add_argument("-p", "--project", help="Filter by project")
     next_parser.add_argument("-s", "--status", help="Filter by status (defaults to 'open')")
 
     # Search command
     search_parser = subparsers.add_parser("search", help="Search issues by keyword")
     search_parser.add_argument("-k", "--keyword", required=True, help="Search keyword")
-    search_parser.add_argument("-p", "--project", help="Filter by project")
     search_parser.add_argument("-l", "--limit", type=int, help="Maximum results")
 
     # Clear command
-    clear_parser = subparsers.add_parser("clear", help="Clear all issues for a project")
-    clear_parser.add_argument("-p", "--project", required=True, help="Project name")
+    clear_parser = subparsers.add_parser("clear", help="Clear all issues from database")
     clear_parser.add_argument("--confirm", action="store_true", help="Confirm deletion (required)")
 
     # Audit command
     audit_parser = subparsers.add_parser("audit", help="View audit logs")
     audit_parser.add_argument("-i", "--issue", type=int, help="Filter by issue ID")
-    audit_parser.add_argument("-p", "--project", help="Filter by project")
 
     # Info command
     subparsers.add_parser("info", help="Get database information")
 
     # Summary command
-    summary_parser = subparsers.add_parser("summary", help="Get summary statistics of issues")
-    summary_parser.add_argument("-p", "--project", help="Filter by project")
+    subparsers.add_parser("summary", help="Get summary statistics of issues")
 
     # Report command
     report_parser = subparsers.add_parser("report", help="Get detailed report of issues")
-    report_parser.add_argument("-p", "--project", help="Filter by project")
     report_parser.add_argument(
         "--group-by",
         choices=["status", "priority"],
@@ -625,7 +594,6 @@ def main() -> None:
         if args.command == "create":
             result = cli.create_issue(
                 title=args.title,
-                project=args.project,
                 description=args.description,
                 priority=args.priority,
                 status=args.status,
@@ -635,7 +603,6 @@ def main() -> None:
 
         elif args.command == "list":
             result = cli.list_issues(
-                project=args.project,
                 status=args.status,
                 priority=args.priority,
                 limit=args.limit,
@@ -651,8 +618,6 @@ def main() -> None:
             updates = {}
             if args.title:
                 updates["title"] = args.title
-            if args.project:
-                updates["project"] = args.project
             if args.description:
                 updates["description"] = args.description
             if args.priority:
@@ -675,7 +640,6 @@ def main() -> None:
             result = cli.bulk_update_issues(
                 new_status=args.status,
                 new_priority=args.priority,
-                filter_project=args.project,
                 filter_status=args.filter_status,
                 filter_priority=args.filter_priority,
                 as_json=args.json,
@@ -687,28 +651,23 @@ def main() -> None:
             print(result)
 
         elif args.command == "get-next":
-            result = cli.get_next_issue(project=args.project, status=args.status, as_json=args.json)
+            result = cli.get_next_issue(status=args.status, as_json=args.json)
             print(result)
 
         elif args.command == "search":
             result = cli.search_issues(
                 keyword=args.keyword,
-                project=args.project,
                 limit=args.limit,
                 as_json=args.json,
             )
             print(result)
 
         elif args.command == "clear":
-            result = cli.clear_project(
-                project=args.project, confirm=args.confirm, as_json=args.json
-            )
+            result = cli.clear_all(confirm=args.confirm, as_json=args.json)
             print(result)
 
         elif args.command == "audit":
-            result = cli.get_audit_logs(
-                issue_id=args.issue, project=args.project, as_json=args.json
-            )
+            result = cli.get_audit_logs(issue_id=args.issue, as_json=args.json)
             print(result)
 
         elif args.command == "info":
@@ -716,13 +675,11 @@ def main() -> None:
             print(result)
 
         elif args.command == "summary":
-            result = cli.get_summary(project=args.project, as_json=args.json)
+            result = cli.get_summary(as_json=args.json)
             print(result)
 
         elif args.command == "report":
-            result = cli.get_report(
-                project=args.project, group_by=args.group_by, as_json=args.json
-            )
+            result = cli.get_report(group_by=args.group_by, as_json=args.json)
             print(result)
 
     except Exception as e:

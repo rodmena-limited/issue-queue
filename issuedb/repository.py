@@ -24,7 +24,6 @@ class IssueRepository:
         conn,
         issue_id: int,
         action: str,
-        project: str,
         field_name: Optional[str] = None,
         old_value: Optional[str] = None,
         new_value: Optional[str] = None,
@@ -35,7 +34,6 @@ class IssueRepository:
             conn: Database connection to use
             issue_id: ID of the affected issue
             action: Action type (CREATE, UPDATE, DELETE)
-            project: Project name
             field_name: Name of the field that changed
             old_value: Previous value
             new_value: New value
@@ -43,10 +41,10 @@ class IssueRepository:
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO audit_logs (issue_id, action, field_name, old_value, new_value, project)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO audit_logs (issue_id, action, field_name, old_value, new_value)
+            VALUES (?, ?, ?, ?, ?)
         """,
-            (issue_id, action, field_name, old_value, new_value, project),
+            (issue_id, action, field_name, old_value, new_value),
         )
 
     def create_issue(self, issue: Issue) -> Issue:
@@ -63,20 +61,17 @@ class IssueRepository:
         """
         if not issue.title:
             raise ValueError("Title is required")
-        if not issue.project:
-            raise ValueError("Project is required")
 
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO issues (title, project, description, priority, status,
+                INSERT INTO issues (title, description, priority, status,
                                    created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
             """,
                 (
                     issue.title,
-                    issue.project,
                     issue.description,
                     issue.priority.value,
                     issue.status.value,
@@ -92,7 +87,6 @@ class IssueRepository:
                 conn,
                 issue.id,
                 "CREATE",
-                issue.project,
                 None,
                 None,
                 json.dumps(issue.to_dict()),
@@ -128,7 +122,7 @@ class IssueRepository:
 
         Args:
             issue_id: ID of the issue to update.
-            **updates: Fields to update (title, project, description, priority, status).
+            **updates: Fields to update (title, description, priority, status).
 
         Returns:
             Updated Issue if found, None otherwise.
@@ -142,7 +136,7 @@ class IssueRepository:
             return None
 
         # Validate and prepare updates
-        allowed_fields = {"title", "project", "description", "priority", "status"}
+        allowed_fields = {"title", "description", "priority", "status"}
         update_fields = []
         update_values = []
         audit_entries = []
@@ -188,7 +182,6 @@ class IssueRepository:
                     conn,
                     issue_id,
                     "UPDATE",
-                    current_issue.project,
                     field,
                     old_val,
                     new_val,
@@ -200,7 +193,6 @@ class IssueRepository:
         self,
         new_status: Optional[str] = None,
         new_priority: Optional[str] = None,
-        filter_project: Optional[str] = None,
         filter_status: Optional[str] = None,
         filter_priority: Optional[str] = None,
     ) -> int:
@@ -209,7 +201,6 @@ class IssueRepository:
         Args:
             new_status: New status to set.
             new_priority: New priority to set.
-            filter_project: Filter by project name.
             filter_status: Filter by current status.
             filter_priority: Filter by current priority.
 
@@ -243,9 +234,6 @@ class IssueRepository:
         # Build WHERE clause for filters
         where_conditions = []
         where_values = []
-        if filter_project:
-            where_conditions.append("project = ?")
-            where_values.append(filter_project)
         if filter_status:
             filter_status_enum = Status.from_string(filter_status)
             where_conditions.append("status = ?")
@@ -282,7 +270,6 @@ class IssueRepository:
                             conn,
                             issue.id,
                             "BULK_UPDATE",
-                            issue.project,
                             "status",
                             old_value,
                             new_value,
@@ -296,7 +283,6 @@ class IssueRepository:
                             conn,
                             issue.id,
                             "BULK_UPDATE",
-                            issue.project,
                             "priority",
                             old_value,
                             new_value,
@@ -327,7 +313,6 @@ class IssueRepository:
                 conn,
                 issue_id,
                 "DELETE",
-                issue.project,
                 None,
                 json.dumps(issue.to_dict()),
                 None,
@@ -337,7 +322,6 @@ class IssueRepository:
 
     def list_issues(
         self,
-        project: Optional[str] = None,
         status: Optional[str] = None,
         priority: Optional[str] = None,
         limit: Optional[int] = None,
@@ -346,7 +330,6 @@ class IssueRepository:
         """List issues with optional filters.
 
         Args:
-            project: Filter by project name.
             status: Filter by status.
             priority: Filter by priority.
             limit: Maximum number of issues to return.
@@ -357,10 +340,6 @@ class IssueRepository:
         """
         query = "SELECT * FROM issues WHERE 1=1"
         params = []
-
-        if project:
-            query += " AND project = ?"
-            params.append(project)
 
         if status:
             Status.from_string(status)  # Validate status
@@ -389,12 +368,11 @@ class IssueRepository:
             return [self._row_to_issue(row) for row in rows]
 
     def get_next_issue(
-        self, project: Optional[str] = None, status: Optional[str] = None
+        self, status: Optional[str] = None
     ) -> Optional[Issue]:
         """Get the next issue based on priority and creation date (FIFO within priority).
 
         Args:
-            project: Filter by project name.
             status: Filter by status (defaults to 'open' if not specified).
 
         Returns:
@@ -405,10 +383,6 @@ class IssueRepository:
             WHERE 1=1
         """
         params = []
-
-        if project:
-            query += " AND project = ?"
-            params.append(project)
 
         # Default to open issues if status not specified
         if status:
@@ -442,13 +416,12 @@ class IssueRepository:
             return None
 
     def search_issues(
-        self, keyword: str, project: Optional[str] = None, limit: Optional[int] = None
+        self, keyword: str, limit: Optional[int] = None
     ) -> List[Issue]:
         """Search issues by keyword in title and description.
 
         Args:
             keyword: Keyword to search for.
-            project: Filter by project name.
             limit: Maximum number of issues to return.
 
         Returns:
@@ -459,10 +432,6 @@ class IssueRepository:
             WHERE (title LIKE ? OR description LIKE ?)
         """
         params = [f"%{keyword}%", f"%{keyword}%"]
-
-        if project:
-            query += " AND project = ?"
-            params.append(project)
 
         query += " ORDER BY created_at DESC"
 
@@ -477,17 +446,14 @@ class IssueRepository:
 
             return [self._row_to_issue(row) for row in rows]
 
-    def clear_project(self, project: str) -> int:
-        """Clear all issues for a project.
-
-        Args:
-            project: Project name.
+    def clear_all_issues(self) -> int:
+        """Clear all issues from the database.
 
         Returns:
             Number of issues deleted.
         """
         # Get all issues for audit logging
-        issues = self.list_issues(project=project)
+        issues = self.list_issues()
 
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -498,24 +464,22 @@ class IssueRepository:
                     conn,
                     issue.id,
                     "DELETE",
-                    issue.project,
                     None,
                     json.dumps(issue.to_dict()),
                     None,
                 )
 
-            # Delete all issues for the project
-            cursor.execute("DELETE FROM issues WHERE project = ?", (project,))
+            # Delete all issues
+            cursor.execute("DELETE FROM issues")
             return cursor.rowcount
 
     def get_audit_logs(
-        self, issue_id: Optional[int] = None, project: Optional[str] = None
+        self, issue_id: Optional[int] = None
     ) -> List[AuditLog]:
         """Get audit logs for issues.
 
         Args:
             issue_id: Filter by issue ID.
-            project: Filter by project.
 
         Returns:
             List of audit log entries.
@@ -526,10 +490,6 @@ class IssueRepository:
         if issue_id:
             query += " AND issue_id = ?"
             params.append(issue_id)
-
-        if project:
-            query += " AND project = ?"
-            params.append(project)
 
         query += " ORDER BY id DESC"
 
@@ -548,17 +508,13 @@ class IssueRepository:
                     old_value=row["old_value"],
                     new_value=row["new_value"],
                     timestamp=datetime.fromisoformat(row["timestamp"]),
-                    project=row["project"],
                 )
                 logs.append(log)
 
             return logs
 
-    def get_summary(self, project: Optional[str] = None) -> dict:
+    def get_summary(self) -> dict:
         """Get summary statistics of issues.
-
-        Args:
-            project: Optional project name to filter by.
 
         Returns:
             Dictionary with issue statistics including counts by status and priority.
@@ -566,30 +522,27 @@ class IssueRepository:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
-            where_clause = "WHERE project = ?" if project else ""
-            params = [project] if project else []
-
             # Get total count
-            query = f"SELECT COUNT(*) as count FROM issues {where_clause}"
-            cursor.execute(query, params)
+            query = "SELECT COUNT(*) as count FROM issues"
+            cursor.execute(query)
             total_count = cursor.fetchone()["count"]
 
             # Get count by status
-            query = f"""
+            query = """
                 SELECT status, COUNT(*) as count
-                FROM issues {where_clause}
+                FROM issues
                 GROUP BY status
             """
-            cursor.execute(query, params)
+            cursor.execute(query)
             status_counts = {row["status"]: row["count"] for row in cursor.fetchall()}
 
             # Get count by priority
-            query = f"""
+            query = """
                 SELECT priority, COUNT(*) as count
-                FROM issues {where_clause}
+                FROM issues
                 GROUP BY priority
             """
-            cursor.execute(query, params)
+            cursor.execute(query)
             priority_counts = {row["priority"]: row["count"] for row in cursor.fetchall()}
 
             # Calculate percentages
@@ -606,7 +559,6 @@ class IssueRepository:
                     priority_percentages[priority] = round((count / total_count) * 100, 1)
 
             return {
-                "project": project,
                 "total_issues": total_count,
                 "by_status": {
                     "open": status_counts.get("open", 0),
@@ -623,11 +575,10 @@ class IssueRepository:
                 "priority_percentages": priority_percentages,
             }
 
-    def get_report(self, project: Optional[str] = None, group_by: str = "status") -> dict:
+    def get_report(self, group_by: str = "status") -> dict:
         """Get detailed report of issues grouped by status or priority.
 
         Args:
-            project: Optional project name to filter by.
             group_by: Group issues by 'status' or 'priority' (default: 'status').
 
         Returns:
@@ -636,8 +587,8 @@ class IssueRepository:
         if group_by not in ["status", "priority"]:
             raise ValueError("group_by must be 'status' or 'priority'")
 
-        # Get all issues filtered by project
-        issues = self.list_issues(project=project)
+        # Get all issues
+        issues = self.list_issues()
 
         # Group issues
         if group_by == "status":
@@ -661,7 +612,6 @@ class IssueRepository:
 
         # Convert to dict format
         result = {
-            "project": project,
             "group_by": group_by,
             "total_issues": len(issues),
             "groups": {},
@@ -687,7 +637,6 @@ class IssueRepository:
         return Issue(
             id=row["id"],
             title=row["title"],
-            project=row["project"],
             description=row["description"],
             priority=Priority.from_string(row["priority"]),
             status=Status.from_string(row["status"]),

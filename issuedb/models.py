@@ -59,7 +59,6 @@ class Issue:
 
     id: Optional[int] = field(default=None)
     title: str = field(default="")
-    project: str = field(default="")
     description: Optional[str] = field(default=None)
     priority: Priority = field(default=Priority.MEDIUM)
     status: Status = field(default=Status.OPEN)
@@ -71,7 +70,6 @@ class Issue:
         return {
             "id": self.id,
             "title": self.title,
-            "project": self.project,
             "description": self.description,
             "priority": self.priority.value,
             "status": self.status.value,
@@ -85,7 +83,6 @@ class Issue:
         issue = cls()
         issue.id = data.get("id")
         issue.title = data.get("title", "")
-        issue.project = data.get("project", "")
         issue.description = data.get("description")
 
         if "priority" in data:
@@ -120,7 +117,6 @@ class AuditLog:
     old_value: Optional[str] = field(default=None)
     new_value: Optional[str] = field(default=None)
     timestamp: datetime = field(default_factory=datetime.now)
-    project: str = field(default="")
 
     def to_dict(self) -> dict:
         """Convert audit log to dictionary for JSON serialization."""
@@ -132,5 +128,4 @@ class AuditLog:
             "old_value": self.old_value,
             "new_value": self.new_value,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
-            "project": self.project,
         }

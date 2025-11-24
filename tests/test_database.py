@@ -45,7 +45,7 @@ class TestDatabase:
     def test_default_path(self):
         """Test that default path is used when not specified."""
         db = Database()
-        expected_path = Path.home() / ".issuedb" / "issuedb.sqlite"
+        expected_path = Path(".issue.db")
         assert db.db_path == expected_path
 
     def test_indexes_created(self, temp_db_path):
@@ -53,13 +53,10 @@ class TestDatabase:
         db = Database(temp_db_path)
 
         expected_indexes = [
-            "idx_issues_project",
             "idx_issues_status",
             "idx_issues_priority",
-            "idx_issues_project_status",
             "idx_issues_created_at",
             "idx_audit_logs_issue_id",
-            "idx_audit_logs_project",
             "idx_audit_logs_timestamp",
         ]
 
@@ -92,14 +89,14 @@ class TestDatabase:
         with db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO issues (title, project) VALUES (?, ?)",
-                ("Test", "Project"),
+                "INSERT INTO issues (title) VALUES (?)",
+                ("Test",),
             )
 
         # Try to insert with error (violating NOT NULL constraint)
         with pytest.raises(sqlite3.IntegrityError), db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO issues (title) VALUES (?)", ("Test2",))
+            cursor.execute("INSERT INTO issues (title) VALUES (NULL)")
 
         # Check that first insert was committed
         with db.get_connection() as conn:
@@ -115,12 +112,12 @@ class TestDatabase:
         with db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO issues (title, project) VALUES (?, ?)",
-                ("Test", "Project"),
+                "INSERT INTO issues (title) VALUES (?)",
+                ("Test",),
             )
             cursor.execute(
-                "INSERT INTO audit_logs (issue_id, action, project) VALUES (?, ?, ?)",
-                (1, "CREATE", "Project"),
+                "INSERT INTO audit_logs (issue_id, action) VALUES (?, ?)",
+                (1, "CREATE"),
             )
 
         # Try to clear without confirmation
@@ -146,16 +143,16 @@ class TestDatabase:
         with db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO issues (title, project) VALUES (?, ?)",
-                ("Test1", "ProjectA"),
+                "INSERT INTO issues (title) VALUES (?)",
+                ("Test1",),
             )
             cursor.execute(
-                "INSERT INTO issues (title, project) VALUES (?, ?)",
-                ("Test2", "ProjectB"),
+                "INSERT INTO issues (title) VALUES (?)",
+                ("Test2",),
             )
             cursor.execute(
-                "INSERT INTO audit_logs (issue_id, action, project) VALUES (?, ?, ?)",
-                (1, "CREATE", "ProjectA"),
+                "INSERT INTO audit_logs (issue_id, action) VALUES (?, ?)",
+                (1, "CREATE"),
             )
 
         info = db.get_database_info()
@@ -163,7 +160,6 @@ class TestDatabase:
         assert info["database_path"] == str(temp_db_path)
         assert info["issue_count"] == 2
         assert info["audit_log_count"] == 1
-        assert info["project_count"] == 2
         assert info["database_size_bytes"] > 0
 
 

@@ -1,12 +1,12 @@
 # IssueDB
 
-A command-line issue tracking system for software development projects. IssueDB provides a simple yet concrete way to manage issues, bugs, and tasks directly from your terminal.
+A command-line issue tracking system for software development projects. IssueDB provides a simple yet concrete way to manage issues, bugs, and tasks directly from your terminal with a **per-directory database model** - each directory gets its own issue database.
 
 ## Features
 
+- **Per-Directory Databases**: Each directory has its own `issuedb.sqlite` - your issues live where your code lives
 - **Simple Issue Management**: Create, update, delete, and list issues
 - **Bulk Operations**: Update multiple issues at once with filters
-- **Project-based Organization**: Group issues by project
 - **Priority Levels**: Categorize issues as low, medium, high, or critical
 - **Status Tracking**: Track issues through open, in-progress, and closed states
 - **FIFO Queue Management**: Get the next issue to work on based on priority and creation date
@@ -16,8 +16,51 @@ A command-line issue tracking system for software development projects. IssueDB 
 - **JSON Output**: Machine-readable output for scripting and automation
 - **LLM Agent Integration**: Built-in prompt for programmatic usage
 - **Natural Language Interface**: Ollama integration for conversational issue management
-- **Local Storage**: SQLite database stored locally with no external dependencies
+- **Local Storage**: SQLite database with no external dependencies
 - **Zero Dependencies**: Uses only Python standard library
+
+## Per-Directory Project Model
+
+IssueDB v2.0 uses a **per-directory model** where each directory has its own `issuedb.sqlite` database:
+
+```
+my-workspace/
+├── frontend/
+│   ├── src/
+│   ├── issuedb.sqlite      # Frontend issues
+│   └── README.md
+├── backend/
+│   ├── api/
+│   ├── issuedb.sqlite      # Backend issues
+│   └── README.md
+└── docs/
+    ├── guides/
+    └── issuedb.sqlite          # Documentation issues
+```
+
+### Benefits
+
+- **Better isolation**: Each project/directory has its own independent database
+- **Simpler mental model**: Your issues are where your code is
+- **Easier backup**: Just backup the directory to preserve all issues
+- **Natural organization**: Filesystem directories already organize projects
+- **Git-friendly**: Database file can be .gitignored or committed per project needs
+
+### Working with Multiple Projects
+
+```bash
+# Work on frontend issues
+cd ~/workspace/frontend
+issuedb-cli create -t "Fix navbar bug"
+issuedb-cli list
+
+# Switch to backend issues
+cd ~/workspace/backend
+issuedb-cli create -t "Add authentication"
+issuedb-cli list
+
+# Each directory maintains its own issues
+```
 
 ## Installation
 
@@ -40,7 +83,8 @@ pip install -e .
 ### Create your first issue
 
 ```bash
-issuedb-cli create --title "Fix login bug" --project MyApp --description "Users cannot log in with special characters" --priority high
+cd ~/my-project
+issuedb-cli create --title "Fix login bug" --description "Users cannot log in with special characters" --priority high
 ```
 
 ### List all open issues
@@ -52,17 +96,17 @@ issuedb-cli list --status open
 ### Get the next issue to work on
 
 ```bash
-issuedb-cli get-next --project MyApp
+issuedb-cli get-next
 ```
 
 ## Usage
 
 ### Creating Issues
 
-Create a new issue with required title and project:
+Create a new issue:
 
 ```bash
-issuedb-cli create -t "Add user authentication" -p WebApp
+issuedb-cli create -t "Add user authentication"
 ```
 
 With additional details:
@@ -70,7 +114,6 @@ With additional details:
 ```bash
 issuedb-cli create \
   --title "Implement OAuth2" \
-  --project WebApp \
   --description "Add Google and GitHub OAuth providers" \
   --priority high \
   --status open
@@ -78,16 +121,10 @@ issuedb-cli create \
 
 ### Listing Issues
 
-List all issues:
+List all issues in current directory:
 
 ```bash
 issuedb-cli list
-```
-
-Filter by project:
-
-```bash
-issuedb-cli list --project WebApp
 ```
 
 Filter by status and priority:
@@ -127,6 +164,20 @@ issuedb-cli update 42 \
   --status in-progress
 ```
 
+### Bulk Updates
+
+Close all open issues:
+
+```bash
+issuedb-cli bulk-update --filter-status open -s closed
+```
+
+Set all critical issues to high priority:
+
+```bash
+issuedb-cli bulk-update --filter-priority critical --priority high
+```
+
 ### Deleting Issues
 
 Delete an issue (with audit trail preserved):
@@ -143,10 +194,10 @@ Get the highest priority oldest issue:
 issuedb-cli get-next
 ```
 
-For a specific project:
+With status filter:
 
 ```bash
-issuedb-cli get-next --project WebApp
+issuedb-cli get-next --status open
 ```
 
 ### Searching Issues
@@ -154,15 +205,21 @@ issuedb-cli get-next --project WebApp
 Search by keyword:
 
 ```bash
-issuedb-cli search --keyword "login" --project WebApp
+issuedb-cli search --keyword "login"
 ```
 
-### Clearing Project Issues
-
-Clear all issues for a project (requires confirmation):
+With limit:
 
 ```bash
-issuedb-cli clear --project OldProject --confirm
+issuedb-cli search -k "bug" -l 5
+```
+
+### Clearing All Issues
+
+Clear all issues in current directory (requires confirmation):
+
+```bash
+issuedb-cli clear --confirm
 ```
 
 ### Viewing Audit Logs
@@ -173,10 +230,10 @@ View all changes for an issue:
 issuedb-cli audit --issue 42
 ```
 
-View all changes in a project:
+View all audit logs:
 
 ```bash
-issuedb-cli audit --project WebApp
+issuedb-cli audit
 ```
 
 ### Database Information
@@ -189,16 +246,10 @@ issuedb-cli info
 
 ### Summary Statistics
 
-Get aggregate statistics of all issues:
+Get aggregate statistics:
 
 ```bash
 issuedb-cli summary
-```
-
-Get summary for a specific project:
-
-```bash
-issuedb-cli summary --project MyApp
 ```
 
 Summary shows:
@@ -215,10 +266,10 @@ Get a detailed report grouped by status:
 issuedb-cli report
 ```
 
-Get report for a specific project grouped by priority:
+Get report grouped by priority:
 
 ```bash
-issuedb-cli report --project Backend --group-by priority
+issuedb-cli report --group-by priority
 ```
 
 Reports include:
@@ -231,7 +282,7 @@ Reports include:
 All commands support JSON output for scripting and automation:
 
 ```bash
-issuedb-cli list --project WebApp --json | jq '.[].title'
+issuedb-cli list --json | jq '.[].title'
 ```
 
 ```bash
@@ -250,7 +301,7 @@ issuedb-cli get-next --json | jq '.id'
 - `delete` - Delete an issue
 - `get-next` - Get the next issue to work on
 - `search` - Search issues by keyword
-- `clear` - Clear all issues for a project
+- `clear` - Clear all issues in current directory
 - `audit` - View audit logs
 - `info` - Get database information
 - `summary` - Get summary statistics of issues
@@ -258,7 +309,7 @@ issuedb-cli get-next --json | jq '.id'
 
 ### Global Options
 
-- `--db PATH` - Use a custom database file (default: ~/.issuedb/issuedb.sqlite)
+- `--db PATH` - Use a custom database file (default: ./issuedb.sqlite)
 - `--json` - Output results in JSON format
 - `--prompt` - Display LLM agent guide for automated usage
 - `--ollama REQUEST` - Generate and execute command from natural language via Ollama
@@ -284,13 +335,16 @@ issuedb-cli get-next --json | jq '.id'
 ### Example Workflow
 
 ```bash
-# Create a new project's issues
-issuedb-cli create -t "Setup CI/CD pipeline" -p DevOps --priority high
-issuedb-cli create -t "Add unit tests" -p DevOps --priority medium
-issuedb-cli create -t "Update documentation" -p DevOps --priority low
+# Navigate to your project
+cd ~/my-project
+
+# Create some issues
+issuedb-cli create -t "Setup CI/CD pipeline" --priority high
+issuedb-cli create -t "Add unit tests" --priority medium
+issuedb-cli create -t "Update documentation" --priority low
 
 # Get the next issue to work on
-issuedb-cli get-next -p DevOps
+issuedb-cli get-next
 
 # Start working on it
 issuedb-cli update 1 --status in-progress
@@ -299,7 +353,23 @@ issuedb-cli update 1 --status in-progress
 issuedb-cli update 1 --status closed
 
 # Check remaining open issues
-issuedb-cli list -p DevOps --status open
+issuedb-cli list --status open
+```
+
+### Multi-Project Workflow
+
+```bash
+# Work on frontend
+cd ~/projects/frontend
+issuedb-cli create -t "Fix navbar styling"
+issuedb-cli list
+
+# Work on backend
+cd ~/projects/backend
+issuedb-cli create -t "Add authentication endpoint"
+issuedb-cli list
+
+# Each project maintains its own issues
 ```
 
 ### Integration with Scripts
@@ -307,7 +377,8 @@ issuedb-cli list -p DevOps --status open
 ```bash
 #!/bin/bash
 # Get next issue ID and mark it as in-progress
-ISSUE_ID=$(issuedb-cli get-next --project MyApp --json | jq -r '.id')
+cd ~/my-project
+ISSUE_ID=$(issuedb-cli get-next --json | jq -r '.id')
 if [ "$ISSUE_ID" != "null" ]; then
     echo "Working on issue $ISSUE_ID"
     issuedb-cli update $ISSUE_ID --status in-progress
@@ -321,19 +392,21 @@ IssueDB is designed to be easily used by LLM agents:
 ```python
 import subprocess
 import json
+import os
 
-def get_next_issue(project):
+def get_next_issue(project_dir):
+    os.chdir(project_dir)
     result = subprocess.run(
-        ["issuedb-cli", "get-next", "--project", project, "--json"],
+        ["issuedb-cli", "get-next", "--json"],
         capture_output=True,
         text=True
     )
     return json.loads(result.stdout) if result.returncode == 0 else None
 
-def create_issue(title, project, description=None, priority="medium"):
+def create_issue(project_dir, title, description=None, priority="medium"):
+    os.chdir(project_dir)
     cmd = ["issuedb-cli", "create",
            "--title", title,
-           "--project", project,
            "--priority", priority,
            "--json"]
     if description:
@@ -362,15 +435,17 @@ Example LLM agent workflow:
 ```python
 import subprocess
 import json
+import os
 
 # Get the agent prompt to include in your LLM context
 prompt = subprocess.run(["issuedb-cli", "--prompt"], capture_output=True, text=True).stdout
 
 # Your LLM can now generate direct issuedb-cli commands
 # Example: User says "Create a high priority bug for login issues"
-# LLM outputs: issuedb-cli create -t "Fix login bug" -p MyApp --priority high
+# LLM outputs: issuedb-cli create -t "Fix login bug" --priority high
 
-# Execute the command
+# Execute the command in the correct directory
+os.chdir("~/my-project")
 result = subprocess.run(llm_generated_command.split(), capture_output=True, text=True)
 ```
 
@@ -386,13 +461,13 @@ IssueDB can integrate directly with Ollama for natural language command generati
 
 ```bash
 # Use natural language to create issues
-issuedb-cli --ollama "we have many junk files in the highway project and we need to fix it fast"
+issuedb-cli --ollama "we have many junk files and we need to fix it fast"
 
 # Get the next task to work on
-issuedb-cli --ollama "what should I work on next for the backend project?"
+issuedb-cli --ollama "what should I work on next?"
 
 # Search for issues
-issuedb-cli --ollama "find all critical bugs in the frontend"
+issuedb-cli --ollama "find all critical bugs"
 
 # Update issues
 issuedb-cli --ollama "mark issue 42 as completed"
@@ -414,7 +489,8 @@ ollama serve
 
 2. Use issuedb-cli with natural language:
 ```bash
-issuedb-cli --ollama "create a critical bug for login failures in the auth service"
+cd ~/my-project
+issuedb-cli --ollama "create a critical bug for login failures"
 ```
 
 #### Configuration
@@ -452,13 +528,21 @@ The integration uses only Python standard library (urllib), keeping the package 
 
 ## Database
 
-IssueDB uses a local SQLite database stored at `~/.issuedb/issuedb.sqlite`. The database includes:
+IssueDB uses a local SQLite database stored at `./issuedb.sqlite` in the current directory. The database includes:
 
 - **issues** table - Stores all issue data
 - **audit_logs** table - Immutable audit trail of all changes
 - Comprehensive indexes for optimal query performance
 
-The database is automatically created on first use.
+The database is automatically created on first use in each directory.
+
+### Custom Database Location
+
+You can specify a custom database path:
+
+```bash
+issuedb-cli --db ~/custom/location/issues.db create -t "Test"
+```
 
 ## Testing
 
@@ -480,7 +564,7 @@ pytest --cov=issuedb
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/issuedb
+git clone https://github.com/rodmena-limited/issue-queue
 cd issuedb
 
 # Create virtual environment
@@ -538,6 +622,5 @@ For issues, questions, or suggestions, please open an issue on GitHub.
 - [ ] Tags/labels support
 - [ ] Due dates
 - [ ] Issue relationships (blocks, depends on)
-- [ ] Statistics and reporting
 - [ ] Web UI (optional)
 - [ ] Backup and restore utilities
