@@ -6,7 +6,7 @@ A command-line issue tracking system for software development projects. IssueDB 
 
 - **Per-Directory Databases**: Each directory has its own `issuedb.sqlite` - your issues live where your code lives
 - **Simple Issue Management**: Create, update, delete, and list issues
-- **Bulk Operations**: Update multiple issues at once with filters
+- **Bulk Operations**: Update multiple issues at once with filters, or create/update/close multiple issues from JSON
 - **Priority Levels**: Categorize issues as low, medium, high, or critical
 - **Status Tracking**: Track issues through open, in-progress, and closed states
 - **FIFO Queue Management**: Get the next issue to work on based on priority and creation date
@@ -178,12 +178,74 @@ Set all critical issues to high priority:
 issuedb-cli bulk-update --filter-priority critical --priority high
 ```
 
+### Bulk Operations (JSON)
+
+Create multiple issues at once:
+
+```bash
+# From stdin
+echo '[
+  {"title": "Issue 1", "priority": "high", "description": "First issue"},
+  {"title": "Issue 2", "priority": "medium"},
+  {"title": "Issue 3"}
+]' | issuedb-cli --json bulk-create
+
+# From file
+issuedb-cli --json bulk-create -f issues.json
+
+# Inline data
+issuedb-cli --json bulk-create -d '[{"title": "Quick issue", "priority": "low"}]'
+```
+
+Update multiple specific issues:
+
+```bash
+# Update different fields on different issues
+echo '[
+  {"id": 1, "status": "closed", "description": "Completed"},
+  {"id": 2, "priority": "high", "title": "Updated title"},
+  {"id": 3, "status": "in-progress"}
+]' | issuedb-cli --json bulk-update-json
+```
+
+Close multiple issues by ID:
+
+```bash
+# Close issues 1, 2, 3, and 5
+echo '[1, 2, 3, 5]' | issuedb-cli --json bulk-close
+
+# Or from file
+issuedb-cli --json bulk-close -f issue_ids.json
+```
+
 ### Deleting Issues
 
 Delete an issue (with audit trail preserved):
 
 ```bash
 issuedb-cli delete 42
+```
+
+### Comments
+
+Add comments to issues to track notes, resolutions, or updates:
+
+```bash
+# Add a comment to an issue
+issuedb-cli comment 42 -t "Fixed by updating the configuration file"
+
+# List all comments on an issue
+issuedb-cli list-comments 42
+issuedb-cli --json list-comments 42
+
+# Delete a comment
+issuedb-cli delete-comment 5
+```
+
+Common use case - close an issue with a comment:
+
+```bash
+issuedb-cli update 42 -s closed && issuedb-cli comment 42 -t "Resolved: Updated dependencies to v2.0"
 ```
 
 ### Getting Next Issue

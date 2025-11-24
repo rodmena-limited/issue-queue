@@ -165,7 +165,7 @@ class CLI:
             raise ValueError(f"Issue {issue_id} not found")
         return self.format_output(issue, as_json)
 
-    def update_issue(self, issue_id: int, as_json: bool = False, **updates) -> str:
+    def update_issue(self, issue_id: int, as_json: bool = False, **updates: Any) -> str:
         """Update an issue.
 
         Args:
@@ -377,6 +377,173 @@ class CLI:
         report = self.repo.get_report(group_by=group_by)
         return self.format_output(report, as_json)
 
+    def bulk_create(self, json_input: str, as_json: bool = False) -> str:
+        """Bulk create issues from JSON input.
+
+        Args:
+            json_input: JSON string or file path containing list of issue data.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+
+        Raises:
+            ValueError: If JSON is invalid or issues cannot be created.
+        """
+        # Parse JSON input
+        try:
+            issues_data = json.loads(json_input)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON input: {e}") from e
+
+        if not isinstance(issues_data, list):
+            raise ValueError("JSON input must be a list of issue objects")
+
+        # Create issues
+        created_issues = self.repo.bulk_create_issues(issues_data)
+
+        result = {
+            "message": f"Created {len(created_issues)} issue(s)",
+            "count": len(created_issues),
+            "issues": [issue.to_dict() for issue in created_issues],
+        }
+        return self.format_output(result, as_json)
+
+    def bulk_update_json(self, json_input: str, as_json: bool = False) -> str:
+        """Bulk update issues from JSON input.
+
+        Args:
+            json_input: JSON string or file path containing list of update data.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+
+        Raises:
+            ValueError: If JSON is invalid or issues cannot be updated.
+        """
+        # Parse JSON input
+        try:
+            updates_data = json.loads(json_input)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON input: {e}") from e
+
+        if not isinstance(updates_data, list):
+            raise ValueError("JSON input must be a list of update objects with 'id' field")
+
+        # Update issues
+        updated_issues = self.repo.bulk_update_issues_from_json(updates_data)
+
+        result = {
+            "message": f"Updated {len(updated_issues)} issue(s)",
+            "count": len(updated_issues),
+            "issues": [issue.to_dict() for issue in updated_issues],
+        }
+        return self.format_output(result, as_json)
+
+    def bulk_close(self, json_input: str, as_json: bool = False) -> str:
+        """Bulk close issues from JSON input containing issue IDs.
+
+        Args:
+            json_input: JSON string or file path containing list of issue IDs.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+
+        Raises:
+            ValueError: If JSON is invalid or issues cannot be closed.
+        """
+        # Parse JSON input
+        try:
+            issue_ids = json.loads(json_input)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON input: {e}") from e
+
+        if not isinstance(issue_ids, list):
+            raise ValueError("JSON input must be a list of issue IDs")
+
+        # Validate all are integers
+        if not all(isinstance(id, int) for id in issue_ids):
+            raise ValueError("All issue IDs must be integers")
+
+        # Close issues
+        closed_issues = self.repo.bulk_close_issues(issue_ids)
+
+        result = {
+            "message": f"Closed {len(closed_issues)} issue(s)",
+            "count": len(closed_issues),
+            "issues": [issue.to_dict() for issue in closed_issues],
+        }
+        return self.format_output(result, as_json)
+
+    def add_comment(self, issue_id: int, text: str, as_json: bool = False) -> str:
+        """Add a comment to an issue.
+
+        Args:
+            issue_id: Issue ID.
+            text: Comment text.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+
+        Raises:
+            ValueError: If issue not found or text is empty.
+        """
+        comment = self.repo.add_comment(issue_id, text)
+
+        if as_json:
+            return json.dumps(comment.to_dict(), indent=2)
+        else:
+            return f"Comment added to issue {issue_id}"
+
+    def list_comments(self, issue_id: int, as_json: bool = False) -> str:
+        """List all comments for an issue.
+
+        Args:
+            issue_id: Issue ID.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        comments = self.repo.get_comments(issue_id)
+
+        if as_json:
+            return json.dumps([c.to_dict() for c in comments], indent=2)
+        else:
+            if not comments:
+                return f"No comments found for issue {issue_id}."
+
+            lines = []
+            for comment in comments:
+                lines.append("-" * 50)
+                lines.append(f"Comment ID: {comment.id}")
+                lines.append(f"Created: {comment.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+                lines.append(f"Text: {comment.text}")
+
+            return "\n".join(lines)
+
+    def delete_comment(self, comment_id: int, as_json: bool = False) -> str:
+        """Delete a comment.
+
+        Args:
+            comment_id: Comment ID.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+
+        Raises:
+            ValueError: If comment not found.
+        """
+        if not self.repo.delete_comment(comment_id):
+            raise ValueError(f"Comment {comment_id} not found")
+
+        result = {"message": f"Comment {comment_id} deleted successfully"}
+        return self.format_output(result, as_json)
+
 
 def main() -> None:
     """Main entry point for the CLI."""
@@ -541,6 +708,66 @@ def main() -> None:
         help="Group issues by status or priority (default: status)",
     )
 
+    # Bulk-create command
+    bulk_create_parser = subparsers.add_parser(
+        "bulk-create", help="Bulk create issues from JSON input"
+    )
+    bulk_create_parser.add_argument(
+        "-f",
+        "--file",
+        help="JSON file path (if not provided, reads from stdin)",
+    )
+    bulk_create_parser.add_argument(
+        "-d",
+        "--data",
+        help="JSON data as string",
+    )
+
+    # Bulk-update-json command
+    bulk_update_json_parser = subparsers.add_parser(
+        "bulk-update-json", help="Bulk update issues from JSON input"
+    )
+    bulk_update_json_parser.add_argument(
+        "-f",
+        "--file",
+        help="JSON file path (if not provided, reads from stdin)",
+    )
+    bulk_update_json_parser.add_argument(
+        "-d",
+        "--data",
+        help="JSON data as string",
+    )
+
+    # Bulk-close command
+    bulk_close_parser = subparsers.add_parser(
+        "bulk-close", help="Bulk close issues from JSON input (list of issue IDs)"
+    )
+    bulk_close_parser.add_argument(
+        "-f",
+        "--file",
+        help="JSON file path (if not provided, reads from stdin)",
+    )
+    bulk_close_parser.add_argument(
+        "-d",
+        "--data",
+        help="JSON data as string",
+    )
+
+    # Comment command
+    comment_parser = subparsers.add_parser("comment", help="Add a comment to an issue")
+    comment_parser.add_argument("issue_id", type=int, help="Issue ID")
+    comment_parser.add_argument("-t", "--text", required=True, help="Comment text")
+
+    # List-comments command
+    list_comments_parser = subparsers.add_parser(
+        "list-comments", help="List all comments for an issue"
+    )
+    list_comments_parser.add_argument("issue_id", type=int, help="Issue ID")
+
+    # Delete-comment command
+    delete_comment_parser = subparsers.add_parser("delete-comment", help="Delete a comment")
+    delete_comment_parser.add_argument("comment_id", type=int, help="Comment ID")
+
     args = parser.parse_args()
 
     # Handle --prompt flag
@@ -680,6 +907,63 @@ def main() -> None:
 
         elif args.command == "report":
             result = cli.get_report(group_by=args.group_by, as_json=args.json)
+            print(result)
+
+        elif args.command == "bulk-create":
+            # Get JSON input from file, data arg, or stdin
+            json_input = None
+            if args.data:
+                json_input = args.data
+            elif args.file:
+                with open(args.file) as f:
+                    json_input = f.read()
+            else:
+                # Read from stdin
+                json_input = sys.stdin.read()
+
+            result = cli.bulk_create(json_input, as_json=args.json)
+            print(result)
+
+        elif args.command == "bulk-update-json":
+            # Get JSON input from file, data arg, or stdin
+            json_input = None
+            if args.data:
+                json_input = args.data
+            elif args.file:
+                with open(args.file) as f:
+                    json_input = f.read()
+            else:
+                # Read from stdin
+                json_input = sys.stdin.read()
+
+            result = cli.bulk_update_json(json_input, as_json=args.json)
+            print(result)
+
+        elif args.command == "bulk-close":
+            # Get JSON input from file, data arg, or stdin
+            json_input = None
+            if args.data:
+                json_input = args.data
+            elif args.file:
+                with open(args.file) as f:
+                    json_input = f.read()
+            else:
+                # Read from stdin
+                json_input = sys.stdin.read()
+
+            result = cli.bulk_close(json_input, as_json=args.json)
+            print(result)
+
+        elif args.command == "comment":
+            result = cli.add_comment(args.issue_id, args.text, as_json=args.json)
+            print(result)
+
+        elif args.command == "list-comments":
+            result = cli.list_comments(args.issue_id, as_json=args.json)
+            print(result)
+
+        elif args.command == "delete-comment":
+            result = cli.delete_comment(args.comment_id, as_json=args.json)
             print(result)
 
     except Exception as e:

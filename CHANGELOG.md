@@ -5,6 +5,66 @@ All notable changes to IssueDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2025-11-24
+
+### Added
+- **Comment System**: Add, view, and delete comments on issues
+  - `comment` command: Add a comment to an issue
+  - `list-comments` command: View all comments on an issue
+  - `delete-comment` command: Remove a comment
+  - Comments support JSON output for automation
+  - Useful for tracking resolution notes, updates, or explanations when closing issues
+  - Example: `issuedb-cli comment 5 -t "Fixed by updating config"`
+  - Comments cascade delete with issues
+
+### Changed
+- Database schema updated with `comments` table
+- Added Comment model to data models
+- Enhanced LLM agent prompt with comment examples
+- Updated README with comment usage documentation
+
+### Technical Details
+- Comments table with foreign key to issues (CASCADE on delete)
+- Indexed by issue_id and created_at for performance
+- Repository methods: `add_comment()`, `get_comments()`, `delete_comment()`
+- Full type hints and mypy compliance
+- 19 new tests for comment functionality (now 115 total tests)
+
+### Fixed
+- Eliminated all Python 3.12+ datetime deprecation warnings (207 warnings → 0)
+  - Now explicitly convert datetime objects to ISO format strings for SQLite
+
+## [2.1.0] - 2025-11-24
+
+### Added
+- **Bulk Create Command** (`bulk-create`): Create multiple issues at once from JSON input
+  - Supports JSON input via stdin, `-f` file, or `-d` inline data
+  - Full transaction support - all issues created atomically or none
+  - Audit logging with `BULK_CREATE` action for each issue
+  - Example: `echo '[{"title": "Issue 1", "priority": "high"}, {"title": "Issue 2"}]' | issuedb-cli --json bulk-create`
+
+- **Bulk Update JSON Command** (`bulk-update-json`): Update multiple specific issues from JSON
+  - Update any fields on specific issues by ID
+  - Each update object requires `id` field plus fields to update
+  - Full audit logging for each field change
+  - Example: `echo '[{"id": 1, "status": "closed"}, {"id": 2, "priority": "high"}]' | issuedb-cli --json bulk-update-json`
+
+- **Bulk Close Command** (`bulk-close`): Close multiple issues by their IDs
+  - Simple array of issue IDs to close
+  - Full audit logging for status changes
+  - Example: `echo '[1, 2, 3, 4, 5]' | issuedb-cli --json bulk-close`
+
+### Changed
+- Updated LLM agent prompt (PROMPT.txt) with documentation for all bulk operations
+- Enhanced test suite with 15 new tests for bulk operations (now 96 total tests)
+- Added comprehensive type hints for all bulk operation methods
+
+### Technical Details
+- All bulk operations are transactional - either all succeed or all fail with rollback
+- Repository layer methods: `bulk_create_issues()`, `bulk_update_issues_from_json()`, `bulk_close_issues()`
+- Full mypy type checking compliance
+- 100% test coverage for bulk operations
+
 ## [2.0.0] - 2025-11-24
 
 ### BREAKING CHANGES

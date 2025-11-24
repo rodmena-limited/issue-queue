@@ -59,6 +59,17 @@ class Database:
                 )
             """)
 
+            # Create comments table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS comments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    issue_id INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE
+                )
+            """)
+
             # Create indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_issues_status
@@ -85,6 +96,16 @@ class Database:
                 ON audit_logs(timestamp)
             """)
 
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_comments_issue_id
+                ON comments(issue_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_comments_created_at
+                ON comments(created_at)
+            """)
+
             conn.commit()
 
     @contextmanager
@@ -99,6 +120,7 @@ class Database:
         """
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row  # Enable column access by name
+        conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
         try:
             yield conn
             conn.commit()

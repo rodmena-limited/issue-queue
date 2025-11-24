@@ -247,3 +247,164 @@ class TestCLI:
         json_output = cli.format_output(issue, as_json=True)
         data = json.loads(json_output)
         assert data["id"] == 1
+
+    def test_bulk_create(self, cli):
+        """Test bulk creating issues from JSON."""
+        json_input = json.dumps(
+            [
+                {
+                    "title": "Issue 1",
+                    "description": "Description 1",
+                    "priority": "high",
+                },
+                {"title": "Issue 2", "priority": "critical", "status": "in-progress"},
+                {"title": "Issue 3"},
+            ]
+        )
+
+        output = cli.bulk_create(json_input)
+        assert "Created 3 issue(s)" in output
+
+        # Verify issues were created
+        all_issues = cli.list_issues(as_json=True)
+        data = json.loads(all_issues)
+        assert len(data) == 3
+
+        # Test JSON output
+        json_output = cli.bulk_create(
+            json.dumps([{"title": "Issue 4"}]), as_json=True
+        )
+        result = json.loads(json_output)
+        assert result["count"] == 1
+        assert len(result["issues"]) == 1
+
+    def test_bulk_create_invalid_json(self, cli):
+        """Test bulk create with invalid JSON."""
+        with pytest.raises(ValueError, match="Invalid JSON"):
+            cli.bulk_create("not valid json")
+
+    def test_bulk_create_not_list(self, cli):
+        """Test bulk create with JSON that is not a list."""
+        with pytest.raises(ValueError, match="must be a list"):
+            cli.bulk_create(json.dumps({"title": "Single issue"}))
+
+    def test_bulk_create_missing_title(self, cli):
+        """Test bulk create with missing title."""
+        json_input = json.dumps([{"title": "Issue 1"}, {"description": "No title"}])
+
+        with pytest.raises(ValueError, match="Title is required"):
+            cli.bulk_create(json_input)
+
+    def test_bulk_update_json(self, cli):
+        """Test bulk updating issues from JSON."""
+        # Create test issues
+        cli.create_issue("Issue 1", priority="low")
+        cli.create_issue("Issue 2", status="open")
+        cli.create_issue("Issue 3")
+
+        # Get their IDs
+        all_issues = json.loads(cli.list_issues(as_json=True))
+        ids = [issue["id"] for issue in all_issues]
+
+        # Prepare updates
+        updates_json = json.dumps(
+            [
+                {"id": ids[0], "priority": "high", "status": "in-progress"},
+                {"id": ids[1], "title": "Updated Issue 2"},
+                {"id": ids[2], "status": "closed"},
+            ]
+        )
+
+        output = cli.bulk_update_json(updates_json)
+        assert "Updated 3 issue(s)" in output
+
+        # Verify updates
+        updated = json.loads(cli.get_issue(ids[0], as_json=True))
+        assert updated["priority"] == "high"
+        assert updated["status"] == "in-progress"
+
+        # Test JSON output
+        json_output = cli.bulk_update_json(updates_json, as_json=True)
+        result = json.loads(json_output)
+        assert result["count"] == 3
+
+    def test_bulk_update_json_invalid_json(self, cli):
+        """Test bulk update with invalid JSON."""
+        with pytest.raises(ValueError, match="Invalid JSON"):
+            cli.bulk_update_json("not valid json")
+
+    def test_bulk_update_json_not_list(self, cli):
+        """Test bulk update with JSON that is not a list."""
+        with pytest.raises(ValueError, match="must be a list"):
+            cli.bulk_update_json(json.dumps({"id": 1, "status": "closed"}))
+
+    def test_bulk_update_json_missing_id(self, cli):
+        """Test bulk update with missing id."""
+        cli.create_issue("Issue 1")
+
+        updates_json = json.dumps([{"status": "closed"}])  # Missing id
+
+        with pytest.raises(ValueError, match="Issue ID is required"):
+            cli.bulk_update_json(updates_json)
+
+    def test_bulk_update_json_not_found(self, cli):
+        """Test bulk update with non-existent issue."""
+        updates_json = json.dumps([{"id": 999, "status": "closed"}])
+
+        with pytest.raises(ValueError, match="Issue 999 not found"):
+            cli.bulk_update_json(updates_json)
+
+    def test_bulk_close(self, cli):
+        """Test bulk closing issues."""
+        # Create test issues
+        cli.create_issue("Issue 1")
+        cli.create_issue("Issue 2")
+        cli.create_issue("Issue 3")
+
+        # Get their IDs
+        all_issues = json.loads(cli.list_issues(as_json=True))
+        ids = [issue["id"] for issue in all_issues]
+
+        # Bulk close
+        json_input = json.dumps(ids)
+        output = cli.bulk_close(json_input)
+        assert "Closed 3 issue(s)" in output
+
+        # Verify all are closed
+        for issue_id in ids:
+            issue = json.loads(cli.get_issue(issue_id, as_json=True))
+            assert issue["status"] == "closed"
+
+        # Test JSON output
+        cli.create_issue("Issue 4")
+        all_issues = json.loads(cli.list_issues(as_json=True))
+        new_ids = [issue["id"] for issue in all_issues if issue["status"] != "closed"]
+
+        json_output = cli.bulk_close(json.dumps(new_ids), as_json=True)
+        result = json.loads(json_output)
+        assert result["count"] == len(new_ids)
+
+    def test_bulk_close_invalid_json(self, cli):
+        """Test bulk close with invalid JSON."""
+        with pytest.raises(ValueError, match="Invalid JSON"):
+            cli.bulk_close("not valid json")
+
+    def test_bulk_close_not_list(self, cli):
+        """Test bulk close with JSON that is not a list."""
+        with pytest.raises(ValueError, match="must be a list"):
+            cli.bulk_close(json.dumps(123))
+
+    def test_bulk_close_not_integers(self, cli):
+        """Test bulk close with non-integer IDs."""
+        with pytest.raises(ValueError, match="must be integers"):
+            cli.bulk_close(json.dumps(["not", "integers"]))
+
+    def test_bulk_close_not_found(self, cli):
+        """Test bulk close with non-existent issue."""
+        with pytest.raises(ValueError, match="Issue 999 not found"):
+            cli.bulk_close(json.dumps([999]))
+
+    def test_bulk_close_empty_list(self, cli):
+        """Test bulk close with empty list."""
+        output = cli.bulk_close(json.dumps([]))
+        assert "Closed 0 issue(s)" in output

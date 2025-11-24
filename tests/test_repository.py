@@ -428,3 +428,159 @@ class TestIssueRepository:
 
         with pytest.raises(ValueError, match="group_by must be"):
             repo.get_report(group_by="invalid")
+
+    def test_bulk_create_issues(self, repo):
+        """Test bulk creating multiple issues from JSON data."""
+        issues_data = [
+            {
+                "title": "Issue 1",
+                "description": "Description 1",
+                "priority": "high",
+                "status": "open",
+            },
+            {
+                "title": "Issue 2",
+                "description": "Description 2",
+                "priority": "critical",
+                "status": "in-progress",
+            },
+            {"title": "Issue 3", "priority": "low"},
+        ]
+
+        created_issues = repo.bulk_create_issues(issues_data)
+
+        assert len(created_issues) == 3
+        assert created_issues[0].title == "Issue 1"
+        assert created_issues[0].priority == Priority.HIGH
+        assert created_issues[1].title == "Issue 2"
+        assert created_issues[1].status == Status.IN_PROGRESS
+        assert created_issues[2].title == "Issue 3"
+        assert created_issues[2].priority == Priority.LOW
+
+        # Verify all issues are in database
+        all_issues = repo.list_issues()
+        assert len(all_issues) == 3
+
+        # Check audit logs
+        logs = repo.get_audit_logs(issue_id=created_issues[0].id)
+        assert len(logs) == 1
+        assert logs[0].action == "BULK_CREATE"
+
+    def test_bulk_create_issues_missing_title(self, repo):
+        """Test bulk create fails if any issue is missing title."""
+        issues_data = [
+            {"title": "Issue 1", "priority": "high"},
+            {"description": "Missing title"},  # No title
+        ]
+
+        with pytest.raises(ValueError, match="Title is required"):
+            repo.bulk_create_issues(issues_data)
+
+        # Verify no issues were created (transaction rollback)
+        all_issues = repo.list_issues()
+        assert len(all_issues) == 0
+
+    def test_bulk_update_issues_from_json(self, repo):
+        """Test bulk updating specific issues from JSON data."""
+        # Create issues first
+        issue1 = repo.create_issue(Issue(title="Issue 1", priority=Priority.LOW))
+        issue2 = repo.create_issue(Issue(title="Issue 2", status=Status.OPEN))
+        issue3 = repo.create_issue(Issue(title="Issue 3"))
+
+        # Prepare updates
+        updates_data = [
+            {"id": issue1.id, "priority": "high", "status": "in-progress"},
+            {"id": issue2.id, "title": "Updated Issue 2"},
+            {"id": issue3.id, "status": "closed"},
+        ]
+
+        updated_issues = repo.bulk_update_issues_from_json(updates_data)
+
+        assert len(updated_issues) == 3
+        assert updated_issues[0].id == issue1.id
+        assert updated_issues[0].priority == Priority.HIGH
+        assert updated_issues[0].status == Status.IN_PROGRESS
+        assert updated_issues[1].title == "Updated Issue 2"
+        assert updated_issues[2].status == Status.CLOSED
+
+        # Verify updates in database
+        retrieved1 = repo.get_issue(issue1.id)
+        assert retrieved1.priority == Priority.HIGH
+
+    def test_bulk_update_issues_from_json_missing_id(self, repo):
+        """Test bulk update fails if any update is missing id."""
+        issue1 = repo.create_issue(Issue(title="Issue 1"))
+
+        updates_data = [
+            {"id": issue1.id, "status": "closed"},
+            {"title": "No ID"},  # Missing id
+        ]
+
+        with pytest.raises(ValueError, match="Issue ID is required"):
+            repo.bulk_update_issues_from_json(updates_data)
+
+    def test_bulk_update_issues_from_json_not_found(self, repo):
+        """Test bulk update fails if any issue not found."""
+        issue1 = repo.create_issue(Issue(title="Issue 1"))
+
+        updates_data = [
+            {"id": issue1.id, "status": "closed"},
+            {"id": 999, "status": "closed"},  # Non-existent ID
+        ]
+
+        with pytest.raises(ValueError, match="Issue 999 not found"):
+            repo.bulk_update_issues_from_json(updates_data)
+
+    def test_bulk_update_issues_from_json_no_fields(self, repo):
+        """Test bulk update fails if no update fields provided."""
+        issue1 = repo.create_issue(Issue(title="Issue 1"))
+
+        updates_data = [
+            {"id": issue1.id},  # Only ID, no updates
+        ]
+
+        with pytest.raises(ValueError, match="No update fields provided"):
+            repo.bulk_update_issues_from_json(updates_data)
+
+    def test_bulk_close_issues(self, repo):
+        """Test bulk closing multiple issues."""
+        # Create issues with different statuses
+        issue1 = repo.create_issue(Issue(title="Issue 1", status=Status.OPEN))
+        issue2 = repo.create_issue(
+            Issue(title="Issue 2", status=Status.IN_PROGRESS)
+        )
+        issue3 = repo.create_issue(Issue(title="Issue 3", status=Status.OPEN))
+
+        # Bulk close specific issues
+        issue_ids = [issue1.id, issue2.id, issue3.id]
+        closed_issues = repo.bulk_close_issues(issue_ids)
+
+        assert len(closed_issues) == 3
+        assert all(issue.status == Status.CLOSED for issue in closed_issues)
+
+        # Verify in database
+        retrieved1 = repo.get_issue(issue1.id)
+        retrieved2 = repo.get_issue(issue2.id)
+        retrieved3 = repo.get_issue(issue3.id)
+        assert retrieved1.status == Status.CLOSED
+        assert retrieved2.status == Status.CLOSED
+        assert retrieved3.status == Status.CLOSED
+
+        # Check audit logs
+        logs = repo.get_audit_logs(issue_id=issue1.id)
+        update_logs = [log for log in logs if log.action == "UPDATE"]
+        assert len(update_logs) > 0
+
+    def test_bulk_close_issues_not_found(self, repo):
+        """Test bulk close fails if any issue not found."""
+        issue1 = repo.create_issue(Issue(title="Issue 1"))
+
+        issue_ids = [issue1.id, 999]  # 999 doesn't exist
+
+        with pytest.raises(ValueError, match="Issue 999 not found"):
+            repo.bulk_close_issues(issue_ids)
+
+    def test_bulk_close_issues_empty_list(self, repo):
+        """Test bulk close with empty list."""
+        closed_issues = repo.bulk_close_issues([])
+        assert len(closed_issues) == 0

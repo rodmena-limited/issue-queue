@@ -107,6 +107,25 @@ class Issue:
 
 
 @dataclass
+class Comment:
+    """Represents a comment on an issue."""
+
+    id: Optional[int] = field(default=None)
+    issue_id: int = field(default=0)
+    text: str = field(default="")
+    created_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> dict:
+        """Convert comment to dictionary for JSON serialization."""
+        return {
+            "id": self.id,
+            "issue_id": self.issue_id,
+            "text": self.text,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+@dataclass
 class AuditLog:
     """Represents an audit log entry for tracking changes."""
 

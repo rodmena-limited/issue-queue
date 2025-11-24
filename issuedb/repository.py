@@ -2,10 +2,10 @@
 
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from issuedb.database import get_database
-from issuedb.models import AuditLog, Issue, Priority, Status
+from issuedb.models import AuditLog, Comment, Issue, Priority, Status
 
 
 class IssueRepository:
@@ -21,7 +21,7 @@ class IssueRepository:
 
     def _log_audit(
         self,
-        conn,
+        conn: Any,
         issue_id: int,
         action: str,
         field_name: Optional[str] = None,
@@ -75,12 +75,13 @@ class IssueRepository:
                     issue.description,
                     issue.priority.value,
                     issue.status.value,
-                    issue.created_at,
-                    issue.updated_at,
+                    issue.created_at.isoformat(),
+                    issue.updated_at.isoformat(),
                 ),
             )
 
             issue.id = cursor.lastrowid
+            assert issue.id is not None  # Guaranteed by successful insert
 
             # Log creation in audit log
             self._log_audit(
@@ -117,7 +118,7 @@ class IssueRepository:
                 return self._row_to_issue(row)
             return None
 
-    def update_issue(self, issue_id: int, **updates) -> Optional[Issue]:
+    def update_issue(self, issue_id: int, **updates: Any) -> Optional[Issue]:
         """Update an issue.
 
         Args:
@@ -137,9 +138,9 @@ class IssueRepository:
 
         # Validate and prepare updates
         allowed_fields = {"title", "description", "priority", "status"}
-        update_fields = []
-        update_values = []
-        audit_entries = []
+        update_fields: List[str] = []
+        update_values: List[Any] = []
+        audit_entries: List[tuple[str, str, str]] = []
 
         for field, value in updates.items():
             if field not in allowed_fields:
@@ -166,7 +167,7 @@ class IssueRepository:
 
         # Always update the updated_at timestamp
         update_fields.append("updated_at = ?")
-        update_values.append(datetime.now())
+        update_values.append(datetime.now().isoformat())
 
         # Add issue_id for WHERE clause
         update_values.append(issue_id)
@@ -178,6 +179,7 @@ class IssueRepository:
 
             # Log each field change in audit log
             for field, old_val, new_val in audit_entries:
+                assert issue_id is not None  # Already validated above
                 self._log_audit(
                     conn,
                     issue_id,
@@ -210,8 +212,8 @@ class IssueRepository:
         Raises:
             ValueError: If invalid field names or values are provided.
         """
-        update_fields = []
-        update_values = []
+        update_fields: List[str] = []
+        update_values: List[Any] = []
 
         # Prepare updates
         if new_status:
@@ -229,7 +231,7 @@ class IssueRepository:
 
         # Always update the updated_at timestamp
         update_fields.append("updated_at = ?")
-        update_values.append(datetime.now())
+        update_values.append(datetime.now().isoformat())
 
         # Build WHERE clause for filters
         where_conditions = []
@@ -262,6 +264,7 @@ class IssueRepository:
 
             # Log audit entries for each affected issue
             for issue in affected_issues:
+                assert issue.id is not None  # Issues from DB always have ID
                 if new_status:
                     old_value = issue.status.value
                     new_value = Status.from_string(new_status).value
@@ -339,7 +342,7 @@ class IssueRepository:
             List of matching issues.
         """
         query = "SELECT * FROM issues WHERE 1=1"
-        params = []
+        params: List[Any] = []
 
         if status:
             Status.from_string(status)  # Validate status
@@ -431,7 +434,7 @@ class IssueRepository:
             SELECT * FROM issues
             WHERE (title LIKE ? OR description LIKE ?)
         """
-        params = [f"%{keyword}%", f"%{keyword}%"]
+        params: List[Any] = [f"%{keyword}%", f"%{keyword}%"]
 
         query += " ORDER BY created_at DESC"
 
@@ -460,6 +463,7 @@ class IssueRepository:
 
             # Log deletion for each issue
             for issue in issues:
+                assert issue.id is not None  # Issues from DB always have ID
                 self._log_audit(
                     conn,
                     issue.id,
@@ -591,6 +595,7 @@ class IssueRepository:
         issues = self.list_issues()
 
         # Group issues
+        grouped: Dict[str, List[Issue]]
         if group_by == "status":
             grouped = {
                 "open": [],
@@ -611,7 +616,7 @@ class IssueRepository:
                 grouped[issue.priority.value].append(issue)
 
         # Convert to dict format
-        result = {
+        result: Dict[str, Any] = {
             "group_by": group_by,
             "total_issues": len(issues),
             "groups": {},
@@ -625,7 +630,218 @@ class IssueRepository:
 
         return result
 
-    def _row_to_issue(self, row) -> Issue:
+    def bulk_create_issues(self, issues_data: List[dict]) -> List[Issue]:
+        """Bulk create multiple issues from JSON data.
+
+        Args:
+            issues_data: List of dictionaries containing issue data.
+
+        Returns:
+            List of created Issue objects.
+
+        Raises:
+            ValueError: If any issue data is invalid.
+        """
+        created_issues = []
+
+        with self.db.get_connection() as conn:
+            for issue_data in issues_data:
+                # Validate required fields
+                if "title" not in issue_data or not issue_data["title"]:
+                    raise ValueError(f"Title is required for all issues: {issue_data}")
+
+                # Create Issue object from dict
+                issue = Issue.from_dict(issue_data)
+
+                # Insert into database
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO issues (title, description, priority, status,
+                                       created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        issue.title,
+                        issue.description,
+                        issue.priority.value,
+                        issue.status.value,
+                        issue.created_at.isoformat(),
+                        issue.updated_at.isoformat(),
+                    ),
+                )
+
+                issue.id = cursor.lastrowid
+                assert issue.id is not None  # Guaranteed by successful insert
+
+                # Log creation in audit log
+                self._log_audit(
+                    conn,
+                    issue.id,
+                    "BULK_CREATE",
+                    None,
+                    None,
+                    json.dumps(issue.to_dict()),
+                )
+
+                created_issues.append(issue)
+
+        return created_issues
+
+    def bulk_update_issues_from_json(self, updates_data: List[dict]) -> List[Issue]:
+        """Bulk update multiple specific issues from JSON data.
+
+        Args:
+            updates_data: List of dictionaries with 'id' and fields to update.
+
+        Returns:
+            List of updated Issue objects.
+
+        Raises:
+            ValueError: If any update data is invalid or issue not found.
+        """
+        updated_issues = []
+
+        for update_data in updates_data:
+            # Validate required id field
+            if "id" not in update_data:
+                raise ValueError(f"Issue ID is required for all updates: {update_data}")
+
+            issue_id = update_data["id"]
+
+            # Extract update fields (exclude id)
+            updates = {k: v for k, v in update_data.items() if k != "id"}
+
+            if not updates:
+                raise ValueError(f"No update fields provided for issue {issue_id}")
+
+            # Update the issue
+            updated_issue = self.update_issue(issue_id, **updates)
+
+            if not updated_issue:
+                raise ValueError(f"Issue {issue_id} not found")
+
+            updated_issues.append(updated_issue)
+
+        return updated_issues
+
+    def bulk_close_issues(self, issue_ids: List[int]) -> List[Issue]:
+        """Bulk close multiple issues by their IDs.
+
+        Args:
+            issue_ids: List of issue IDs to close.
+
+        Returns:
+            List of closed Issue objects.
+
+        Raises:
+            ValueError: If any issue not found.
+        """
+        closed_issues = []
+
+        for issue_id in issue_ids:
+            # Update status to closed
+            updated_issue = self.update_issue(issue_id, status="closed")
+
+            if not updated_issue:
+                raise ValueError(f"Issue {issue_id} not found")
+
+            closed_issues.append(updated_issue)
+
+        return closed_issues
+
+    def add_comment(self, issue_id: int, text: str) -> Comment:
+        """Add a comment to an issue.
+
+        Args:
+            issue_id: ID of the issue to comment on.
+            text: Comment text.
+
+        Returns:
+            Created Comment object.
+
+        Raises:
+            ValueError: If issue not found or text is empty.
+        """
+        if not text or not text.strip():
+            raise ValueError("Comment text cannot be empty")
+
+        # Verify issue exists
+        issue = self.get_issue(issue_id)
+        if not issue:
+            raise ValueError(f"Issue {issue_id} not found")
+
+        comment = Comment(
+            issue_id=issue_id,
+            text=text.strip(),
+        )
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO comments (issue_id, text, created_at)
+                VALUES (?, ?, ?)
+            """,
+                (
+                    comment.issue_id,
+                    comment.text,
+                    comment.created_at.isoformat(),
+                ),
+            )
+
+            comment.id = cursor.lastrowid
+
+        return comment
+
+    def get_comments(self, issue_id: int) -> List[Comment]:
+        """Get all comments for an issue.
+
+        Args:
+            issue_id: ID of the issue.
+
+        Returns:
+            List of Comment objects, ordered by creation time.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM comments
+                WHERE issue_id = ?
+                ORDER BY created_at ASC
+            """,
+                (issue_id,),
+            )
+            rows = cursor.fetchall()
+
+            comments = []
+            for row in rows:
+                comment = Comment(
+                    id=row["id"],
+                    issue_id=row["issue_id"],
+                    text=row["text"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+                comments.append(comment)
+
+            return comments
+
+    def delete_comment(self, comment_id: int) -> bool:
+        """Delete a comment.
+
+        Args:
+            comment_id: ID of the comment to delete.
+
+        Returns:
+            True if comment was deleted, False if not found.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+            return cursor.rowcount > 0
+
+    def _row_to_issue(self, row: Any) -> Issue:
         """Convert a database row to an Issue object.
 
         Args:

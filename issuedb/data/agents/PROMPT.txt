@@ -38,8 +38,51 @@ issuedb-cli bulk-update [--filter-status STATUS] [--filter-priority PRIORITY] [-
   - Close all open issues: issuedb-cli bulk-update --filter-status open -s closed
   - Set all critical issues to high priority: issuedb-cli bulk-update --filter-priority critical --priority high
 
+### Bulk Create Issues (JSON)
+echo 'JSON_ARRAY' | issuedb-cli bulk-create
+issuedb-cli bulk-create -d 'JSON_ARRAY'
+issuedb-cli bulk-create -f /path/to/file.json
+- Create multiple issues at once from JSON array
+- JSON format: [{"title": "Title", "description": "Desc", "priority": "high", "status": "open"}, ...]
+- Only "title" is required for each issue
+- Can pipe JSON from stdin, use -d for inline data, or -f for file
+- Example: echo '[{"title": "Issue 1", "priority": "high"}, {"title": "Issue 2"}]' | issuedb-cli --json bulk-create
+
+### Bulk Update Issues (JSON)
+echo 'JSON_ARRAY' | issuedb-cli bulk-update-json
+issuedb-cli bulk-update-json -d 'JSON_ARRAY'
+issuedb-cli bulk-update-json -f /path/to/file.json
+- Update multiple specific issues at once from JSON array
+- JSON format: [{"id": 1, "status": "closed", "priority": "low"}, {"id": 2, "title": "New Title"}, ...]
+- Each object must have "id" field plus fields to update
+- Can pipe JSON from stdin, use -d for inline data, or -f for file
+- Example: echo '[{"id": 1, "status": "closed"}, {"id": 2, "priority": "high"}]' | issuedb-cli --json bulk-update-json
+
+### Bulk Close Issues (JSON)
+echo 'JSON_ARRAY' | issuedb-cli bulk-close
+issuedb-cli bulk-close -d 'JSON_ARRAY'
+issuedb-cli bulk-close -f /path/to/file.json
+- Close multiple issues at once by their IDs
+- JSON format: [1, 2, 3, 4, 5]
+- Array of issue IDs to close
+- Can pipe JSON from stdin, use -d for inline data, or -f for file
+- Example: echo '[1, 2, 3]' | issuedb-cli --json bulk-close
+
 ### Delete Issue
 issuedb-cli delete ID
+
+### Comments
+issuedb-cli comment ISSUE_ID -t "COMMENT_TEXT"
+- Add a comment to an issue
+- Useful when closing issues to explain resolution
+- Example: issuedb-cli comment 5 -t "Fixed by updating config"
+
+issuedb-cli list-comments ISSUE_ID
+issuedb-cli --json list-comments ISSUE_ID
+- List all comments for an issue
+
+issuedb-cli delete-comment COMMENT_ID
+- Delete a specific comment
 
 ### Get Next Issue (FIFO by Priority)
 issuedb-cli get-next [-s STATUS]
@@ -122,6 +165,27 @@ Response: issuedb-cli --json report --group-by priority
 
 User: "Show detailed report"
 Response: issuedb-cli --json report
+
+User: "Create 3 issues from this JSON: [{'title': 'Issue 1', 'priority': 'high'}, {'title': 'Issue 2'}, {'title': 'Issue 3', 'status': 'open'}]"
+Response: echo '[{"title": "Issue 1", "priority": "high"}, {"title": "Issue 2"}, {"title": "Issue 3", "status": "open"}]' | issuedb-cli --json bulk-create
+
+User: "Update issues 1, 2, and 3 - set issue 1 to closed, issue 2 priority to high, issue 3 title to 'Updated'"
+Response: echo '[{"id": 1, "status": "closed"}, {"id": 2, "priority": "high"}, {"id": 3, "title": "Updated"}]' | issuedb-cli --json bulk-update-json
+
+User: "Close issues with IDs 5, 7, 9, 12"
+Response: echo '[5, 7, 9, 12]' | issuedb-cli --json bulk-close
+
+User: "Add a comment to issue 5 saying it was fixed"
+Response: issuedb-cli comment 5 -t "Issue has been fixed"
+
+User: "Close issue 10 and add a comment explaining why"
+Response: issuedb-cli update 10 -s closed && issuedb-cli comment 10 -t "Resolved by implementing requested feature"
+
+User: "Show me all comments on issue 3"
+Response: issuedb-cli --json list-comments 3
+
+User: "Delete comment 7"
+Response: issuedb-cli delete-comment 7
 
 ## QUOTING RULES
 - Use double quotes for titles, descriptions, and any text with spaces
