@@ -5,14 +5,19 @@ A command-line issue tracking system for software development projects. IssueDB 
 ## Features
 
 - **Simple Issue Management**: Create, update, delete, and list issues
+- **Bulk Operations**: Update multiple issues at once with filters
 - **Project-based Organization**: Group issues by project
 - **Priority Levels**: Categorize issues as low, medium, high, or critical
 - **Status Tracking**: Track issues through open, in-progress, and closed states
 - **FIFO Queue Management**: Get the next issue to work on based on priority and creation date
 - **Full-text Search**: Search issues by keyword in title and description
+- **Summary & Reports**: Aggregate statistics and detailed breakdowns by status/priority
 - **Audit Logging**: Complete immutable history of all changes
 - **JSON Output**: Machine-readable output for scripting and automation
+- **LLM Agent Integration**: Built-in prompt for programmatic usage
+- **Natural Language Interface**: Ollama integration for conversational issue management
 - **Local Storage**: SQLite database stored locally with no external dependencies
+- **Zero Dependencies**: Uses only Python standard library
 
 ## Installation
 
@@ -182,6 +187,45 @@ Get database statistics:
 issuedb-cli info
 ```
 
+### Summary Statistics
+
+Get aggregate statistics of all issues:
+
+```bash
+issuedb-cli summary
+```
+
+Get summary for a specific project:
+
+```bash
+issuedb-cli summary --project MyApp
+```
+
+Summary shows:
+- Total issue count
+- Count by status (open, in-progress, closed)
+- Count by priority (low, medium, high, critical)
+- Percentage breakdowns
+
+### Detailed Report
+
+Get a detailed report grouped by status:
+
+```bash
+issuedb-cli report
+```
+
+Get report for a specific project grouped by priority:
+
+```bash
+issuedb-cli report --project Backend --group-by priority
+```
+
+Reports include:
+- Full issue details grouped by status or priority
+- Count for each group
+- Total issues
+
 ## JSON Output
 
 All commands support JSON output for scripting and automation:
@@ -202,17 +246,25 @@ issuedb-cli get-next --json | jq '.id'
 - `list` - List issues with optional filters
 - `get` - Get details of a specific issue
 - `update` - Update issue fields
+- `bulk-update` - Bulk update multiple issues
 - `delete` - Delete an issue
 - `get-next` - Get the next issue to work on
 - `search` - Search issues by keyword
 - `clear` - Clear all issues for a project
 - `audit` - View audit logs
 - `info` - Get database information
+- `summary` - Get summary statistics of issues
+- `report` - Get detailed report of issues grouped by status or priority
 
 ### Global Options
 
 - `--db PATH` - Use a custom database file (default: ~/.issuedb/issuedb.sqlite)
 - `--json` - Output results in JSON format
+- `--prompt` - Display LLM agent guide for automated usage
+- `--ollama REQUEST` - Generate and execute command from natural language via Ollama
+- `--ollama-model MODEL` - Ollama model to use (default: llama3)
+- `--ollama-host HOST` - Ollama server host (default: localhost)
+- `--ollama-port PORT` - Ollama server port (default: 11434)
 
 ### Priority Levels
 
@@ -291,6 +343,113 @@ def create_issue(title, project, description=None, priority="medium"):
     return json.loads(result.stdout) if result.returncode == 0 else None
 ```
 
+### Advanced LLM Agent Integration
+
+IssueDB provides a specialized prompt optimized for LLM agents to use the CLI directly:
+
+```bash
+# Get the LLM agent guide
+issuedb-cli --prompt
+```
+
+This outputs a comprehensive guide that instructs LLM agents to:
+- Output **only executable shell commands** (no markdown, no explanations)
+- Use proper syntax and quoting
+- Leverage JSON output for machine parsing
+- Follow FIFO priority-based workflows
+
+Example LLM agent workflow:
+```python
+import subprocess
+import json
+
+# Get the agent prompt to include in your LLM context
+prompt = subprocess.run(["issuedb-cli", "--prompt"], capture_output=True, text=True).stdout
+
+# Your LLM can now generate direct issuedb-cli commands
+# Example: User says "Create a high priority bug for login issues"
+# LLM outputs: issuedb-cli create -t "Fix login bug" -p MyApp --priority high
+
+# Execute the command
+result = subprocess.run(llm_generated_command.split(), capture_output=True, text=True)
+```
+
+The prompt ensures LLM agents generate commands that are:
+- **Directly executable** without post-processing
+- **Properly quoted** for shell safety
+- **Machine-readable** when using --json flag
+- **Priority-aware** for optimal workflow
+
+### Natural Language Interface with Ollama
+
+IssueDB can integrate directly with Ollama for natural language command generation:
+
+```bash
+# Use natural language to create issues
+issuedb-cli --ollama "we have many junk files in the highway project and we need to fix it fast"
+
+# Get the next task to work on
+issuedb-cli --ollama "what should I work on next for the backend project?"
+
+# Search for issues
+issuedb-cli --ollama "find all critical bugs in the frontend"
+
+# Update issues
+issuedb-cli --ollama "mark issue 42 as completed"
+```
+
+#### Setup
+
+1. Install and start Ollama:
+```bash
+# Install Ollama
+curl https://ollama.ai/install.sh | sh
+
+# Pull a model (e.g., llama3, mistral, codellama)
+ollama pull llama3
+
+# Start Ollama server
+ollama serve
+```
+
+2. Use issuedb-cli with natural language:
+```bash
+issuedb-cli --ollama "create a critical bug for login failures in the auth service"
+```
+
+#### Configuration
+
+Configure Ollama connection via command-line flags or environment variables:
+
+```bash
+# Command-line flags
+issuedb-cli --ollama "your request" \
+  --ollama-model mistral \
+  --ollama-host localhost \
+  --ollama-port 11434
+
+# Environment variables
+export OLLAMA_HOST=localhost
+export OLLAMA_PORT=11434
+export OLLAMA_MODEL=llama3
+
+issuedb-cli --ollama "your request"
+```
+
+Default values:
+- **Model**: `llama3` (or from `OLLAMA_MODEL` env)
+- **Host**: `localhost` (or from `OLLAMA_HOST` env)
+- **Port**: `11434` (or from `OLLAMA_PORT` env)
+
+#### How It Works
+
+1. Ollama receives your natural language request
+2. The agent prompt guides the LLM to generate a valid issuedb-cli command
+3. The command is automatically validated and executed
+4. Results are displayed in your terminal
+
+The integration uses only Python standard library (urllib), keeping the package dependency-free.
+
 ## Database
 
 IssueDB uses a local SQLite database stored at `~/.issuedb/issuedb.sqlite`. The database includes:
@@ -358,7 +517,7 @@ pytest -v
 
 ## License
 
-MIT License - See LICENSE file for details
+Apache License 2.0 - See LICENSE file for details
 
 ## Contributing
 

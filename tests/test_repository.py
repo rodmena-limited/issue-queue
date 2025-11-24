@@ -276,3 +276,237 @@ class TestIssueRepository:
         repo.create_issue(Issue(title="Other", project="OtherProject"))
         other_logs = repo.get_audit_logs(project="OtherProject")
         assert len(other_logs) == 1
+
+    def test_bulk_update_all_issues(self, repo):
+        """Test bulk updating all issues."""
+        # Create multiple issues
+        issue1 = repo.create_issue(
+            Issue(title="Issue 1", project="ProjectA", status=Status.OPEN)
+        )
+        issue2 = repo.create_issue(
+            Issue(title="Issue 2", project="ProjectB", status=Status.OPEN)
+        )
+        issue3 = repo.create_issue(
+            Issue(title="Issue 3", project="ProjectA", status=Status.IN_PROGRESS)
+        )
+
+        # Bulk update all to closed
+        count = repo.bulk_update_issues(new_status="closed")
+        assert count == 3
+
+        # Verify all are closed
+        updated1 = repo.get_issue(issue1.id)
+        updated2 = repo.get_issue(issue2.id)
+        updated3 = repo.get_issue(issue3.id)
+        assert updated1.status == Status.CLOSED
+        assert updated2.status == Status.CLOSED
+        assert updated3.status == Status.CLOSED
+
+        # Check audit logs
+        logs1 = repo.get_audit_logs(issue_id=issue1.id)
+        assert any(log.action == "BULK_UPDATE" for log in logs1)
+
+    def test_bulk_update_by_project(self, repo):
+        """Test bulk updating issues in a specific project."""
+        # Create issues in different projects
+        issue1 = repo.create_issue(
+            Issue(title="Issue 1", project="ProjectA", status=Status.OPEN)
+        )
+        issue2 = repo.create_issue(
+            Issue(title="Issue 2", project="ProjectB", status=Status.OPEN)
+        )
+        issue3 = repo.create_issue(
+            Issue(title="Issue 3", project="ProjectA", status=Status.OPEN)
+        )
+
+        # Bulk update only ProjectA
+        count = repo.bulk_update_issues(filter_project="ProjectA", new_status="closed")
+        assert count == 2
+
+        # Verify only ProjectA issues are closed
+        updated1 = repo.get_issue(issue1.id)
+        updated2 = repo.get_issue(issue2.id)
+        updated3 = repo.get_issue(issue3.id)
+        assert updated1.status == Status.CLOSED
+        assert updated2.status == Status.OPEN  # Not updated
+        assert updated3.status == Status.CLOSED
+
+    def test_bulk_update_by_status_filter(self, repo):
+        """Test bulk updating issues with specific status."""
+        # Create issues with different statuses
+        issue1 = repo.create_issue(
+            Issue(title="Issue 1", project="ProjectA", status=Status.OPEN)
+        )
+        issue2 = repo.create_issue(
+            Issue(title="Issue 2", project="ProjectA", status=Status.IN_PROGRESS)
+        )
+        issue3 = repo.create_issue(
+            Issue(title="Issue 3", project="ProjectA", status=Status.OPEN)
+        )
+
+        # Bulk update only open issues
+        count = repo.bulk_update_issues(
+            filter_status="open", filter_project="ProjectA", new_status="in-progress"
+        )
+        assert count == 2
+
+        # Verify only open issues were updated
+        updated1 = repo.get_issue(issue1.id)
+        updated2 = repo.get_issue(issue2.id)
+        updated3 = repo.get_issue(issue3.id)
+        assert updated1.status == Status.IN_PROGRESS
+        assert updated2.status == Status.IN_PROGRESS  # Already in-progress
+        assert updated3.status == Status.IN_PROGRESS
+
+    def test_bulk_update_by_priority_filter(self, repo):
+        """Test bulk updating issues with specific priority."""
+        # Create issues with different priorities
+        issue1 = repo.create_issue(
+            Issue(title="Issue 1", project="ProjectA", priority=Priority.HIGH)
+        )
+        issue2 = repo.create_issue(
+            Issue(title="Issue 2", project="ProjectA", priority=Priority.CRITICAL)
+        )
+        issue3 = repo.create_issue(
+            Issue(title="Issue 3", project="ProjectA", priority=Priority.HIGH)
+        )
+
+        # Bulk update only high priority issues
+        count = repo.bulk_update_issues(filter_priority="high", new_priority="medium")
+        assert count == 2
+
+        # Verify only high priority issues were updated
+        updated1 = repo.get_issue(issue1.id)
+        updated2 = repo.get_issue(issue2.id)
+        updated3 = repo.get_issue(issue3.id)
+        assert updated1.priority == Priority.MEDIUM
+        assert updated2.priority == Priority.CRITICAL  # Not updated
+        assert updated3.priority == Priority.MEDIUM
+
+    def test_bulk_update_no_matches(self, repo):
+        """Test bulk update with no matching issues."""
+        # Create an issue
+        repo.create_issue(Issue(title="Issue 1", project="ProjectA", status=Status.OPEN))
+
+        # Try to update non-existent project
+        count = repo.bulk_update_issues(filter_project="ProjectB", new_status="closed")
+        assert count == 0
+
+    def test_bulk_update_no_changes(self, repo):
+        """Test bulk update with no update fields."""
+        # Create an issue
+        repo.create_issue(Issue(title="Issue 1", project="ProjectA"))
+
+        # Try to update with no fields
+        count = repo.bulk_update_issues(filter_project="ProjectA")
+        assert count == 0
+
+    def test_get_summary_all_issues(self, repo):
+        """Test getting summary of all issues."""
+        # Create issues with different statuses and priorities
+        repo.create_issue(
+            Issue(title="Issue 1", project="ProjectA", status=Status.OPEN, priority=Priority.HIGH)
+        )
+        repo.create_issue(
+            Issue(title="Issue 2", project="ProjectA", status=Status.OPEN, priority=Priority.LOW)
+        )
+        repo.create_issue(
+            Issue(
+                title="Issue 3",
+                project="ProjectB",
+                status=Status.CLOSED,
+                priority=Priority.CRITICAL,
+            )
+        )
+        repo.create_issue(
+            Issue(
+                title="Issue 4",
+                project="ProjectA",
+                status=Status.IN_PROGRESS,
+                priority=Priority.MEDIUM,
+            )
+        )
+
+        summary = repo.get_summary()
+
+        assert summary["total_issues"] == 4
+        assert summary["by_status"]["open"] == 2
+        assert summary["by_status"]["in_progress"] == 1
+        assert summary["by_status"]["closed"] == 1
+        assert summary["by_priority"]["high"] == 1
+        assert summary["by_priority"]["low"] == 1
+        assert summary["by_priority"]["critical"] == 1
+        assert summary["by_priority"]["medium"] == 1
+        assert summary["status_percentages"]["open"] == 50.0
+        assert summary["status_percentages"]["closed"] == 25.0
+
+    def test_get_summary_by_project(self, repo):
+        """Test getting summary filtered by project."""
+        # Create issues in different projects
+        repo.create_issue(
+            Issue(title="Issue 1", project="ProjectA", status=Status.OPEN)
+        )
+        repo.create_issue(
+            Issue(title="Issue 2", project="ProjectA", status=Status.CLOSED)
+        )
+        repo.create_issue(
+            Issue(title="Issue 3", project="ProjectB", status=Status.OPEN)
+        )
+
+        summary = repo.get_summary(project="ProjectA")
+
+        assert summary["project"] == "ProjectA"
+        assert summary["total_issues"] == 2
+        assert summary["by_status"]["open"] == 1
+        assert summary["by_status"]["closed"] == 1
+        assert summary["status_percentages"]["open"] == 50.0
+
+    def test_get_report_grouped_by_status(self, repo):
+        """Test getting report grouped by status."""
+        # Create issues with different statuses
+        issue1 = repo.create_issue(
+            Issue(title="Issue 1", project="ProjectA", status=Status.OPEN)
+        )
+        repo.create_issue(Issue(title="Issue 2", project="ProjectA", status=Status.CLOSED))
+        repo.create_issue(
+            Issue(title="Issue 3", project="ProjectA", status=Status.IN_PROGRESS)
+        )
+
+        report = repo.get_report(project="ProjectA", group_by="status")
+
+        assert report["total_issues"] == 3
+        assert report["group_by"] == "status"
+        assert report["groups"]["open"]["count"] == 1
+        assert report["groups"]["closed"]["count"] == 1
+        assert report["groups"]["in_progress"]["count"] == 1
+        assert len(report["groups"]["open"]["issues"]) == 1
+        assert report["groups"]["open"]["issues"][0]["id"] == issue1.id
+
+    def test_get_report_grouped_by_priority(self, repo):
+        """Test getting report grouped by priority."""
+        # Create issues with different priorities
+        repo.create_issue(
+            Issue(title="Issue 1", project="ProjectA", priority=Priority.HIGH)
+        )
+        repo.create_issue(
+            Issue(title="Issue 2", project="ProjectA", priority=Priority.CRITICAL)
+        )
+        repo.create_issue(
+            Issue(title="Issue 3", project="ProjectA", priority=Priority.HIGH)
+        )
+
+        report = repo.get_report(project="ProjectA", group_by="priority")
+
+        assert report["total_issues"] == 3
+        assert report["group_by"] == "priority"
+        assert report["groups"]["high"]["count"] == 2
+        assert report["groups"]["critical"]["count"] == 1
+        assert report["groups"]["low"]["count"] == 0
+        assert len(report["groups"]["high"]["issues"]) == 2
+
+    def test_get_report_invalid_group_by(self, repo):
+        """Test getting report with invalid group_by parameter."""
+        repo.create_issue(Issue(title="Issue 1", project="ProjectA"))
+
+        with pytest.raises(ValueError, match="group_by must be"):
+            repo.get_report(group_by="invalid")

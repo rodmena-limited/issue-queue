@@ -4,14 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "issuedb"
-version = "1.0.0"
+version = "1.1.0"
 description = "A command-line issue tracking system for software development projects"
 readme = "README.md"
-license = "MIT"
-license-files = ["LICENSE"]
-authors = [{name = "Farshid Ashouri", email = "farsheed.ashouri@gmail.com"}]
-maintainers = [{name = "Farshid Ashouri", email = "farsheed.ashouri@gmail.com"}]
 requires-python = ">=3.8"
+license = "Apache-2.0"
+authors = [
+    {name = "Farshid Ashouri", email = "farsheed.ashouri@gmail.com"}
+]
+maintainers = [
+    {name = "Farshid Ashouri", email = "farsheed.ashouri@gmail.com"}
+]
 keywords = ["issue tracking", "task management", "cli", "project management"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -34,15 +37,15 @@ classifiers = [
 issuedb-cli = "issuedb.cli:main"
 
 [project.urls]
-"Homepage" = "https://github.com/rodmena-limited/issue-queue"
+Homepage = "https://github.com/rodmena-limited/issue-queue"
+Repository = "https://github.com/rodmena-limited/issue-queue"
 "Bug Tracker" = "https://github.com/rodmena-limited/issue-queue/issues"
-"Source" = "https://github.com/rodmena-limited/issue-queue"
 
 [tool.setuptools]
-packages = ["issuedb"]
+packages = ["issuedb", "issuedb.data", "issuedb.data.agents"]
 
 [tool.setuptools.package-data]
-issuedb = ["py.typed"]
+issuedb = ["py.typed", "data/agents/PROMPT.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

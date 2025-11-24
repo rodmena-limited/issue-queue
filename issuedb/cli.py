@@ -190,6 +190,45 @@ class CLI:
             raise ValueError(f"Issue {issue_id} not found")
         return self.format_output(issue, as_json)
 
+    def bulk_update_issues(
+        self,
+        new_status: Optional[str] = None,
+        new_priority: Optional[str] = None,
+        filter_project: Optional[str] = None,
+        filter_status: Optional[str] = None,
+        filter_priority: Optional[str] = None,
+        as_json: bool = False,
+    ) -> str:
+        """Bulk update issues matching filters.
+
+        Args:
+            new_status: New status to set.
+            new_priority: New priority to set.
+            filter_project: Filter by project name.
+            filter_status: Filter by current status.
+            filter_priority: Filter by current priority.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output with count of updated issues.
+
+        Raises:
+            ValueError: If invalid parameters provided.
+        """
+        count = self.repo.bulk_update_issues(
+            new_status=new_status,
+            new_priority=new_priority,
+            filter_project=filter_project,
+            filter_status=filter_status,
+            filter_priority=filter_priority,
+        )
+
+        result = {
+            "message": f"Updated {count} issue(s)",
+            "count": count,
+        }
+        return self.format_output(result, as_json)
+
     def delete_issue(self, issue_id: int, as_json: bool = False) -> str:
         """Delete an issue.
 
@@ -325,6 +364,38 @@ class CLI:
         info = self.repo.db.get_database_info()
         return self.format_output(info, as_json)
 
+    def get_summary(self, project: Optional[str] = None, as_json: bool = False) -> str:
+        """Get summary statistics of issues.
+
+        Args:
+            project: Optional project name to filter by.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        summary = self.repo.get_summary(project=project)
+        return self.format_output(summary, as_json)
+
+    def get_report(
+        self,
+        project: Optional[str] = None,
+        group_by: str = "status",
+        as_json: bool = False,
+    ) -> str:
+        """Get detailed report of issues.
+
+        Args:
+            project: Optional project name to filter by.
+            group_by: Group by 'status' or 'priority'.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        report = self.repo.get_report(project=project, group_by=group_by)
+        return self.format_output(report, as_json)
+
 
 def main() -> None:
     """Main entry point for the CLI."""
@@ -343,6 +414,40 @@ def main() -> None:
         "--json",
         action="store_true",
         help="Output results in JSON format",
+    )
+
+    parser.add_argument(
+        "--prompt",
+        action="store_true",
+        help="Output LLM agent prompt for using issuedb-cli",
+    )
+
+    parser.add_argument(
+        "--ollama",
+        type=str,
+        metavar="REQUEST",
+        help="Natural language request to generate and execute issuedb-cli command via Ollama",
+    )
+
+    parser.add_argument(
+        "--ollama-model",
+        type=str,
+        default=None,
+        help="Ollama model to use (default: from OLLAMA_MODEL env or 'llama3')",
+    )
+
+    parser.add_argument(
+        "--ollama-host",
+        type=str,
+        default=None,
+        help="Ollama server host (default: from OLLAMA_HOST env or 'localhost')",
+    )
+
+    parser.add_argument(
+        "--ollama-port",
+        type=int,
+        default=None,
+        help="Ollama server port (default: from OLLAMA_PORT env or 11434)",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -394,6 +499,35 @@ def main() -> None:
         help="New status",
     )
 
+    # Bulk-update command
+    bulk_update_parser = subparsers.add_parser(
+        "bulk-update", help="Bulk update issues matching filters"
+    )
+    bulk_update_parser.add_argument(
+        "-p", "--project", help="Filter by project name"
+    )
+    bulk_update_parser.add_argument(
+        "--filter-status",
+        choices=["open", "in-progress", "closed"],
+        help="Filter by current status",
+    )
+    bulk_update_parser.add_argument(
+        "--filter-priority",
+        choices=["low", "medium", "high", "critical"],
+        help="Filter by current priority",
+    )
+    bulk_update_parser.add_argument(
+        "-s",
+        "--status",
+        choices=["open", "in-progress", "closed"],
+        help="New status to set",
+    )
+    bulk_update_parser.add_argument(
+        "--priority",
+        choices=["low", "medium", "high", "critical"],
+        help="New priority to set",
+    )
+
     # Delete command
     delete_parser = subparsers.add_parser("delete", help="Delete an issue")
     delete_parser.add_argument("id", type=int, help="Issue ID")
@@ -424,7 +558,62 @@ def main() -> None:
     # Info command
     subparsers.add_parser("info", help="Get database information")
 
+    # Summary command
+    summary_parser = subparsers.add_parser("summary", help="Get summary statistics of issues")
+    summary_parser.add_argument("-p", "--project", help="Filter by project")
+
+    # Report command
+    report_parser = subparsers.add_parser("report", help="Get detailed report of issues")
+    report_parser.add_argument("-p", "--project", help="Filter by project")
+    report_parser.add_argument(
+        "--group-by",
+        choices=["status", "priority"],
+        default="status",
+        help="Group issues by status or priority (default: status)",
+    )
+
     args = parser.parse_args()
+
+    # Handle --prompt flag
+    if args.prompt:
+        from pathlib import Path
+
+        # Get the prompt file path
+        package_dir = Path(__file__).parent
+        prompt_file = package_dir / "data" / "agents" / "PROMPT.txt"
+
+        if prompt_file.exists():
+            print(prompt_file.read_text())
+        else:
+            print(f"Error: Prompt file not found at {prompt_file}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+
+    # Handle --ollama flag
+    if args.ollama:
+        from pathlib import Path
+
+        from issuedb.ollama_client import handle_ollama_request
+
+        # Get the prompt file path
+        package_dir = Path(__file__).parent
+        prompt_file = package_dir / "data" / "agents" / "PROMPT.txt"
+
+        if not prompt_file.exists():
+            print(f"Error: Prompt file not found at {prompt_file}", file=sys.stderr)
+            sys.exit(1)
+
+        prompt_text = prompt_file.read_text()
+
+        # Handle Ollama request
+        exit_code = handle_ollama_request(
+            user_request=args.ollama,
+            prompt_text=prompt_text,
+            host=args.ollama_host,
+            port=args.ollama_port,
+            model=args.ollama_model,
+        )
+        sys.exit(exit_code)
 
     if not args.command:
         parser.print_help()
@@ -478,6 +667,21 @@ def main() -> None:
             result = cli.update_issue(args.id, as_json=args.json, **updates)
             print(result)
 
+        elif args.command == "bulk-update":
+            if not args.status and not args.priority:
+                print("Error: No updates specified (use -s or --priority)", file=sys.stderr)
+                sys.exit(1)
+
+            result = cli.bulk_update_issues(
+                new_status=args.status,
+                new_priority=args.priority,
+                filter_project=args.project,
+                filter_status=args.filter_status,
+                filter_priority=args.filter_priority,
+                as_json=args.json,
+            )
+            print(result)
+
         elif args.command == "delete":
             result = cli.delete_issue(args.id, as_json=args.json)
             print(result)
@@ -509,6 +713,16 @@ def main() -> None:
 
         elif args.command == "info":
             result = cli.get_info(as_json=args.json)
+            print(result)
+
+        elif args.command == "summary":
+            result = cli.get_summary(project=args.project, as_json=args.json)
+            print(result)
+
+        elif args.command == "report":
+            result = cli.get_report(
+                project=args.project, group_by=args.group_by, as_json=args.json
+            )
             print(result)
 
     except Exception as e:

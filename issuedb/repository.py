@@ -196,6 +196,114 @@ class IssueRepository:
 
         return self.get_issue(issue_id)
 
+    def bulk_update_issues(
+        self,
+        new_status: Optional[str] = None,
+        new_priority: Optional[str] = None,
+        filter_project: Optional[str] = None,
+        filter_status: Optional[str] = None,
+        filter_priority: Optional[str] = None,
+    ) -> int:
+        """Bulk update issues matching filters.
+
+        Args:
+            new_status: New status to set.
+            new_priority: New priority to set.
+            filter_project: Filter by project name.
+            filter_status: Filter by current status.
+            filter_priority: Filter by current priority.
+
+        Returns:
+            Number of issues updated.
+
+        Raises:
+            ValueError: If invalid field names or values are provided.
+        """
+        update_fields = []
+        update_values = []
+
+        # Prepare updates
+        if new_status:
+            status_value = Status.from_string(new_status).value
+            update_fields.append("status = ?")
+            update_values.append(status_value)
+
+        if new_priority:
+            priority_value = Priority.from_string(new_priority).value
+            update_fields.append("priority = ?")
+            update_values.append(priority_value)
+
+        if not update_fields:
+            return 0  # No changes
+
+        # Always update the updated_at timestamp
+        update_fields.append("updated_at = ?")
+        update_values.append(datetime.now())
+
+        # Build WHERE clause for filters
+        where_conditions = []
+        where_values = []
+        if filter_project:
+            where_conditions.append("project = ?")
+            where_values.append(filter_project)
+        if filter_status:
+            filter_status_enum = Status.from_string(filter_status)
+            where_conditions.append("status = ?")
+            where_values.append(filter_status_enum.value)
+        if filter_priority:
+            filter_priority_enum = Priority.from_string(filter_priority)
+            where_conditions.append("priority = ?")
+            where_values.append(filter_priority_enum.value)
+
+        where_clause = f" WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get affected issues for audit logging
+            select_query = f"SELECT * FROM issues{where_clause}"
+            cursor.execute(select_query, where_values)
+            affected_issues = [self._row_to_issue(row) for row in cursor.fetchall()]
+
+            if not affected_issues:
+                return 0
+
+            # Perform bulk update
+            query = f"UPDATE issues SET {', '.join(update_fields)}{where_clause}"
+            cursor.execute(query, update_values + where_values)
+
+            # Log audit entries for each affected issue
+            for issue in affected_issues:
+                if new_status:
+                    old_value = issue.status.value
+                    new_value = Status.from_string(new_status).value
+                    if old_value != new_value:
+                        self._log_audit(
+                            conn,
+                            issue.id,
+                            "BULK_UPDATE",
+                            issue.project,
+                            "status",
+                            old_value,
+                            new_value,
+                        )
+
+                if new_priority:
+                    old_value = issue.priority.value
+                    new_value = Priority.from_string(new_priority).value
+                    if old_value != new_value:
+                        self._log_audit(
+                            conn,
+                            issue.id,
+                            "BULK_UPDATE",
+                            issue.project,
+                            "priority",
+                            old_value,
+                            new_value,
+                        )
+
+            return len(affected_issues)
+
     def delete_issue(self, issue_id: int) -> bool:
         """Delete an issue.
 
@@ -445,6 +553,127 @@ class IssueRepository:
                 logs.append(log)
 
             return logs
+
+    def get_summary(self, project: Optional[str] = None) -> dict:
+        """Get summary statistics of issues.
+
+        Args:
+            project: Optional project name to filter by.
+
+        Returns:
+            Dictionary with issue statistics including counts by status and priority.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            where_clause = "WHERE project = ?" if project else ""
+            params = [project] if project else []
+
+            # Get total count
+            query = f"SELECT COUNT(*) as count FROM issues {where_clause}"
+            cursor.execute(query, params)
+            total_count = cursor.fetchone()["count"]
+
+            # Get count by status
+            query = f"""
+                SELECT status, COUNT(*) as count
+                FROM issues {where_clause}
+                GROUP BY status
+            """
+            cursor.execute(query, params)
+            status_counts = {row["status"]: row["count"] for row in cursor.fetchall()}
+
+            # Get count by priority
+            query = f"""
+                SELECT priority, COUNT(*) as count
+                FROM issues {where_clause}
+                GROUP BY priority
+            """
+            cursor.execute(query, params)
+            priority_counts = {row["priority"]: row["count"] for row in cursor.fetchall()}
+
+            # Calculate percentages
+            status_percentages = {}
+            if total_count > 0:
+                for status in ["open", "in-progress", "closed"]:
+                    count = status_counts.get(status, 0)
+                    status_percentages[status] = round((count / total_count) * 100, 1)
+
+            priority_percentages = {}
+            if total_count > 0:
+                for priority in ["low", "medium", "high", "critical"]:
+                    count = priority_counts.get(priority, 0)
+                    priority_percentages[priority] = round((count / total_count) * 100, 1)
+
+            return {
+                "project": project,
+                "total_issues": total_count,
+                "by_status": {
+                    "open": status_counts.get("open", 0),
+                    "in_progress": status_counts.get("in-progress", 0),
+                    "closed": status_counts.get("closed", 0),
+                },
+                "by_priority": {
+                    "low": priority_counts.get("low", 0),
+                    "medium": priority_counts.get("medium", 0),
+                    "high": priority_counts.get("high", 0),
+                    "critical": priority_counts.get("critical", 0),
+                },
+                "status_percentages": status_percentages,
+                "priority_percentages": priority_percentages,
+            }
+
+    def get_report(self, project: Optional[str] = None, group_by: str = "status") -> dict:
+        """Get detailed report of issues grouped by status or priority.
+
+        Args:
+            project: Optional project name to filter by.
+            group_by: Group issues by 'status' or 'priority' (default: 'status').
+
+        Returns:
+            Dictionary with grouped issue lists.
+        """
+        if group_by not in ["status", "priority"]:
+            raise ValueError("group_by must be 'status' or 'priority'")
+
+        # Get all issues filtered by project
+        issues = self.list_issues(project=project)
+
+        # Group issues
+        if group_by == "status":
+            grouped = {
+                "open": [],
+                "in_progress": [],
+                "closed": [],
+            }
+            for issue in issues:
+                key = "in_progress" if issue.status.value == "in-progress" else issue.status.value
+                grouped[key].append(issue)
+        else:  # group by priority
+            grouped = {
+                "critical": [],
+                "high": [],
+                "medium": [],
+                "low": [],
+            }
+            for issue in issues:
+                grouped[issue.priority.value].append(issue)
+
+        # Convert to dict format
+        result = {
+            "project": project,
+            "group_by": group_by,
+            "total_issues": len(issues),
+            "groups": {},
+        }
+
+        for key, issue_list in grouped.items():
+            result["groups"][key] = {
+                "count": len(issue_list),
+                "issues": [issue.to_dict() for issue in issue_list],
+            }
+
+        return result
 
     def _row_to_issue(self, row) -> Issue:
         """Convert a database row to an Issue object.
