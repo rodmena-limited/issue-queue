@@ -544,6 +544,22 @@ class CLI:
         result = {"message": f"Comment {comment_id} deleted successfully"}
         return self.format_output(result, as_json)
 
+    def get_last_fetched(self, limit: int = 1, as_json: bool = False) -> str:
+        """Get the last fetched issue(s).
+
+        Args:
+            limit: Maximum number of issues to return.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        issues = self.repo.get_last_fetched(limit=limit)
+        if not issues:
+            result = {"message": "No fetched issues found in history"}
+            return self.format_output(result, as_json)
+        return self.format_output(issues, as_json)
+
 
 def main() -> None:
     """Main entry point for the CLI."""
@@ -571,13 +587,6 @@ def main() -> None:
     )
 
     parser.add_argument(
-        "--ollama",
-        type=str,
-        metavar="REQUEST",
-        help="Natural language request to generate and execute issuedb-cli command via Ollama",
-    )
-
-    parser.add_argument(
         "--ollama-model",
         type=str,
         default=None,
@@ -596,6 +605,14 @@ def main() -> None:
         type=int,
         default=None,
         help="Ollama server port (default: from OLLAMA_PORT env or 11434)",
+    )
+
+    parser.add_argument(
+        "--ollama",
+        nargs=argparse.REMAINDER,
+        metavar="REQUEST",
+        help="Natural language request (no quotes needed). Must be last flag. "
+        "Example: issuedb-cli --ollama-model llama3 --ollama create a high priority bug",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -679,6 +696,18 @@ def main() -> None:
         "get-next", help="Get next issue to work on (FIFO by priority)"
     )
     next_parser.add_argument("-s", "--status", help="Filter by status (defaults to 'open')")
+
+    # Get-last command
+    last_parser = subparsers.add_parser(
+        "get-last", help="Get the last fetched issue(s) from get-next history"
+    )
+    last_parser.add_argument(
+        "-n",
+        "--number",
+        type=int,
+        default=1,
+        help="Number of last fetched issues to return (default: 1)",
+    )
 
     # Search command
     search_parser = subparsers.add_parser("search", help="Search issues by keyword")
@@ -791,6 +820,13 @@ def main() -> None:
 
         from issuedb.ollama_client import handle_ollama_request
 
+        # Join the list of words into a single request string
+        user_request = " ".join(args.ollama)
+
+        if not user_request.strip():
+            print("Error: No request provided for --ollama", file=sys.stderr)
+            sys.exit(1)
+
         # Get the prompt file path
         package_dir = Path(__file__).parent
         prompt_file = package_dir / "data" / "agents" / "PROMPT.txt"
@@ -803,7 +839,7 @@ def main() -> None:
 
         # Handle Ollama request
         exit_code = handle_ollama_request(
-            user_request=args.ollama,
+            user_request=user_request,
             prompt_text=prompt_text,
             host=args.ollama_host,
             port=args.ollama_port,
@@ -879,6 +915,10 @@ def main() -> None:
 
         elif args.command == "get-next":
             result = cli.get_next_issue(status=args.status, as_json=args.json)
+            print(result)
+
+        elif args.command == "get-last":
+            result = cli.get_last_fetched(limit=args.number, as_json=args.json)
             print(result)
 
         elif args.command == "search":

@@ -122,11 +122,12 @@ Issue Operations
       # High priority issues, first 10
       urgent = repo.list_issues(priority="high", limit=10)
 
-.. py:method:: IssueRepository.get_next_issue(status: str = "open") -> Optional[Issue]
+.. py:method:: IssueRepository.get_next_issue(status: str = "open", log_fetch: bool = True) -> Optional[Issue]
 
    Get the next issue to work on (FIFO by priority).
 
    :param status: Status to filter by (default: "open")
+   :param log_fetch: If True, logs the fetch in audit trail (default: True)
    :returns: Next issue or None
 
    **Example:**
@@ -136,6 +137,37 @@ Issue Operations
       next_issue = repo.get_next_issue()
       if next_issue:
           print(f"Work on: #{next_issue.id} - {next_issue.title}")
+
+      # Fetch without logging (for preview)
+      preview = repo.get_next_issue(log_fetch=False)
+
+.. py:method:: IssueRepository.get_last_fetched(limit: int = 1) -> List[Issue]
+
+   Get the last fetched issue(s) from the audit log.
+
+   :param limit: Maximum number of fetched issues to return (default: 1)
+   :returns: List of Issue objects in reverse chronological order (most recent first)
+
+   **Behavior:**
+
+   - Returns issues that were retrieved via ``get_next_issue``
+   - Shows current state of existing issues
+   - Reconstructs deleted issues from audit log
+   - Does not return duplicates
+
+   **Example:**
+
+   .. code-block:: python
+
+      # Get last fetched issue
+      last = repo.get_last_fetched()
+      if last:
+          print(f"Last worked on: {last[0].title}")
+
+      # Get last 5 fetched issues
+      recent = repo.get_last_fetched(limit=5)
+      for issue in recent:
+          print(f"#{issue.id}: {issue.title}")
 
 .. py:method:: IssueRepository.search_issues(keyword: str, limit: Optional[int] = None) -> List[Issue]
 

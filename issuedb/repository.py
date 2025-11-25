@@ -371,12 +371,13 @@ class IssueRepository:
             return [self._row_to_issue(row) for row in rows]
 
     def get_next_issue(
-        self, status: Optional[str] = None
+        self, status: Optional[str] = None, log_fetch: bool = True
     ) -> Optional[Issue]:
         """Get the next issue based on priority and creation date (FIFO within priority).
 
         Args:
             status: Filter by status (defaults to 'open' if not specified).
+            log_fetch: If True, log this fetch in the audit log (default: True).
 
         Returns:
             Next Issue to work on, or None if no issues match.
@@ -385,7 +386,7 @@ class IssueRepository:
             SELECT * FROM issues
             WHERE 1=1
         """
-        params = []
+        params: List[Any] = []
 
         # Default to open issues if status not specified
         if status:
@@ -415,7 +416,18 @@ class IssueRepository:
             row = cursor.fetchone()
 
             if row:
-                return self._row_to_issue(row)
+                issue = self._row_to_issue(row)
+                # Log the fetch in audit log
+                if log_fetch and issue.id is not None:
+                    self._log_audit(
+                        conn,
+                        issue.id,
+                        "FETCH",
+                        None,
+                        None,
+                        json.dumps(issue.to_dict()),
+                    )
+                return issue
             return None
 
     def search_issues(
@@ -516,6 +528,64 @@ class IssueRepository:
                 logs.append(log)
 
             return logs
+
+    def get_last_fetched(self, limit: int = 1) -> List[Issue]:
+        """Get the last fetched issue(s) from the audit log.
+
+        Args:
+            limit: Maximum number of fetched issues to return (default: 1).
+
+        Returns:
+            List of Issue objects that were last fetched via get-next.
+            Issues are returned in reverse chronological order (most recent first).
+            If an issue has been deleted, it will not be included.
+        """
+        query = """
+            SELECT DISTINCT al.issue_id, al.new_value, al.timestamp, i.id as current_id
+            FROM audit_logs al
+            LEFT JOIN issues i ON al.issue_id = i.id
+            WHERE al.action = 'FETCH'
+            ORDER BY al.timestamp DESC
+        """
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+            issues = []
+            seen_ids: set[int] = set()
+
+            for row in rows:
+                issue_id = row["issue_id"]
+
+                # Skip duplicates (same issue fetched multiple times)
+                if issue_id in seen_ids:
+                    continue
+
+                # If issue still exists, get current state
+                if row["current_id"] is not None:
+                    issue = self.get_issue(issue_id)
+                    if issue:
+                        issues.append(issue)
+                        seen_ids.add(issue_id)
+                else:
+                    # Issue was deleted, reconstruct from audit log
+                    if row["new_value"]:
+                        try:
+                            issue_data = json.loads(row["new_value"])
+                            issue = Issue.from_dict(issue_data)
+                            issue.id = issue_id
+                            issues.append(issue)
+                            seen_ids.add(issue_id)
+                        except (json.JSONDecodeError, KeyError):
+                            # Skip if we can't reconstruct
+                            continue
+
+                if len(issues) >= limit:
+                    break
+
+            return issues
 
     def get_summary(self) -> dict:
         """Get summary statistics of issues.

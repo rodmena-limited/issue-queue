@@ -6,7 +6,47 @@ All notable changes to IssueDB are documented here.
 The format is based on `Keep a Changelog <https://keepachangelog.com/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/>`_.
 
-[2.2.0] - 2025-01-XX
+[2.3.1] - 2025-11-25
+--------------------
+
+Fixed
+~~~~~
+
+- **--ollama flag now accepts unquoted multi-word requests**
+
+  - Before: ``issuedb-cli --ollama "create a high priority bug"``
+  - After: ``issuedb-cli --ollama create a high priority bug``
+  - Note: ``--ollama-model``, ``--ollama-host``, ``--ollama-port`` must come BEFORE ``--ollama``
+
+- 4 new tests for argparse behavior (now 136 total)
+
+[2.3.0] - 2025-11-25
+--------------------
+
+Added
+~~~~~
+
+- **Fetch History Tracking**: Track which issues were fetched via ``get-next``
+
+  - ``get-next`` now logs a ``FETCH`` action in the audit trail
+  - ``get-last`` command to view last fetched issue(s)
+  - ``-n/--number`` flag to get last N fetched issues (default: 1)
+  - Shows current state of existing issues or reconstructs deleted issues from audit log
+  - Example: ``issuedb-cli get-last -n 5`` to see last 5 fetched issues
+
+- **Repository methods**: ``get_last_fetched(limit)``
+
+- **API parameter**: ``log_fetch`` in ``get_next_issue()`` to control logging
+
+- **Tests**: 16 new tests for get-last functionality (now 132 total)
+
+Changed
+~~~~~~~
+
+- Updated LLM agent prompt with get-last examples
+- Full documentation update
+
+[2.2.0] - 2025-11-24
 --------------------
 
 Added
@@ -162,3 +202,12 @@ Version 2.2 adds the comments table:
 1. Schema updates automatically on first run
 2. Foreign key constraints are now enabled
 3. Existing data is preserved
+
+From 2.2 to 2.3
+~~~~~~~~~~~~~~~
+
+No migration needed. New fetch history tracking is additive:
+
+1. ``get-next`` will start logging ``FETCH`` actions automatically
+2. ``get-last`` command will return results after issues are fetched
+3. Historical fetches are not retroactively logged

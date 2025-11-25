@@ -168,12 +168,58 @@ Get the next issue to work on based on priority (FIFO within each priority level
 
 - ``-s, --status``: Filter by status. Default: open
 
+**Behavior:**
+
+- Returns the highest priority issue (critical > high > medium > low)
+- Within the same priority, returns the oldest (FIFO)
+- **Logs the fetch in the audit trail** with a ``FETCH`` action
+- Use ``get-last`` to retrieve fetch history
+
 **Examples:**
 
 .. code-block:: bash
 
    issuedb-cli get-next
    issuedb-cli --json get-next -s in-progress
+
+get-last
+~~~~~~~~
+
+Get the last fetched issue(s) from the fetch history.
+
+.. code-block:: bash
+
+   issuedb-cli get-last [-n NUMBER]
+
+**Arguments:**
+
+- ``-n, --number``: Number of last fetched issues to return. Default: 1
+
+**Behavior:**
+
+- Returns issues in reverse chronological order (most recent first)
+- Shows current state of existing issues
+- Reconstructs deleted issues from audit log history
+- Does not return duplicates (same issue fetched multiple times counts once)
+
+**Examples:**
+
+.. code-block:: bash
+
+   # Get the last issue you fetched
+   issuedb-cli get-last
+
+   # Get the last 5 fetched issues
+   issuedb-cli get-last -n 5
+
+   # JSON output for automation
+   issuedb-cli --json get-last -n 3
+
+**Use Cases:**
+
+- Track what issues you've recently worked on
+- Review fetch history when switching contexts
+- Find previously fetched issue that was deleted
 
 search
 ~~~~~~

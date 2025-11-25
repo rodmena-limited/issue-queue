@@ -1,5 +1,7 @@
 """Tests for Ollama client."""
 
+import argparse
+
 from issuedb.ollama_client import OllamaClient
 
 
@@ -122,3 +124,70 @@ This will search for issues containing "database" in the Backend project."""
         assert success is True
         assert "Would execute:" in stdout
         assert stderr is None
+
+
+class TestOllamaArgParsing:
+    """Test --ollama argument parsing behavior."""
+
+    def test_ollama_remainder_parsing(self):
+        """Test that --ollama captures all remaining words without quotes."""
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--ollama-model", type=str, default=None)
+        parser.add_argument("--ollama", nargs=argparse.REMAINDER)
+
+        # Simulate: issuedb-cli --ollama-model llama3 --ollama create a high priority bug
+        args = parser.parse_args(
+            ["--ollama-model", "llama3", "--ollama", "create", "a", "high", "priority", "bug"]
+        )
+
+        assert args.ollama_model == "llama3"
+        assert args.ollama == ["create", "a", "high", "priority", "bug"]
+        assert " ".join(args.ollama) == "create a high priority bug"
+
+    def test_ollama_empty_request(self):
+        """Test that empty --ollama request is handled."""
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--ollama", nargs=argparse.REMAINDER)
+
+        args = parser.parse_args(["--ollama"])
+        assert args.ollama == []
+        assert " ".join(args.ollama) == ""
+
+    def test_ollama_with_quoted_request(self):
+        """Test that quoted request still works."""
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--ollama", nargs=argparse.REMAINDER)
+
+        # Quoted request will be a single element
+        args = parser.parse_args(["--ollama", "create a high priority bug"])
+        assert args.ollama == ["create a high priority bug"]
+        assert " ".join(args.ollama) == "create a high priority bug"
+
+    def test_ollama_flags_before_request(self):
+        """Test that ollama flags must come before --ollama."""
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--ollama-model", type=str, default=None)
+        parser.add_argument("--ollama-host", type=str, default=None)
+        parser.add_argument("--ollama-port", type=int, default=None)
+        parser.add_argument("--ollama", nargs=argparse.REMAINDER)
+
+        args = parser.parse_args(
+            [
+                "--ollama-model",
+                "mistral",
+                "--ollama-host",
+                "192.168.1.1",
+                "--ollama-port",
+                "8080",
+                "--ollama",
+                "list",
+                "all",
+                "open",
+                "issues",
+            ]
+        )
+
+        assert args.ollama_model == "mistral"
+        assert args.ollama_host == "192.168.1.1"
+        assert args.ollama_port == 8080
+        assert " ".join(args.ollama) == "list all open issues"

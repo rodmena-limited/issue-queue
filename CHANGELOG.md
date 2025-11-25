@@ -5,6 +5,38 @@ All notable changes to IssueDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2025-11-25
+
+### Fixed
+- **--ollama flag now accepts unquoted multi-word requests**: No need to quote the natural language request
+  - Before: `issuedb-cli --ollama "create a high priority bug"`
+  - After: `issuedb-cli --ollama create a high priority bug`
+  - Note: `--ollama-model`, `--ollama-host`, `--ollama-port` must come BEFORE `--ollama`
+  - Example: `issuedb-cli --ollama-model llama3 --ollama create a critical issue for login bug`
+
+### Technical Details
+- Changed `--ollama` to use `nargs=argparse.REMAINDER` to capture all remaining arguments
+- 4 new tests for argparse behavior (now 136 total tests)
+
+## [2.3.0] - 2025-11-25
+
+### Added
+- **Fetch History Tracking**: Track which issues were fetched via `get-next`
+  - `get-next` now logs a `FETCH` action in the audit trail
+  - New `get-last` command to view last fetched issue(s)
+  - `-n/--number` flag to get last N fetched issues (default: 1)
+  - Shows current state of existing issues or reconstructs from audit log for deleted issues
+  - Example: `issuedb-cli get-last -n 5` to see last 5 fetched issues
+  - Useful for tracking what issues you've recently worked on
+
+### Technical Details
+- New `FETCH` action type in audit logs
+- `log_fetch` parameter in `get_next_issue()` to control logging (default: True)
+- New `get_last_fetched(limit)` method in IssueRepository
+- 16 new tests for get-last functionality (now 132 total tests)
+- Updated LLM agent prompt with get-last examples
+- Full documentation update for Read the Docs
+
 ## [2.2.0] - 2025-11-24
 
 ### Added

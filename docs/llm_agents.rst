@@ -133,6 +133,12 @@ Querying Issues
    # Get next issue to work on
    issuedb-cli --json get-next
 
+   # Get the last issue fetched (useful for context continuity)
+   issuedb-cli --json get-last
+
+   # Get last 5 fetched issues
+   issuedb-cli --json get-last -n 5
+
    # Search for specific issues
    issuedb-cli --json search -k "authentication"
 

@@ -12,6 +12,7 @@ Every operation that modifies data is logged:
 - Issue updates (each field change)
 - Issue deletion
 - Bulk operations
+- Issue fetches (via ``get-next``)
 
 Audit logs are:
 
@@ -49,7 +50,7 @@ Each audit log entry contains:
 
 - ``id``: Unique log entry ID
 - ``issue_id``: The issue that was modified
-- ``action``: Type of action (CREATE, UPDATE, DELETE, BULK_CREATE, BULK_UPDATE)
+- ``action``: Type of action (CREATE, UPDATE, DELETE, FETCH, BULK_CREATE, BULK_UPDATE)
 - ``field_name``: Which field was changed (for updates)
 - ``old_value``: Previous value (for updates/deletes)
 - ``new_value``: New value (for creates/updates)
@@ -106,6 +107,11 @@ DELETE
 ~~~~~~
 
 Logged when an issue is deleted. The ``old_value`` contains the full issue data as JSON, preserving the issue's state at deletion time.
+
+FETCH
+~~~~~
+
+Logged when an issue is retrieved via ``get-next``. The ``new_value`` contains the full issue data as JSON at the time of fetch. This enables tracking which issues were fetched and when, accessible via the ``get-last`` command.
 
 BULK_CREATE
 ~~~~~~~~~~~
@@ -165,6 +171,22 @@ Analyze how often issues change:
 
    # Count changes per issue
    issuedb-cli --json audit | jq 'group_by(.issue_id) | map({issue_id: .[0].issue_id, changes: length})'
+
+Tracking Fetch History
+~~~~~~~~~~~~~~~~~~~~~~
+
+Review which issues were fetched via ``get-next``:
+
+.. code-block:: bash
+
+   # Get last fetched issue
+   issuedb-cli get-last
+
+   # Get last 5 fetched issues
+   issuedb-cli --json get-last -n 5
+
+   # See all FETCH actions in audit log
+   issuedb-cli --json audit | jq '.[] | select(.action == "FETCH")'
 
 Database Storage
 ----------------

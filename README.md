@@ -262,6 +262,26 @@ With status filter:
 issuedb-cli get-next --status open
 ```
 
+### Getting Last Fetched Issues
+
+Track which issues were recently retrieved with `get-next`:
+
+```bash
+# Get the last issue you fetched
+issuedb-cli get-last
+
+# Get the last 5 fetched issues
+issuedb-cli get-last -n 5
+
+# JSON output for automation
+issuedb-cli --json get-last -n 3
+```
+
+This feature helps you:
+- Track what issues you've recently worked on
+- Review fetch history even for deleted issues
+- Maintain continuity when switching between tasks
+
 ### Searching Issues
 
 Search by keyword:
@@ -361,7 +381,8 @@ issuedb-cli get-next --json | jq '.id'
 - `update` - Update issue fields
 - `bulk-update` - Bulk update multiple issues
 - `delete` - Delete an issue
-- `get-next` - Get the next issue to work on
+- `get-next` - Get the next issue to work on (logs to fetch history)
+- `get-last` - Get the last fetched issue(s) from history
 - `search` - Search issues by keyword
 - `clear` - Clear all issues in current directory
 - `audit` - View audit logs
@@ -374,10 +395,10 @@ issuedb-cli get-next --json | jq '.id'
 - `--db PATH` - Use a custom database file (default: ./issuedb.sqlite)
 - `--json` - Output results in JSON format
 - `--prompt` - Display LLM agent guide for automated usage
-- `--ollama REQUEST` - Generate and execute command from natural language via Ollama
-- `--ollama-model MODEL` - Ollama model to use (default: llama3)
-- `--ollama-host HOST` - Ollama server host (default: localhost)
-- `--ollama-port PORT` - Ollama server port (default: 11434)
+- `--ollama REQUEST...` - Generate and execute command from natural language via Ollama (no quotes needed, must be last flag)
+- `--ollama-model MODEL` - Ollama model to use (default: llama3) - must come before --ollama
+- `--ollama-host HOST` - Ollama server host (default: localhost) - must come before --ollama
+- `--ollama-port PORT` - Ollama server port (default: 11434) - must come before --ollama
 
 ### Priority Levels
 
@@ -522,17 +543,20 @@ The prompt ensures LLM agents generate commands that are:
 IssueDB can integrate directly with Ollama for natural language command generation:
 
 ```bash
-# Use natural language to create issues
-issuedb-cli --ollama "we have many junk files and we need to fix it fast"
+# Use natural language to create issues (no quotes needed!)
+issuedb-cli --ollama we have many junk files and we need to fix it fast
 
 # Get the next task to work on
-issuedb-cli --ollama "what should I work on next?"
+issuedb-cli --ollama what should I work on next
 
 # Search for issues
-issuedb-cli --ollama "find all critical bugs"
+issuedb-cli --ollama find all critical bugs
 
 # Update issues
-issuedb-cli --ollama "mark issue 42 as completed"
+issuedb-cli --ollama mark issue 42 as completed
+
+# With custom model (model flag must come BEFORE --ollama)
+issuedb-cli --ollama-model mistral --ollama create a high priority bug for login
 ```
 
 #### Setup
@@ -552,7 +576,7 @@ ollama serve
 2. Use issuedb-cli with natural language:
 ```bash
 cd ~/my-project
-issuedb-cli --ollama "create a critical bug for login failures"
+issuedb-cli --ollama create a critical bug for login failures
 ```
 
 #### Configuration
@@ -560,18 +584,15 @@ issuedb-cli --ollama "create a critical bug for login failures"
 Configure Ollama connection via command-line flags or environment variables:
 
 ```bash
-# Command-line flags
-issuedb-cli --ollama "your request" \
-  --ollama-model mistral \
-  --ollama-host localhost \
-  --ollama-port 11434
+# Command-line flags (--ollama must be LAST)
+issuedb-cli --ollama-model mistral --ollama-host localhost --ollama-port 11434 --ollama your request here
 
 # Environment variables
 export OLLAMA_HOST=localhost
 export OLLAMA_PORT=11434
 export OLLAMA_MODEL=llama3
 
-issuedb-cli --ollama "your request"
+issuedb-cli --ollama create a bug for the payment system
 ```
 
 Default values:
