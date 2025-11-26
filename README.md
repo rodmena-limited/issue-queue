@@ -23,6 +23,21 @@ A command-line issue tracking system for software development projects. IssueDB 
 - **Issue Templates**: Create issues from predefined templates (bug, feature, task)
 - **Issue Context**: Get comprehensive context for LLM agents
 
+### Web Interface
+- **Web UI**: Clean, premium web interface for issue management
+- **Dashboard**: Summary statistics, priority breakdown, active issues
+- **Issue Browser**: Filter and search issues with status/priority badges
+- **API Endpoints**: Full REST API for programmatic access
+
+![Dashboard](docs/screenshots/dashboard.png)
+*Dashboard with statistics, priority breakdown, and active issue tracking*
+
+![Issues List](docs/screenshots/issues-list.png)
+*Issues list with filtering and search*
+
+![Create Issue](docs/screenshots/create-issue.png)
+*Create new issue form*
+
 ### Reporting & Integration
 - **Summary & Reports**: Aggregate statistics and detailed breakdowns by status/priority
 - **Audit Logging**: Complete immutable history of all changes
@@ -30,7 +45,7 @@ A command-line issue tracking system for software development projects. IssueDB 
 - **LLM Agent Integration**: Built-in prompt for programmatic usage
 - **Natural Language Interface**: Ollama integration for conversational issue management
 - **Local Storage**: SQLite database with no external dependencies
-- **Zero Dependencies**: Uses only Python standard library
+- **Minimal Dependencies**: Core functionality uses only Python standard library (Flask optional for web UI)
 
 ## Per-Directory Project Model
 
@@ -83,12 +98,25 @@ issuedb-cli list
 pip install issuedb
 ```
 
+### With Web UI Support
+
+To use the web interface, install with the `web` extra:
+
+```bash
+pip install issuedb[web]
+```
+
+This installs Flask as an optional dependency for the web UI.
+
 ### From Source
 
 ```bash
 git clone https://github.com/rodmena-limited/issue-queue
 cd issuedb
 pip install -e .
+
+# Or with web UI support:
+pip install -e ".[web]"
 ```
 
 ## Quick Start
@@ -610,6 +638,7 @@ issuedb-cli get-next --json | jq '.id'
 
 **Administrative:**
 - `clear` - Clear all issues
+- `web` - Start the web UI server
 
 ### Global Options
 
@@ -830,6 +859,74 @@ Default values:
 
 The integration uses only Python standard library (urllib), keeping the package dependency-free.
 
+## Web UI
+
+IssueDB includes an optional web interface for visual issue management.
+
+### Starting the Web Server
+
+```bash
+# Start on default port (7760)
+issuedb-cli web
+
+# Custom port and host
+issuedb-cli web --port 8080 --host localhost
+
+# Enable debug mode for development
+issuedb-cli web --debug
+```
+
+### Web Features
+
+- **Dashboard**: Overview with statistics, next issue, active issue, recent issues
+- **Issues List**: Browse all issues with status/priority filters and search
+- **Issue Detail**: Full issue view with comments, quick actions, dependency info
+- **Create/Edit Forms**: Create and modify issues through the web interface
+
+### API Endpoints
+
+The web server exposes REST API endpoints:
+
+```bash
+# List all issues
+curl http://localhost:7760/api/issues
+
+# Get specific issue
+curl http://localhost:7760/api/issues/5
+
+# Create issue
+curl -X POST http://localhost:7760/api/issues \
+  -H "Content-Type: application/json" \
+  -d '{"title": "New issue", "priority": "high"}'
+
+# Update issue
+curl -X PATCH http://localhost:7760/api/issues/5 \
+  -H "Content-Type: application/json" \
+  -d '{"status": "closed"}'
+
+# Delete issue
+curl -X DELETE http://localhost:7760/api/issues/5
+
+# Get summary statistics
+curl http://localhost:7760/api/summary
+
+# Get next issue
+curl http://localhost:7760/api/next
+
+# Add comment
+curl -X POST http://localhost:7760/api/issues/5/comments \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Comment text"}'
+```
+
+### Requirements
+
+The web UI requires Flask (installed separately):
+
+```bash
+pip install flask
+```
+
 ## Database
 
 IssueDB uses a local SQLite database stored at `./issuedb.sqlite` in the current directory. The database includes:
@@ -935,6 +1032,6 @@ For issues, questions, or suggestions, please open an issue on GitHub.
 - [ ] Export/import functionality
 - [ ] Tags/labels support
 - [ ] Due dates
-- [ ] Web UI (optional)
+- [x] Web UI (optional)
 - [ ] Backup and restore utilities
 - [ ] Git hooks integration

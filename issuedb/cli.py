@@ -2192,6 +2192,25 @@ def main() -> None:
         "-s", "--status", help="Filter by status (open, in-progress, closed)"
     )
 
+    # Web command
+    web_parser = subparsers.add_parser("web", help="Start the web UI server")
+    web_parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Host to bind to (default: 0.0.0.0)",
+    )
+    web_parser.add_argument(
+        "-p", "--port",
+        type=int,
+        default=7760,
+        help="Port to bind to (default: 7760)",
+    )
+    web_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode",
+    )
+
     args = parser.parse_args()
 
     # Find-similar command
@@ -2489,6 +2508,13 @@ def main() -> None:
         elif args.command == "active":
             result = cli.get_active_issue_workspace(as_json=args.json)
             print(result)
+
+        elif args.command == "web":
+            from issuedb.web import run_server
+
+            print(f"Starting IssueDB Web UI on http://{args.host}:{args.port}")
+            run_server(host=args.host, port=args.port, debug=args.debug)
+
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

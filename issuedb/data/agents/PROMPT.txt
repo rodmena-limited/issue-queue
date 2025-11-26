@@ -289,6 +289,12 @@ issuedb-cli clear --confirm
 - Requires --confirm flag for safety
 - Audit logs are preserved
 
+### Web UI Server
+issuedb-cli web [--port PORT] [--host HOST] [--debug]
+- Start web interface on port 7760 (default)
+- Access at http://localhost:7760
+- Example: issuedb-cli web --port 8080
+
 ## EXAMPLES
 
 ### Dependencies
