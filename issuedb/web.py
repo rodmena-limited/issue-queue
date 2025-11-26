@@ -7,6 +7,7 @@ from werkzeug.wrappers import Response
 
 from issuedb.models import Issue, Priority, Status
 from issuedb.repository import IssueRepository
+from issuedb.similarity import find_similar_issues
 
 app = Flask(__name__)
 
@@ -34,8 +35,10 @@ BASE_TEMPLATE = """
             --bg-secondary: #161b22;
             --bg-tertiary: #21262d;
             --bg-hover: #30363d;
+            --bg-accent: #1f2937;
             --border-color: #30363d;
             --border-light: #21262d;
+            --border-focus: #58a6ff;
             --text-primary: #e6edf3;
             --text-secondary: #8b949e;
             --text-muted: #6e7681;
@@ -45,6 +48,7 @@ BASE_TEMPLATE = """
             --accent-orange: #db6d28;
             --accent-red: #f85149;
             --accent-purple: #a371f7;
+            --accent-cyan: #39d5ff;
             --status-open: #3fb950;
             --status-progress: #d29922;
             --status-closed: #8b949e;
@@ -52,6 +56,9 @@ BASE_TEMPLATE = """
             --priority-medium: #58a6ff;
             --priority-high: #d29922;
             --priority-critical: #f85149;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
         }
 
         * {
@@ -73,10 +80,11 @@ BASE_TEMPLATE = """
         a {
             color: var(--accent-blue);
             text-decoration: none;
+            transition: color 0.15s ease;
         }
 
         a:hover {
-            text-decoration: underline;
+            color: var(--accent-cyan);
         }
 
         /* Layout */
@@ -94,6 +102,7 @@ BASE_TEMPLATE = """
             position: sticky;
             top: 0;
             z-index: 100;
+            backdrop-filter: blur(10px);
         }
 
         .header-content {
@@ -111,73 +120,95 @@ BASE_TEMPLATE = """
             gap: 8px;
         }
 
+        .logo:hover {
+            color: var(--text-primary);
+        }
+
         .logo-icon {
-            color: var(--accent-blue);
+            color: var(--accent-green);
+            font-weight: 700;
         }
 
         .nav {
             display: flex;
-            gap: 24px;
+            gap: 8px;
         }
 
         .nav a {
             color: var(--text-secondary);
-            font-size: 14px;
-            padding: 8px 0;
-            border-bottom: 2px solid transparent;
-            transition: all 0.2s;
+            font-size: 13px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.15s ease;
         }
 
-        .nav a:hover,
+        .nav a:hover {
+            color: var(--text-primary);
+            background-color: var(--bg-tertiary);
+        }
+
         .nav a.active {
             color: var(--text-primary);
-            text-decoration: none;
-            border-bottom-color: var(--accent-blue);
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
         }
 
         /* Main content */
         .main {
             padding: 32px 0;
+            min-height: calc(100vh - 140px);
         }
 
         .page-header {
-            margin-bottom: 24px;
+            margin-bottom: 28px;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
         }
 
         .page-title {
-            font-size: 24px;
+            font-size: 26px;
             font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+
+        .page-subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-top: 4px;
         }
 
         /* Buttons */
         .btn {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 8px;
-            padding: 8px 16px;
+            padding: 10px 18px;
             font-family: inherit;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             border: 1px solid var(--border-color);
             border-radius: 6px;
             background-color: var(--bg-tertiary);
             color: var(--text-primary);
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.15s ease;
+            white-space: nowrap;
         }
 
         .btn:hover {
             background-color: var(--bg-hover);
-            text-decoration: none;
+            border-color: var(--text-muted);
         }
 
         .btn-primary {
             background-color: var(--accent-green);
             border-color: var(--accent-green);
             color: #000;
+            font-weight: 600;
         }
 
         .btn-primary:hover {
@@ -197,66 +228,113 @@ BASE_TEMPLATE = """
         }
 
         .btn-sm {
-            padding: 4px 12px;
+            padding: 6px 12px;
             font-size: 12px;
+        }
+
+        .btn-ghost {
+            background-color: transparent;
+            border-color: transparent;
+        }
+
+        .btn-ghost:hover {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-color);
         }
 
         /* Cards */
         .card {
             background-color: var(--bg-secondary);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 16px;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow-sm);
         }
 
         .card-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
+            padding: 16px 20px;
             border-bottom: 1px solid var(--border-light);
+            background-color: var(--bg-tertiary);
         }
 
         .card-title {
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
             color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .card-body {
+            padding: 20px;
         }
 
         /* Stats Grid */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(4, 1fr);
             gap: 16px;
-            margin-bottom: 32px;
+            margin-bottom: 28px;
+        }
+
+        @media (max-width: 1000px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 600px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .stat-card {
             background-color: var(--bg-secondary);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
+            border-radius: 10px;
             padding: 20px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent-blue);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .stat-card-link {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
         }
 
         .stat-label {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-secondary);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.8px;
+            font-weight: 600;
             margin-bottom: 8px;
         }
 
         .stat-value {
-            font-size: 32px;
-            font-weight: 600;
+            font-size: 36px;
+            font-weight: 700;
             color: var(--text-primary);
+            letter-spacing: -1px;
         }
 
         .stat-breakdown {
-            margin-top: 12px;
-            padding-top: 12px;
+            margin-top: 16px;
+            padding-top: 16px;
             border-top: 1px solid var(--border-light);
         }
 
@@ -264,72 +342,85 @@ BASE_TEMPLATE = """
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 4px 0;
+            padding: 6px 0;
             font-size: 13px;
         }
 
-        .stat-item-label {
+        .stat-item a {
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+        }
+
+        .stat-item a:hover {
+            color: var(--text-primary);
+        }
+
+        .stat-item-value {
+            font-weight: 600;
+            color: var(--text-primary);
         }
 
         .stat-dot {
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
+            flex-shrink: 0;
         }
 
         /* Badges */
         .badge {
-            display: inline-block;
-            padding: 2px 8px;
-            font-size: 12px;
-            font-weight: 500;
-            border-radius: 12px;
-            text-transform: capitalize;
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
         }
 
         .badge-open {
             background-color: rgba(63, 185, 80, 0.15);
             color: var(--status-open);
-            border: 1px solid rgba(63, 185, 80, 0.3);
+            border: 1px solid rgba(63, 185, 80, 0.4);
         }
 
         .badge-in-progress {
             background-color: rgba(210, 153, 34, 0.15);
             color: var(--status-progress);
-            border: 1px solid rgba(210, 153, 34, 0.3);
+            border: 1px solid rgba(210, 153, 34, 0.4);
         }
 
         .badge-closed {
             background-color: rgba(139, 148, 158, 0.15);
             color: var(--status-closed);
-            border: 1px solid rgba(139, 148, 158, 0.3);
+            border: 1px solid rgba(139, 148, 158, 0.4);
         }
 
         .badge-low {
             background-color: rgba(139, 148, 158, 0.15);
             color: var(--priority-low);
-            border: 1px solid rgba(139, 148, 158, 0.3);
+            border: 1px solid rgba(139, 148, 158, 0.4);
         }
 
         .badge-medium {
             background-color: rgba(88, 166, 255, 0.15);
             color: var(--priority-medium);
-            border: 1px solid rgba(88, 166, 255, 0.3);
+            border: 1px solid rgba(88, 166, 255, 0.4);
         }
 
         .badge-high {
             background-color: rgba(210, 153, 34, 0.15);
             color: var(--priority-high);
-            border: 1px solid rgba(210, 153, 34, 0.3);
+            border: 1px solid rgba(210, 153, 34, 0.4);
         }
 
         .badge-critical {
             background-color: rgba(248, 81, 73, 0.15);
             color: var(--priority-critical);
-            border: 1px solid rgba(248, 81, 73, 0.3);
+            border: 1px solid rgba(248, 81, 73, 0.4);
         }
 
         /* Issue Table */
@@ -340,13 +431,13 @@ BASE_TEMPLATE = """
 
         .issue-table th,
         .issue-table td {
-            padding: 12px 16px;
+            padding: 14px 16px;
             text-align: left;
             border-bottom: 1px solid var(--border-light);
         }
 
         .issue-table th {
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             color: var(--text-secondary);
             text-transform: uppercase;
@@ -354,13 +445,18 @@ BASE_TEMPLATE = """
             background-color: var(--bg-tertiary);
         }
 
-        .issue-table tr:hover {
+        .issue-table tbody tr {
+            transition: background-color 0.1s ease;
+        }
+
+        .issue-table tbody tr:hover {
             background-color: var(--bg-tertiary);
         }
 
         .issue-id {
             color: var(--text-muted);
-            font-weight: 500;
+            font-weight: 600;
+            font-size: 13px;
         }
 
         .issue-title {
@@ -377,7 +473,7 @@ BASE_TEMPLATE = """
 
         .issue-meta {
             font-size: 12px;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             margin-top: 4px;
         }
 
@@ -385,9 +481,11 @@ BASE_TEMPLATE = """
         .filters {
             display: flex;
             gap: 12px;
-            margin-bottom: 20px;
+            padding: 16px 20px;
             flex-wrap: wrap;
             align-items: center;
+            background-color: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-light);
         }
 
         .filter-group {
@@ -399,95 +497,104 @@ BASE_TEMPLATE = """
         .filter-label {
             font-size: 12px;
             color: var(--text-secondary);
+            font-weight: 500;
         }
 
         select, input[type="text"], input[type="search"], textarea {
             font-family: inherit;
-            font-size: 14px;
+            font-size: 13px;
             padding: 8px 12px;
-            background-color: var(--bg-tertiary);
+            background-color: var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             color: var(--text-primary);
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }
 
         select:focus, input:focus, textarea:focus {
             outline: none;
-            border-color: var(--accent-blue);
+            border-color: var(--border-focus);
             box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
         }
 
         .search-input {
-            min-width: 250px;
+            min-width: 280px;
         }
 
         /* Forms */
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
 
         .form-label {
             display: block;
-            font-size: 14px;
-            font-weight: 500;
+            font-size: 13px;
+            font-weight: 600;
             color: var(--text-primary);
             margin-bottom: 8px;
         }
 
         .form-control {
             width: 100%;
-            padding: 10px 14px;
+            padding: 12px 14px;
             font-family: inherit;
             font-size: 14px;
             background-color: var(--bg-tertiary);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             color: var(--text-primary);
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }
 
         .form-control:focus {
             outline: none;
-            border-color: var(--accent-blue);
+            border-color: var(--border-focus);
             box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
         }
 
+        .form-control::placeholder {
+            color: var(--text-muted);
+        }
+
         textarea.form-control {
-            min-height: 120px;
+            min-height: 150px;
             resize: vertical;
         }
 
         .form-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 16px;
+            gap: 20px;
         }
 
         /* Issue Detail */
         .issue-detail-header {
-            margin-bottom: 24px;
+            margin-bottom: 28px;
         }
 
         .issue-detail-title {
             font-size: 28px;
             font-weight: 600;
-            margin-bottom: 12px;
+            margin-bottom: 16px;
+            line-height: 1.3;
         }
 
         .issue-detail-meta {
             display: flex;
-            gap: 16px;
+            gap: 12px;
             align-items: center;
             color: var(--text-secondary);
-            font-size: 14px;
+            font-size: 13px;
+            flex-wrap: wrap;
         }
 
         .issue-detail-body {
             display: grid;
-            grid-template-columns: 1fr 300px;
+            grid-template-columns: 1fr 340px;
             gap: 24px;
         }
 
-        @media (max-width: 900px) {
+        @media (max-width: 1000px) {
             .issue-detail-body {
                 grid-template-columns: 1fr;
             }
@@ -496,70 +603,157 @@ BASE_TEMPLATE = """
         .issue-description {
             white-space: pre-wrap;
             line-height: 1.8;
+            color: var(--text-secondary);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
         }
 
         .sidebar-section {
             padding: 16px;
+        }
+
+        .sidebar-section:not(:last-child) {
             border-bottom: 1px solid var(--border-light);
         }
 
-        .sidebar-section:last-child {
-            border-bottom: none;
-        }
-
         .sidebar-label {
-            font-size: 12px;
-            color: var(--text-secondary);
+            font-size: 11px;
+            color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
+            letter-spacing: 0.8px;
+            font-weight: 600;
+            margin-bottom: 12px;
         }
 
         /* Comments */
         .comments-section {
-            margin-top: 32px;
+            margin-top: 24px;
         }
 
         .comment {
-            background-color: var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: 8px;
             margin-bottom: 16px;
+            overflow: hidden;
         }
 
         .comment-header {
-            padding: 12px 16px;
+            padding: 10px 16px;
             background-color: var(--bg-tertiary);
             border-bottom: 1px solid var(--border-light);
-            border-radius: 8px 8px 0 0;
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .comment-body {
             padding: 16px;
             white-space: pre-wrap;
+            line-height: 1.7;
         }
 
         .comment-form {
             margin-top: 16px;
         }
 
+        /* Audit Log */
+        .audit-log {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .audit-entry {
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-light);
+            font-size: 12px;
+        }
+
+        .audit-entry:last-child {
+            border-bottom: none;
+        }
+
+        .audit-action {
+            font-weight: 600;
+            color: var(--accent-blue);
+            margin-right: 8px;
+        }
+
+        .audit-field {
+            color: var(--accent-purple);
+        }
+
+        .audit-value {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .audit-time {
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-top: 4px;
+        }
+
+        /* Similar Issues */
+        .similar-issue {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .similar-issue:last-child {
+            border-bottom: none;
+        }
+
+        .similar-score {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent-yellow);
+            background-color: rgba(210, 153, 34, 0.15);
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        /* Time Tracking */
+        .time-entry {
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-light);
+            font-size: 12px;
+        }
+
+        .time-entry:last-child {
+            border-bottom: none;
+        }
+
+        .time-duration {
+            font-weight: 600;
+            color: var(--accent-green);
+        }
+
         /* Empty state */
         .empty-state {
             text-align: center;
-            padding: 60px 20px;
+            padding: 48px 20px;
             color: var(--text-secondary);
         }
 
         .empty-state-icon {
             font-size: 48px;
             margin-bottom: 16px;
-            opacity: 0.5;
+            opacity: 0.3;
+            color: var(--text-muted);
         }
 
         .empty-state-title {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
             color: var(--text-primary);
             margin-bottom: 8px;
@@ -567,36 +761,39 @@ BASE_TEMPLATE = """
 
         /* Alert messages */
         .alert {
-            padding: 12px 16px;
-            border-radius: 6px;
+            padding: 14px 18px;
+            border-radius: 8px;
             margin-bottom: 20px;
-            font-size: 14px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
         .alert-success {
-            background-color: rgba(63, 185, 80, 0.15);
+            background-color: rgba(63, 185, 80, 0.1);
             border: 1px solid rgba(63, 185, 80, 0.3);
             color: var(--accent-green);
         }
 
         .alert-error {
-            background-color: rgba(248, 81, 73, 0.15);
+            background-color: rgba(248, 81, 73, 0.1);
             border: 1px solid rgba(248, 81, 73, 0.3);
             color: var(--accent-red);
         }
 
         /* Progress bar */
         .progress-bar {
-            height: 8px;
+            height: 6px;
             background-color: var(--bg-tertiary);
-            border-radius: 4px;
+            border-radius: 3px;
             overflow: hidden;
-            margin-top: 8px;
+            margin-top: 12px;
         }
 
         .progress-fill {
             height: 100%;
-            border-radius: 4px;
+            border-radius: 3px;
             transition: width 0.3s ease;
         }
 
@@ -609,71 +806,33 @@ BASE_TEMPLATE = """
         .action-row {
             display: flex;
             gap: 8px;
-            margin-top: 12px;
+            margin-top: 16px;
         }
 
-        /* Modal */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(0, 0, 0, 0.7);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .modal-overlay.active {
+        /* Quick actions */
+        .quick-actions {
             display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
         }
 
-        .modal {
-            background-color: var(--bg-secondary);
+        .quick-action {
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 500;
+            background-color: var(--bg-tertiary);
             border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 24px;
-            max-width: 500px;
-            width: 90%;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .modal-title {
-            font-size: 18px;
-            font-weight: 600;
-        }
-
-        .modal-close {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            font-size: 24px;
+            border-radius: 4px;
             cursor: pointer;
-            padding: 4px;
+            color: var(--text-secondary);
+            transition: all 0.15s ease;
+            font-family: inherit;
         }
 
-        .modal-close:hover {
+        .quick-action:hover {
+            background-color: var(--bg-hover);
             color: var(--text-primary);
-        }
-
-        /* Footer */
-        .footer {
-            padding: 24px 0;
-            border-top: 1px solid var(--border-color);
-            margin-top: 48px;
-            text-align: center;
-            color: var(--text-muted);
-            font-size: 12px;
+            border-color: var(--text-muted);
         }
 
         /* Blockers */
@@ -686,11 +845,11 @@ BASE_TEMPLATE = """
             align-items: center;
             gap: 8px;
             padding: 8px 0;
-            font-size: 13px;
+            font-size: 12px;
         }
 
         .blocker-icon {
-            color: var(--accent-red);
+            font-size: 14px;
         }
 
         /* Code refs */
@@ -700,40 +859,127 @@ BASE_TEMPLATE = """
             gap: 8px;
             padding: 8px 12px;
             background-color: var(--bg-tertiary);
-            border-radius: 4px;
-            font-size: 13px;
+            border-radius: 6px;
+            font-size: 12px;
             margin-top: 8px;
+            border: 1px solid var(--border-light);
         }
 
         .code-ref-path {
-            color: var(--accent-blue);
+            color: var(--accent-cyan);
+            font-weight: 500;
         }
 
         .code-ref-lines {
             color: var(--text-muted);
         }
 
-        /* Quick actions */
-        .quick-actions {
+        /* Tabs */
+        .tabs {
             display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
+            gap: 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
         }
 
-        .quick-action {
-            padding: 6px 12px;
-            font-size: 12px;
-            background-color: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            cursor: pointer;
+        .tab {
+            padding: 12px 20px;
+            font-size: 13px;
+            font-weight: 500;
             color: var(--text-secondary);
-            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.15s ease;
         }
 
-        .quick-action:hover {
-            background-color: var(--bg-hover);
+        .tab:hover {
             color: var(--text-primary);
+        }
+
+        .tab.active {
+            color: var(--text-primary);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        /* Footer */
+        .footer {
+            padding: 24px 0;
+            border-top: 1px solid var(--border-color);
+            margin-top: 48px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        /* Dashboard cards grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        @media (max-width: 1000px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Collapsible sections */
+        .collapsible-header {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .collapsible-content {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* Issue number link */
+        .issue-num {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .issue-num:hover {
+            color: var(--accent-blue);
+        }
+
+        /* Loading placeholder */
+        .loading-placeholder {
+            color: var(--text-muted);
+            font-style: italic;
+            padding: 12px 0;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .loading-placeholder {
+            animation: pulse 1.5s ease-in-out infinite;
         }
     </style>
 </head>
@@ -748,6 +994,7 @@ BASE_TEMPLATE = """
                 <nav class="nav">
                     <a href="/" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
                     <a href="/issues" class="{{ 'active' if active_page == 'issues' else '' }}">Issues</a>
+                    <a href="/audit" class="{{ 'active' if active_page == 'audit' else '' }}">Audit Log</a>
                     <a href="/issues/new" class="{{ 'active' if active_page == 'new' else '' }}">New Issue</a>
                 </nav>
             </div>
@@ -762,7 +1009,7 @@ BASE_TEMPLATE = """
 
     <footer class="footer">
         <div class="container">
-            IssueDB v2.5.0 &middot; Command-line issue tracking for developers
+            IssueDB v2.5.3 &middot; Command-line issue tracking for developers
         </div>
     </footer>
 
@@ -775,18 +1022,23 @@ DASHBOARD_TEMPLATE = (
     BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Dashboard - IssueDB{% endblock %}")
     .replace("{% block content %}{% endblock %}", """{% block content %}
 <div class="page-header">
-    <h1 class="page-title">Dashboard</h1>
+    <div>
+        <h1 class="page-title">Dashboard</h1>
+        <p class="page-subtitle">Issue tracking overview</p>
+    </div>
     <a href="/issues/new" class="btn btn-primary">+ New Issue</a>
 </div>
 
 <div class="stats-grid">
     <div class="stat-card">
+        <a href="/issues" class="stat-card-link"></a>
         <div class="stat-label">Total Issues</div>
         <div class="stat-value">{{ summary.total_issues }}</div>
     </div>
 
     <div class="stat-card">
-        <div class="stat-label">Open Issues</div>
+        <a href="/issues?status=open" class="stat-card-link"></a>
+        <div class="stat-label">Open</div>
         <div class="stat-value" style="color: var(--status-open)">{{ summary.by_status.open }}</div>
         <div class="progress-bar">
             <div class="progress-fill progress-green" style="width: {{ summary.status_percentages.open | default(0) }}%"></div>
@@ -794,6 +1046,7 @@ DASHBOARD_TEMPLATE = (
     </div>
 
     <div class="stat-card">
+        <a href="/issues?status=in-progress" class="stat-card-link"></a>
         <div class="stat-label">In Progress</div>
         <div class="stat-value" style="color: var(--status-progress)">{{ summary.by_status.in_progress }}</div>
         <div class="progress-bar">
@@ -802,6 +1055,7 @@ DASHBOARD_TEMPLATE = (
     </div>
 
     <div class="stat-card">
+        <a href="/issues?status=closed" class="stat-card-link"></a>
         <div class="stat-label">Closed</div>
         <div class="stat-value" style="color: var(--status-closed)">{{ summary.by_status.closed }}</div>
         <div class="progress-bar">
@@ -810,39 +1064,39 @@ DASHBOARD_TEMPLATE = (
     </div>
 </div>
 
-<div class="stats-grid">
+<div class="dashboard-grid">
     <div class="card">
         <div class="card-header">
             <h3 class="card-title">Priority Breakdown</h3>
         </div>
-        <div class="stat-breakdown">
+        <div class="card-body">
             <div class="stat-item">
-                <span class="stat-item-label">
+                <a href="/issues?priority=critical">
                     <span class="stat-dot" style="background-color: var(--priority-critical)"></span>
                     Critical
-                </span>
-                <span>{{ summary.by_priority.critical }}</span>
+                </a>
+                <span class="stat-item-value">{{ summary.by_priority.critical }}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-item-label">
+                <a href="/issues?priority=high">
                     <span class="stat-dot" style="background-color: var(--priority-high)"></span>
                     High
-                </span>
-                <span>{{ summary.by_priority.high }}</span>
+                </a>
+                <span class="stat-item-value">{{ summary.by_priority.high }}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-item-label">
+                <a href="/issues?priority=medium">
                     <span class="stat-dot" style="background-color: var(--priority-medium)"></span>
                     Medium
-                </span>
-                <span>{{ summary.by_priority.medium }}</span>
+                </a>
+                <span class="stat-item-value">{{ summary.by_priority.medium }}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-item-label">
+                <a href="/issues?priority=low">
                     <span class="stat-dot" style="background-color: var(--priority-low)"></span>
                     Low
-                </span>
-                <span>{{ summary.by_priority.low }}</span>
+                </a>
+                <span class="stat-item-value">{{ summary.by_priority.low }}</span>
             </div>
         </div>
     </div>
@@ -851,41 +1105,39 @@ DASHBOARD_TEMPLATE = (
         <div class="card-header">
             <h3 class="card-title">Next Issue</h3>
         </div>
-        {% if next_issue %}
-        <div>
-            <div class="issue-title">
+        <div class="card-body">
+            {% if next_issue %}
+            <div class="issue-title" style="margin-bottom: 8px;">
                 <a href="/issues/{{ next_issue.id }}">#{{ next_issue.id }} {{ next_issue.title }}</a>
             </div>
-            <div class="issue-meta">
+            <div style="display: flex; gap: 6px; margin-bottom: 12px;">
                 <span class="badge badge-{{ next_issue.priority.value }}">{{ next_issue.priority.value }}</span>
                 <span class="badge badge-{{ next_issue.status.value | replace('-', '-') }}">{{ next_issue.status.value }}</span>
             </div>
-            <div class="action-row">
-                <form action="/api/issues/{{ next_issue.id }}/start" method="post" style="display: inline;">
-                    <button type="submit" class="btn btn-sm btn-primary">Start Working</button>
-                </form>
+            <form action="/api/issues/{{ next_issue.id }}/start" method="post">
+                <button type="submit" class="btn btn-primary btn-sm">Start Working</button>
+            </form>
+            {% else %}
+            <div class="empty-state" style="padding: 20px 0;">
+                <p style="color: var(--text-muted);">No open issues</p>
             </div>
+            {% endif %}
         </div>
-        {% else %}
-        <div class="empty-state" style="padding: 20px;">
-            <p>No open issues to work on</p>
-        </div>
-        {% endif %}
     </div>
 
     <div class="card">
         <div class="card-header">
             <h3 class="card-title">Active Issue</h3>
         </div>
-        {% if active_issue %}
-        <div>
-            <div class="issue-title">
+        <div class="card-body">
+            {% if active_issue %}
+            <div class="issue-title" style="margin-bottom: 8px;">
                 <a href="/issues/{{ active_issue.id }}">#{{ active_issue.id }} {{ active_issue.title }}</a>
             </div>
-            <div class="issue-meta" style="margin-top: 8px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
                 Started: {{ active_started | default('N/A') }}
             </div>
-            <div class="action-row">
+            <div class="action-row" style="margin-top: 0;">
                 <form action="/api/issues/stop" method="post" style="display: inline;">
                     <button type="submit" class="btn btn-sm">Stop</button>
                 </form>
@@ -893,35 +1145,35 @@ DASHBOARD_TEMPLATE = (
                     <button type="submit" class="btn btn-sm btn-primary">Stop & Close</button>
                 </form>
             </div>
+            {% else %}
+            <div class="empty-state" style="padding: 20px 0;">
+                <p style="color: var(--text-muted);">No active issue</p>
+            </div>
+            {% endif %}
         </div>
-        {% else %}
-        <div class="empty-state" style="padding: 20px;">
-            <p>No active issue</p>
-        </div>
-        {% endif %}
     </div>
 </div>
 
 <div class="card">
     <div class="card-header">
         <h3 class="card-title">Recent Issues</h3>
-        <a href="/issues" class="btn btn-sm">View All</a>
+        <a href="/issues" class="btn btn-sm btn-ghost">View All</a>
     </div>
     {% if recent_issues %}
     <table class="issue-table">
         <thead>
             <tr>
-                <th>ID</th>
+                <th style="width: 70px;">ID</th>
                 <th>Title</th>
-                <th>Status</th>
-                <th>Priority</th>
-                <th>Created</th>
+                <th style="width: 110px;">Status</th>
+                <th style="width: 100px;">Priority</th>
+                <th style="width: 150px;">Created</th>
             </tr>
         </thead>
         <tbody>
             {% for issue in recent_issues %}
             <tr>
-                <td class="issue-id">#{{ issue.id }}</td>
+                <td><a href="/issues/{{ issue.id }}" class="issue-num">#{{ issue.id }}</a></td>
                 <td class="issue-title">
                     <a href="/issues/{{ issue.id }}">{{ issue.title }}</a>
                 </td>
@@ -947,7 +1199,10 @@ ISSUES_LIST_TEMPLATE = (
     BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Issues - IssueDB{% endblock %}")
     .replace("{% block content %}{% endblock %}", """{% block content %}
 <div class="page-header">
-    <h1 class="page-title">Issues</h1>
+    <div>
+        <h1 class="page-title">Issues</h1>
+        <p class="page-subtitle">{{ issues | length }} issue{% if issues | length != 1 %}s{% endif %}{% if status_filter or priority_filter or search_query %} found{% endif %}</p>
+    </div>
     <a href="/issues/new" class="btn btn-primary">+ New Issue</a>
 </div>
 
@@ -976,33 +1231,36 @@ ISSUES_LIST_TEMPLATE = (
                 <option value="low" {{ 'selected' if priority_filter == 'low' }}>Low</option>
             </select>
         </div>
-        <div class="filter-group">
+        <div class="filter-group" style="flex: 1;">
             <input type="search" name="q" placeholder="Search issues..."
                    value="{{ search_query | default('') }}" class="search-input">
-            <button type="submit" class="btn">Search</button>
+            <button type="submit" class="btn btn-sm">Search</button>
         </div>
+        {% if status_filter or priority_filter or search_query %}
+        <a href="/issues" class="btn btn-sm btn-ghost">Clear Filters</a>
+        {% endif %}
     </form>
 
     {% if issues %}
     <table class="issue-table">
         <thead>
             <tr>
-                <th style="width: 60px;">ID</th>
+                <th style="width: 70px;">ID</th>
                 <th>Title</th>
-                <th style="width: 100px;">Status</th>
-                <th style="width: 90px;">Priority</th>
-                <th style="width: 140px;">Created</th>
-                <th style="width: 100px;">Actions</th>
+                <th style="width: 110px;">Status</th>
+                <th style="width: 100px;">Priority</th>
+                <th style="width: 150px;">Created</th>
+                <th style="width: 120px;">Actions</th>
             </tr>
         </thead>
         <tbody>
             {% for issue in issues %}
             <tr>
-                <td class="issue-id">#{{ issue.id }}</td>
+                <td><a href="/issues/{{ issue.id }}" class="issue-num">#{{ issue.id }}</a></td>
                 <td class="issue-title">
                     <a href="/issues/{{ issue.id }}">{{ issue.title }}</a>
                     {% if issue.description %}
-                    <div class="issue-meta">{{ issue.description[:80] }}{% if issue.description|length > 80 %}...{% endif %}</div>
+                    <div class="issue-meta">{{ issue.description[:100] }}{% if issue.description|length > 100 %}...{% endif %}</div>
                     {% endif %}
                 </td>
                 <td><span class="badge badge-{{ issue.status.value | replace('-', '-') }}">{{ issue.status.value }}</span></td>
@@ -1047,77 +1305,88 @@ ISSUE_DETAIL_TEMPLATE = (
 
 <div class="issue-detail-header">
     <h1 class="issue-detail-title">
-        <span class="issue-id" style="font-weight: 400;">#{{ issue.id }}</span>
+        <span style="color: var(--text-muted); font-weight: 400;">#{{ issue.id }}</span>
         {{ issue.title }}
     </h1>
     <div class="issue-detail-meta">
         <span class="badge badge-{{ issue.status.value | replace('-', '-') }}">{{ issue.status.value }}</span>
         <span class="badge badge-{{ issue.priority.value }}">{{ issue.priority.value }}</span>
         <span>Created {{ issue.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+        <span>&middot;</span>
         <span>Updated {{ issue.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
     </div>
 </div>
 
 <div class="issue-detail-body">
     <div>
+        <!-- Description Card -->
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title">Description</h3>
-                <a href="/issues/{{ issue.id }}/edit" class="btn btn-sm">Edit</a>
+                <a href="/issues/{{ issue.id }}/edit" class="btn btn-sm btn-ghost">Edit</a>
             </div>
-            {% if issue.description %}
-            <div class="issue-description">{{ issue.description }}</div>
-            {% else %}
-            <p style="color: var(--text-muted);">No description provided.</p>
-            {% endif %}
+            <div class="card-body">
+                {% if issue.description %}
+                <div class="issue-description">{{ issue.description }}</div>
+                {% else %}
+                <p style="color: var(--text-muted); font-style: italic;">No description provided.</p>
+                {% endif %}
+            </div>
         </div>
 
-        <div class="comments-section">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">Comments ({{ comments | length }})</h3>
-                </div>
+        <!-- Similar Issues Card (async loaded) -->
+        <div class="card" id="similar-card" style="display: none;">
+            <div class="card-header">
+                <h3 class="card-title">Similar Issues</h3>
+            </div>
+            <div class="card-body" id="similar-content">
+                <div class="loading-placeholder">Loading similar issues...</div>
+            </div>
+        </div>
 
-                {% for comment in comments %}
-                <div class="comment">
-                    <div class="comment-header">
-                        {{ comment.created_at.strftime('%Y-%m-%d %H:%M') }}
-                        <form action="/api/comments/{{ comment.id }}" method="post" style="display: inline; float: right;">
-                            <input type="hidden" name="_method" value="DELETE">
-                            <button type="submit" class="quick-action" style="color: var(--accent-red);">Delete</button>
-                        </form>
-                    </div>
-                    <div class="comment-body">{{ comment.text }}</div>
+        <!-- Comments Card (async loaded) -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Comments <span id="comments-count"></span></h3>
+            </div>
+            <div class="card-body">
+                <div id="comments-content">
+                    <div class="loading-placeholder">Loading comments...</div>
                 </div>
-                {% else %}
-                <p style="color: var(--text-muted); padding: 16px 0;">No comments yet.</p>
-                {% endfor %}
-
                 <div class="comment-form">
                     <form action="/api/issues/{{ issue.id }}/comments" method="post">
-                        <div class="form-group">
-                            <textarea name="text" class="form-control" placeholder="Add a comment..." required></textarea>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <textarea name="text" class="form-control" placeholder="Add a comment..." required style="min-height: 100px;"></textarea>
                         </div>
-                        <button type="submit" class="btn btn-primary">Add Comment</button>
+                        <button type="submit" class="btn btn-primary btn-sm">Add Comment</button>
                     </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Audit Log Card (async loaded) -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Audit History</h3>
+                <a href="/audit?issue_id={{ issue.id }}" class="btn btn-sm btn-ghost">View All</a>
+            </div>
+            <div class="card-body">
+                <div id="audit-content">
+                    <div class="loading-placeholder">Loading audit history...</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div>
+    <!-- Sidebar -->
+    <div class="sidebar">
         <div class="card">
             <div class="sidebar-section">
                 <div class="sidebar-label">Quick Actions</div>
                 <div class="quick-actions">
                     {% if issue.status.value == 'open' %}
                     <form action="/api/issues/{{ issue.id }}/start" method="post" style="display: inline;">
-                        <button type="submit" class="quick-action">Start</button>
-                    </form>
-                    <form action="/api/issues/{{ issue.id }}" method="post" style="display: inline;">
-                        <input type="hidden" name="_method" value="PATCH">
-                        <input type="hidden" name="status" value="in-progress">
-                        <button type="submit" class="quick-action">In Progress</button>
+                        <button type="submit" class="quick-action" style="background-color: var(--accent-green); color: #000; border-color: var(--accent-green);">Start</button>
                     </form>
                     {% endif %}
                     {% if issue.status.value != 'closed' %}
@@ -1133,6 +1402,7 @@ ISSUE_DETAIL_TEMPLATE = (
                         <button type="submit" class="quick-action">Reopen</button>
                     </form>
                     {% endif %}
+                    <a href="/issues/{{ issue.id }}/edit" class="quick-action">Edit</a>
                 </div>
             </div>
 
@@ -1140,7 +1410,7 @@ ISSUE_DETAIL_TEMPLATE = (
                 <div class="sidebar-label">Status</div>
                 <form action="/api/issues/{{ issue.id }}" method="post">
                     <input type="hidden" name="_method" value="PATCH">
-                    <select name="status" class="form-control" onchange="this.form.submit()">
+                    <select name="status" class="form-control" onchange="this.form.submit()" style="font-size: 13px;">
                         <option value="open" {{ 'selected' if issue.status.value == 'open' }}>Open</option>
                         <option value="in-progress" {{ 'selected' if issue.status.value == 'in-progress' }}>In Progress</option>
                         <option value="closed" {{ 'selected' if issue.status.value == 'closed' }}>Closed</option>
@@ -1152,7 +1422,7 @@ ISSUE_DETAIL_TEMPLATE = (
                 <div class="sidebar-label">Priority</div>
                 <form action="/api/issues/{{ issue.id }}" method="post">
                     <input type="hidden" name="_method" value="PATCH">
-                    <select name="priority" class="form-control" onchange="this.form.submit()">
+                    <select name="priority" class="form-control" onchange="this.form.submit()" style="font-size: 13px;">
                         <option value="low" {{ 'selected' if issue.priority.value == 'low' }}>Low</option>
                         <option value="medium" {{ 'selected' if issue.priority.value == 'medium' }}>Medium</option>
                         <option value="high" {{ 'selected' if issue.priority.value == 'high' }}>High</option>
@@ -1161,57 +1431,19 @@ ISSUE_DETAIL_TEMPLATE = (
                 </form>
             </div>
 
-            {% if blockers %}
-            <div class="sidebar-section">
-                <div class="sidebar-label">Blocked By</div>
-                <div class="blockers-list">
-                    {% for blocker in blockers %}
-                    <div class="blocker-item">
-                        <span class="blocker-icon">&#x26D4;</span>
-                        <a href="/issues/{{ blocker.id }}">#{{ blocker.id }} {{ blocker.title }}</a>
-                        {% if blocker.status.value == 'closed' %}
-                        <span class="badge badge-closed" style="margin-left: auto;">closed</span>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
+            <!-- Dependencies (async loaded) -->
+            <div id="dependencies-section"></div>
 
-            {% if blocking %}
-            <div class="sidebar-section">
-                <div class="sidebar-label">Blocking</div>
-                <div class="blockers-list">
-                    {% for blocked in blocking %}
-                    <div class="blocker-item">
-                        <span style="color: var(--accent-yellow);">&#x2192;</span>
-                        <a href="/issues/{{ blocked.id }}">#{{ blocked.id }} {{ blocked.title }}</a>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
+            <!-- Code References (async loaded) -->
+            <div id="coderefs-section"></div>
 
-            {% if code_refs %}
-            <div class="sidebar-section">
-                <div class="sidebar-label">Code References</div>
-                {% for ref in code_refs %}
-                <div class="code-ref">
-                    <span class="code-ref-path">{{ ref.file_path }}</span>
-                    {% if ref.start_line %}
-                    <span class="code-ref-lines">
-                        :{{ ref.start_line }}{% if ref.end_line %}-{{ ref.end_line }}{% endif %}
-                    </span>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
+            <!-- Time Tracking (async loaded) -->
+            <div id="time-section"></div>
 
             <div class="sidebar-section">
-                <div class="sidebar-label">Danger Zone</div>
+                <div class="sidebar-label" style="color: var(--accent-red);">Danger Zone</div>
                 <form action="/api/issues/{{ issue.id }}" method="post"
-                      onsubmit="return confirm('Are you sure you want to delete this issue?')">
+                      onsubmit="return confirm('Are you sure you want to delete this issue? This cannot be undone.')">
                     <input type="hidden" name="_method" value="DELETE">
                     <button type="submit" class="btn btn-danger btn-sm" style="width: 100%;">Delete Issue</button>
                 </form>
@@ -1220,13 +1452,190 @@ ISSUE_DETAIL_TEMPLATE = (
     </div>
 </div>
 {% endblock %}""")
+    .replace("{% block scripts %}{% endblock %}", """{% block scripts %}
+<script>
+(function() {
+    var issueId = {{ issue.id }};
+    var baseUrl = '/api/issues/' + issueId;
+
+    function truncate(str, len) {
+        if (!str) return '';
+        return str.length > len ? str.substring(0, len) + '...' : str;
+    }
+
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Load comments
+    fetch(baseUrl + '/comments')
+        .then(function(r) { return r.json(); })
+        .then(function(comments) {
+            var countEl = document.getElementById('comments-count');
+            var contentEl = document.getElementById('comments-content');
+            countEl.textContent = '(' + comments.length + ')';
+            if (comments.length === 0) {
+                contentEl.innerHTML = '<p style="color: var(--text-muted); font-style: italic;">No comments yet.</p>';
+            } else {
+                var html = '';
+                for (var i = 0; i < comments.length; i++) {
+                    var c = comments[i];
+                    html += '<div class="comment">' +
+                        '<div class="comment-header">' +
+                        '<span>' + c.created_at.replace('T', ' ').substring(0, 16) + '</span>' +
+                        '<form action="/api/comments/' + c.id + '" method="post" style="display: inline;">' +
+                        '<input type="hidden" name="_method" value="DELETE">' +
+                        '<button type="submit" class="quick-action" style="color: var(--accent-red); font-size: 11px;">Delete</button>' +
+                        '</form></div>' +
+                        '<div class="comment-body">' + escapeHtml(c.text) + '</div></div>';
+                }
+                contentEl.innerHTML = html;
+            }
+        })
+        .catch(function() {
+            document.getElementById('comments-content').innerHTML = '<p style="color: var(--accent-red);">Failed to load comments</p>';
+        });
+
+    // Load similar issues
+    fetch(baseUrl + '/similar?limit=5')
+        .then(function(r) { return r.json(); })
+        .then(function(similar) {
+            var card = document.getElementById('similar-card');
+            var content = document.getElementById('similar-content');
+            if (similar.length > 0) {
+                card.style.display = 'block';
+                var html = '';
+                for (var i = 0; i < similar.length; i++) {
+                    var s = similar[i];
+                    var statusClass = 'badge-' + s.issue.status.replace('-', '-');
+                    html += '<div class="similar-issue">' +
+                        '<div><a href="/issues/' + s.issue.id + '">#' + s.issue.id + ' ' + escapeHtml(s.issue.title) + '</a>' +
+                        '<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">' +
+                        '<span class="badge ' + statusClass + '" style="font-size: 10px;">' + s.issue.status + '</span></div></div>' +
+                        '<span class="similar-score">' + Math.round(s.score * 100) + '%</span></div>';
+                }
+                content.innerHTML = html;
+            }
+        })
+        .catch(function() {});
+
+    // Load audit logs
+    fetch(baseUrl + '/audit')
+        .then(function(r) { return r.json(); })
+        .then(function(logs) {
+            var content = document.getElementById('audit-content');
+            if (logs.length === 0) {
+                content.innerHTML = '<p style="color: var(--text-muted); font-style: italic;">No audit history.</p>';
+            } else {
+                var html = '<div class="audit-log">';
+                var limit = Math.min(logs.length, 10);
+                for (var i = 0; i < limit; i++) {
+                    var log = logs[i];
+                    html += '<div class="audit-entry"><span class="audit-action">' + log.action + '</span>';
+                    if (log.field_name) {
+                        html += '<span class="audit-field">' + log.field_name + '</span>: ';
+                        if (log.old_value) html += '<span class="audit-value">' + truncate(log.old_value, 30) + '</span> &rarr; ';
+                        html += '<span class="audit-value">' + (log.new_value ? truncate(log.new_value, 30) : 'null') + '</span>';
+                    }
+                    html += '<div class="audit-time">' + log.timestamp.replace('T', ' ') + '</div></div>';
+                }
+                html += '</div>';
+                content.innerHTML = html;
+            }
+        })
+        .catch(function() {
+            document.getElementById('audit-content').innerHTML = '<p style="color: var(--accent-red);">Failed to load audit history</p>';
+        });
+
+    // Load dependencies
+    fetch(baseUrl + '/dependencies')
+        .then(function(r) { return r.json(); })
+        .then(function(deps) {
+            var section = document.getElementById('dependencies-section');
+            var html = '';
+            if (deps.blockers && deps.blockers.length > 0) {
+                html += '<div class="sidebar-section"><div class="sidebar-label" style="color: var(--accent-red);">Blocked By</div><div class="blockers-list">';
+                for (var i = 0; i < deps.blockers.length; i++) {
+                    var b = deps.blockers[i];
+                    html += '<div class="blocker-item"><span class="blocker-icon" style="color: var(--accent-red);">&#x26D4;</span>' +
+                        '<a href="/issues/' + b.id + '">#' + b.id + ' ' + truncate(b.title, 25) + '</a>';
+                    if (b.status === 'closed') html += '<span class="badge badge-closed" style="margin-left: auto; font-size: 9px;">done</span>';
+                    html += '</div>';
+                }
+                html += '</div></div>';
+            }
+            if (deps.blocking && deps.blocking.length > 0) {
+                html += '<div class="sidebar-section"><div class="sidebar-label" style="color: var(--accent-yellow);">Blocking</div><div class="blockers-list">';
+                for (var i = 0; i < deps.blocking.length; i++) {
+                    var b = deps.blocking[i];
+                    html += '<div class="blocker-item"><span style="color: var(--accent-yellow);">&#x2192;</span>' +
+                        '<a href="/issues/' + b.id + '">#' + b.id + ' ' + truncate(b.title, 25) + '</a></div>';
+                }
+                html += '</div></div>';
+            }
+            section.innerHTML = html;
+        })
+        .catch(function() {});
+
+    // Load code references
+    fetch(baseUrl + '/refs')
+        .then(function(r) { return r.json(); })
+        .then(function(refs) {
+            var section = document.getElementById('coderefs-section');
+            if (refs.length > 0) {
+                var html = '<div class="sidebar-section"><div class="sidebar-label">Code References</div>';
+                for (var i = 0; i < refs.length; i++) {
+                    var ref = refs[i];
+                    html += '<div class="code-ref"><span class="code-ref-path">' + escapeHtml(ref.file_path) + '</span>';
+                    if (ref.start_line) {
+                        html += '<span class="code-ref-lines">:' + ref.start_line;
+                        if (ref.end_line) html += '-' + ref.end_line;
+                        html += '</span>';
+                    }
+                    html += '</div>';
+                }
+                html += '</div>';
+                section.innerHTML = html;
+            }
+        })
+        .catch(function() {});
+
+    // Load time tracking
+    fetch(baseUrl + '/time')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var section = document.getElementById('time-section');
+            if (data.entries && data.entries.length > 0) {
+                var html = '<div class="sidebar-section"><div class="sidebar-label">Time Tracking</div>' +
+                    '<div style="font-size: 24px; font-weight: 600; color: var(--accent-green); margin-bottom: 12px;">' + data.total_formatted + '</div>' +
+                    '<div class="collapsible-content" style="max-height: 150px;">';
+                var limit = Math.min(data.entries.length, 5);
+                for (var i = 0; i < limit; i++) {
+                    var e = data.entries[i];
+                    html += '<div class="time-entry"><span class="time-duration">' + e.duration_formatted + '</span>';
+                    if (e.note) html += '<span style="color: var(--text-muted);"> - ' + truncate(e.note, 20) + '</span>';
+                    html += '<div style="font-size: 10px; color: var(--text-muted);">' + e.started_at + '</div></div>';
+                }
+                html += '</div></div>';
+                section.innerHTML = html;
+            }
+        })
+        .catch(function() {});
+})();
+</script>
+{% endblock %}""")
 )
 
 ISSUE_FORM_TEMPLATE = (
     BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}{{ 'Edit' if issue else 'New' }} Issue - IssueDB{% endblock %}")
     .replace("{% block content %}{% endblock %}", """{% block content %}
 <div class="page-header">
-    <h1 class="page-title">{{ 'Edit Issue #' ~ issue.id if issue else 'New Issue' }}</h1>
+    <div>
+        <h1 class="page-title">{{ 'Edit Issue #' ~ issue.id if issue else 'New Issue' }}</h1>
+        <p class="page-subtitle">{{ 'Update issue details' if issue else 'Create a new issue to track' }}</p>
+    </div>
 </div>
 
 {% if error %}
@@ -1234,50 +1643,102 @@ ISSUE_FORM_TEMPLATE = (
 {% endif %}
 
 <div class="card">
-    <form action="{{ '/api/issues/' ~ issue.id if issue else '/api/issues' }}" method="post">
-        {% if issue %}
-        <input type="hidden" name="_method" value="PUT">
-        {% endif %}
+    <div class="card-body">
+        <form action="{{ '/api/issues/' ~ issue.id if issue else '/api/issues' }}" method="post">
+            {% if issue %}
+            <input type="hidden" name="_method" value="PUT">
+            {% endif %}
 
-        <div class="form-group">
-            <label class="form-label" for="title">Title *</label>
-            <input type="text" id="title" name="title" class="form-control"
-                   value="{{ issue.title if issue else '' }}" required
-                   placeholder="Brief description of the issue">
-        </div>
-
-        <div class="form-group">
-            <label class="form-label" for="description">Description</label>
-            <textarea id="description" name="description" class="form-control"
-                      placeholder="Detailed explanation of the issue...">{{ issue.description if issue else '' }}</textarea>
-        </div>
-
-        <div class="form-row">
             <div class="form-group">
-                <label class="form-label" for="priority">Priority</label>
-                <select id="priority" name="priority" class="form-control">
-                    <option value="low" {{ 'selected' if issue and issue.priority.value == 'low' }}>Low</option>
-                    <option value="medium" {{ 'selected' if (not issue) or (issue and issue.priority.value == 'medium') }}>Medium</option>
-                    <option value="high" {{ 'selected' if issue and issue.priority.value == 'high' }}>High</option>
-                    <option value="critical" {{ 'selected' if issue and issue.priority.value == 'critical' }}>Critical</option>
-                </select>
+                <label class="form-label" for="title">Title *</label>
+                <input type="text" id="title" name="title" class="form-control"
+                       value="{{ issue.title if issue else '' }}" required
+                       placeholder="Brief description of the issue">
             </div>
 
             <div class="form-group">
-                <label class="form-label" for="status">Status</label>
-                <select id="status" name="status" class="form-control">
-                    <option value="open" {{ 'selected' if (not issue) or (issue and issue.status.value == 'open') }}>Open</option>
-                    <option value="in-progress" {{ 'selected' if issue and issue.status.value == 'in-progress' }}>In Progress</option>
-                    <option value="closed" {{ 'selected' if issue and issue.status.value == 'closed' }}>Closed</option>
-                </select>
+                <label class="form-label" for="description">Description</label>
+                <textarea id="description" name="description" class="form-control"
+                          placeholder="Detailed explanation of the issue...">{{ issue.description if issue else '' }}</textarea>
             </div>
-        </div>
 
-        <div style="display: flex; gap: 12px;">
-            <button type="submit" class="btn btn-primary">{{ 'Update Issue' if issue else 'Create Issue' }}</button>
-            <a href="{{ '/issues/' ~ issue.id if issue else '/issues' }}" class="btn">Cancel</a>
-        </div>
-    </form>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="priority">Priority</label>
+                    <select id="priority" name="priority" class="form-control">
+                        <option value="low" {{ 'selected' if issue and issue.priority.value == 'low' }}>Low</option>
+                        <option value="medium" {{ 'selected' if (not issue) or (issue and issue.priority.value == 'medium') }}>Medium</option>
+                        <option value="high" {{ 'selected' if issue and issue.priority.value == 'high' }}>High</option>
+                        <option value="critical" {{ 'selected' if issue and issue.priority.value == 'critical' }}>Critical</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="status">Status</label>
+                    <select id="status" name="status" class="form-control">
+                        <option value="open" {{ 'selected' if (not issue) or (issue and issue.status.value == 'open') }}>Open</option>
+                        <option value="in-progress" {{ 'selected' if issue and issue.status.value == 'in-progress' }}>In Progress</option>
+                        <option value="closed" {{ 'selected' if issue and issue.status.value == 'closed' }}>Closed</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 8px;">
+                <button type="submit" class="btn btn-primary">{{ 'Update Issue' if issue else 'Create Issue' }}</button>
+                <a href="{{ '/issues/' ~ issue.id if issue else '/issues' }}" class="btn">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}""")
+)
+
+AUDIT_LOG_TEMPLATE = (
+    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Audit Log - IssueDB{% endblock %}")
+    .replace("{% block content %}{% endblock %}", """{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Audit Log</h1>
+        <p class="page-subtitle">Complete history of all changes{% if issue_filter %} for issue #{{ issue_filter }}{% endif %}</p>
+    </div>
+    {% if issue_filter %}
+    <a href="/audit" class="btn btn-sm">View All</a>
+    {% endif %}
+</div>
+
+<div class="card">
+    {% if logs %}
+    <table class="issue-table">
+        <thead>
+            <tr>
+                <th style="width: 80px;">Issue</th>
+                <th style="width: 120px;">Action</th>
+                <th style="width: 120px;">Field</th>
+                <th>Old Value</th>
+                <th>New Value</th>
+                <th style="width: 160px;">Timestamp</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td><a href="/issues/{{ log.issue_id }}" class="issue-num">#{{ log.issue_id }}</a></td>
+                <td><span class="audit-action" style="margin: 0;">{{ log.action }}</span></td>
+                <td>{% if log.field_name %}<span class="audit-field">{{ log.field_name }}</span>{% else %}-{% endif %}</td>
+                <td class="issue-meta">{{ log.old_value[:50] if log.old_value else '-' }}{% if log.old_value and log.old_value|length > 50 %}...{% endif %}</td>
+                <td class="issue-meta">{{ log.new_value[:50] if log.new_value else '-' }}{% if log.new_value and log.new_value|length > 50 %}...{% endif %}</td>
+                <td class="issue-meta">{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">&gt;_</div>
+        <div class="empty-state-title">No audit logs</div>
+        <p>Changes will be recorded here</p>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}""")
 )
@@ -1358,26 +1819,18 @@ def issue_new() -> str:
 
 @app.route("/issues/<int:issue_id>")
 def issue_detail(issue_id: int) -> Union[str, Response]:
-    """Issue detail page."""
+    """Issue detail page - loads basic info, async fetches the rest."""
     repo = get_repo()
     issue = repo.get_issue(issue_id)
 
     if not issue:
         return redirect(url_for("issues_list", message="Issue not found"))
 
-    comments = repo.get_comments(issue_id)
-    blockers = repo.get_blockers(issue_id)
-    blocking = repo.get_blocking(issue_id)
-    code_refs = repo.get_code_references(issue_id)
-
+    # Only load basic issue info - everything else loads async via JS
     return render_template_string(
         ISSUE_DETAIL_TEMPLATE,
         active_page="issues",
         issue=issue,
-        comments=comments,
-        blockers=blockers,
-        blocking=blocking,
-        code_refs=code_refs,
         message=request.args.get("message"),
         error=request.args.get("error"),
     )
@@ -1397,6 +1850,21 @@ def issue_edit(issue_id: int) -> Union[str, Response]:
         active_page="issues",
         issue=issue,
         error=request.args.get("error"),
+    )
+
+
+@app.route("/audit")
+def audit_log_page() -> str:
+    """Audit log page."""
+    repo = get_repo()
+    issue_filter = request.args.get("issue_id", type=int)
+    logs = repo.get_audit_logs(issue_id=issue_filter)
+
+    return render_template_string(
+        AUDIT_LOG_TEMPLATE,
+        active_page="audit",
+        logs=logs[:100],  # Limit to 100 entries
+        issue_filter=issue_filter,
     )
 
 
@@ -1613,6 +2081,50 @@ def api_stop_issue() -> Any:
         return redirect(url_for("dashboard"))
 
 
+@app.route("/api/issues/<int:issue_id>/similar", methods=["GET"])
+def api_similar_issues(issue_id: int) -> Any:
+    """API: Find similar issues."""
+    repo = get_repo()
+    issue = repo.get_issue(issue_id)
+
+    if not issue:
+        return jsonify({"error": "Issue not found"}), 404
+
+    threshold = request.args.get("threshold", 0.4, type=float)
+    limit = request.args.get("limit", 10, type=int)
+
+    all_issues = repo.list_issues()
+    other_issues = [i for i in all_issues if i.id != issue_id]
+    issue_text = f"{issue.title} {issue.description or ''}"
+
+    similar_results = find_similar_issues(issue_text, other_issues, threshold=threshold)
+
+    return jsonify([
+        {"issue": i.to_dict(), "score": round(score, 3)}
+        for i, score in similar_results[:limit]
+    ])
+
+
+@app.route("/api/issues/<int:issue_id>/audit", methods=["GET"])
+def api_issue_audit(issue_id: int) -> Any:
+    """API: Get audit logs for an issue."""
+    repo = get_repo()
+    logs = repo.get_audit_logs(issue_id)
+
+    return jsonify([
+        {
+            "id": log.id,
+            "issue_id": log.issue_id,
+            "action": log.action,
+            "field_name": log.field_name,
+            "old_value": log.old_value,
+            "new_value": log.new_value,
+            "timestamp": log.timestamp.isoformat(),
+        }
+        for log in logs
+    ])
+
+
 @app.route("/api/summary", methods=["GET"])
 def api_summary() -> Any:
     """API: Get summary statistics."""
@@ -1629,6 +2141,89 @@ def api_next_issue() -> Any:
     if issue:
         return jsonify(issue.to_dict())
     return jsonify(None)
+
+
+@app.route("/api/audit", methods=["GET"])
+def api_audit_logs() -> Any:
+    """API: Get all audit logs."""
+    repo = get_repo()
+    issue_id = request.args.get("issue_id", type=int)
+    logs = repo.get_audit_logs(issue_id=issue_id)
+
+    return jsonify([
+        {
+            "id": log.id,
+            "issue_id": log.issue_id,
+            "action": log.action,
+            "field_name": log.field_name,
+            "old_value": log.old_value,
+            "new_value": log.new_value,
+            "timestamp": log.timestamp.isoformat(),
+        }
+        for log in logs
+    ])
+
+
+@app.route("/api/issues/<int:issue_id>/comments", methods=["GET"])
+def api_get_comments(issue_id: int) -> Any:
+    """API: Get comments for an issue."""
+    repo = get_repo()
+    comments = repo.get_comments(issue_id)
+    return jsonify([c.to_dict() for c in comments])
+
+
+@app.route("/api/issues/<int:issue_id>/time", methods=["GET"])
+def api_get_time_entries(issue_id: int) -> Any:
+    """API: Get time entries for an issue."""
+    repo = get_repo()
+    entries = repo.get_time_entries(issue_id)
+    result = []
+    total_seconds = 0
+    for entry in entries:
+        e = dict(entry)
+        if e.get("duration_seconds"):
+            total_seconds += e["duration_seconds"]
+            hours = e["duration_seconds"] // 3600
+            minutes = (e["duration_seconds"] % 3600) // 60
+            e["duration_formatted"] = f"{hours}h {minutes}m" if hours else f"{minutes}m"
+        else:
+            e["duration_formatted"] = "running..."
+        result.append(e)
+    total_hours = total_seconds // 3600
+    total_minutes = (total_seconds % 3600) // 60
+    return jsonify({
+        "entries": result,
+        "total_formatted": f"{total_hours}h {total_minutes}m" if total_hours else f"{total_minutes}m",
+        "total_seconds": total_seconds,
+    })
+
+
+@app.route("/api/issues/<int:issue_id>/dependencies", methods=["GET"])
+def api_get_dependencies(issue_id: int) -> Any:
+    """API: Get dependencies (blockers/blocking) for an issue."""
+    repo = get_repo()
+    blockers = repo.get_blockers(issue_id)
+    blocking = repo.get_blocking(issue_id)
+    return jsonify({
+        "blockers": [i.to_dict() for i in blockers],
+        "blocking": [i.to_dict() for i in blocking],
+    })
+
+
+@app.route("/api/issues/<int:issue_id>/refs", methods=["GET"])
+def api_get_code_refs(issue_id: int) -> Any:
+    """API: Get code references for an issue."""
+    repo = get_repo()
+    refs = repo.get_code_references(issue_id)
+    return jsonify([
+        {
+            "id": r.id,
+            "file_path": r.file_path,
+            "start_line": r.start_line,
+            "end_line": r.end_line,
+        }
+        for r in refs
+    ])
 
 
 def run_server(

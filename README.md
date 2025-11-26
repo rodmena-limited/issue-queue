@@ -38,6 +38,12 @@ A command-line issue tracking system for software development projects. IssueDB 
 ![Create Issue](docs/screenshots/create-issue.png)
 *Create new issue form*
 
+![Issue Detail](docs/screenshots/issue-detail.png)
+*Issue detail with async-loaded comments, similar issues, dependencies, and audit history*
+
+![Audit Log](docs/screenshots/audit-log.png)
+*Complete audit log of all changes*
+
 ### Reporting & Integration
 - **Summary & Reports**: Aggregate statistics and detailed breakdowns by status/priority
 - **Audit Logging**: Complete immutable history of all changes
