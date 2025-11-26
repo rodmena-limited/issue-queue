@@ -522,6 +522,563 @@ View audit logs.
    # JSON output
    issuedb-cli --json audit
 
+Dependency Commands
+-------------------
+
+block
+~~~~~
+
+Mark an issue as blocked by another issue.
+
+.. code-block:: bash
+
+   issuedb-cli block ISSUE_ID --by BLOCKER_ID
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): ID of the issue being blocked
+- ``--by`` (required): ID of the blocking issue
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli block 5 --by 3
+   issuedb-cli --json block 5 --by 3
+
+unblock
+~~~~~~~
+
+Remove blocker(s) from an issue.
+
+.. code-block:: bash
+
+   issuedb-cli unblock ISSUE_ID [--by BLOCKER_ID]
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): ID of the blocked issue
+- ``--by``: Specific blocker to remove (if omitted, removes all blockers)
+
+**Examples:**
+
+.. code-block:: bash
+
+   # Remove specific blocker
+   issuedb-cli unblock 5 --by 3
+
+   # Remove all blockers
+   issuedb-cli unblock 5
+
+deps
+~~~~
+
+Show dependency graph for an issue.
+
+.. code-block:: bash
+
+   issuedb-cli deps ISSUE_ID
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): Issue ID
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli deps 5
+   issuedb-cli --json deps 5
+
+blocked
+~~~~~~~
+
+List all blocked issues.
+
+.. code-block:: bash
+
+   issuedb-cli blocked [-s STATUS]
+
+**Arguments:**
+
+- ``-s, --status``: Filter by status
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli blocked
+   issuedb-cli --json blocked -s open
+
+Code Reference Commands
+-----------------------
+
+attach
+~~~~~~
+
+Attach a code reference to an issue.
+
+.. code-block:: bash
+
+   issuedb-cli attach ISSUE_ID --file "FILE_PATH[:LINE[-END_LINE]]" [--note "NOTE"]
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): Issue ID
+- ``--file`` (required): File path with optional line number(s)
+- ``--note``: Optional note about the reference
+
+**Examples:**
+
+.. code-block:: bash
+
+   # Attach file
+   issuedb-cli attach 5 --file "src/auth.py"
+
+   # With line number
+   issuedb-cli attach 5 --file "src/auth.py:42"
+
+   # With line range
+   issuedb-cli attach 5 --file "src/auth.py:42-50"
+
+   # With note
+   issuedb-cli attach 5 --file "src/auth.py:42" --note "Bug location"
+
+detach
+~~~~~~
+
+Remove a code reference from an issue.
+
+.. code-block:: bash
+
+   issuedb-cli detach ISSUE_ID --file "FILE_PATH"
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): Issue ID
+- ``--file`` (required): File path to remove
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli detach 5 --file "src/auth.py"
+
+refs
+~~~~
+
+List code references for an issue.
+
+.. code-block:: bash
+
+   issuedb-cli refs ISSUE_ID
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): Issue ID
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli refs 5
+   issuedb-cli --json refs 5
+
+affected
+~~~~~~~~
+
+List issues that reference a specific file.
+
+.. code-block:: bash
+
+   issuedb-cli affected --file "FILE_PATH"
+
+**Arguments:**
+
+- ``--file`` (required): File path to search for
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli affected --file "src/auth.py"
+   issuedb-cli --json affected --file "config.py"
+
+Time Tracking Commands
+----------------------
+
+timer-start
+~~~~~~~~~~~
+
+Start tracking time on an issue.
+
+.. code-block:: bash
+
+   issuedb-cli timer-start ISSUE_ID
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): Issue ID
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli timer-start 5
+
+timer-stop
+~~~~~~~~~~
+
+Stop the active timer.
+
+.. code-block:: bash
+
+   issuedb-cli timer-stop [ISSUE_ID]
+
+**Arguments:**
+
+- ``ISSUE_ID``: Issue ID (optional if only one timer running)
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli timer-stop
+   issuedb-cli --json timer-stop 5
+
+timer-status
+~~~~~~~~~~~~
+
+Show active timers.
+
+.. code-block:: bash
+
+   issuedb-cli timer-status
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli timer-status
+   issuedb-cli --json timer-status
+
+set-estimate
+~~~~~~~~~~~~
+
+Set time estimate for an issue.
+
+.. code-block:: bash
+
+   issuedb-cli set-estimate ISSUE_ID --hours HOURS
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): Issue ID
+- ``--hours`` (required): Estimated hours
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli set-estimate 5 --hours 4
+
+time-log
+~~~~~~~~
+
+View time entries for an issue.
+
+.. code-block:: bash
+
+   issuedb-cli time-log ISSUE_ID
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): Issue ID
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli time-log 5
+   issuedb-cli --json time-log 5
+
+time-report
+~~~~~~~~~~~
+
+Generate time reports.
+
+.. code-block:: bash
+
+   issuedb-cli time-report [--period {all,week,month}] [--issue ISSUE_ID]
+
+**Arguments:**
+
+- ``--period``: Report period (all, week, month). Default: all
+- ``--issue``: Filter by issue ID
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli time-report
+   issuedb-cli time-report --period week
+   issuedb-cli --json time-report --period month
+
+Workspace Commands
+------------------
+
+workspace
+~~~~~~~~~
+
+Show workspace status.
+
+.. code-block:: bash
+
+   issuedb-cli workspace
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli workspace
+   issuedb-cli --json workspace
+
+start
+~~~~~
+
+Start working on an issue (sets active and starts timer).
+
+.. code-block:: bash
+
+   issuedb-cli start ISSUE_ID
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): Issue ID
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli start 5
+   issuedb-cli --json start 5
+
+stop
+~~~~
+
+Stop working on active issue.
+
+.. code-block:: bash
+
+   issuedb-cli stop [--close]
+
+**Arguments:**
+
+- ``--close``: Also close the issue
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli stop
+   issuedb-cli stop --close
+   issuedb-cli --json stop
+
+active
+~~~~~~
+
+Show currently active issue.
+
+.. code-block:: bash
+
+   issuedb-cli active
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli active
+   issuedb-cli --json active
+
+context
+~~~~~~~
+
+Get comprehensive context for an issue (for LLM agents).
+
+.. code-block:: bash
+
+   issuedb-cli context ISSUE_ID [--compact]
+
+**Arguments:**
+
+- ``ISSUE_ID`` (required): Issue ID
+- ``--compact``: Return minimal context
+
+**Output includes:**
+
+- Issue details
+- Comments
+- Recent audit history
+- Related issues
+- Git information
+- Suggested actions
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli context 5
+   issuedb-cli --json context 5
+   issuedb-cli context 5 --compact
+
+Duplicate Detection Commands
+----------------------------
+
+find-similar
+~~~~~~~~~~~~
+
+Find issues similar to given text.
+
+.. code-block:: bash
+
+   issuedb-cli find-similar "QUERY" [--threshold THRESHOLD] [--limit LIMIT]
+
+**Arguments:**
+
+- ``QUERY`` (required): Text to search for
+- ``--threshold``: Similarity threshold 0.0-1.0. Default: 0.6
+- ``--limit``: Maximum results. Default: 10
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli find-similar "login bug"
+   issuedb-cli --json find-similar "authentication" --threshold 0.7
+
+find-duplicates
+~~~~~~~~~~~~~~~
+
+Find potential duplicate groups in database.
+
+.. code-block:: bash
+
+   issuedb-cli find-duplicates [--threshold THRESHOLD]
+
+**Arguments:**
+
+- ``--threshold``: Similarity threshold. Default: 0.7
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli find-duplicates
+   issuedb-cli --json find-duplicates --threshold 0.8
+
+Template Commands
+-----------------
+
+templates
+~~~~~~~~~
+
+List available issue templates.
+
+.. code-block:: bash
+
+   issuedb-cli templates
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli templates
+   issuedb-cli --json templates
+
+**Creating from templates:**
+
+.. code-block:: bash
+
+   issuedb-cli create --template bug -t "Login crash" -d "App crashes"
+   issuedb-cli create --template feature -t "Dark mode"
+   issuedb-cli create --template task -t "Update deps"
+
+Bulk Pattern Commands
+---------------------
+
+bulk-close-pattern
+~~~~~~~~~~~~~~~~~~
+
+Close issues matching a pattern.
+
+.. code-block:: bash
+
+   issuedb-cli bulk-close-pattern --title "PATTERN" [--desc "PATTERN"] [--regex] [--dry-run]
+
+**Arguments:**
+
+- ``--title``: Pattern to match against title
+- ``--desc``: Pattern to match against description
+- ``--regex``: Treat patterns as regex (default: glob)
+- ``--dry-run``: Preview without making changes
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli bulk-close-pattern --title "*test*"
+   issuedb-cli bulk-close-pattern --title "temp.*" --regex
+   issuedb-cli bulk-close-pattern --title "*WIP*" --dry-run
+
+bulk-update-pattern
+~~~~~~~~~~~~~~~~~~~
+
+Update issues matching a pattern.
+
+.. code-block:: bash
+
+   issuedb-cli bulk-update-pattern --title "PATTERN" [-s STATUS] [--priority PRIORITY] [--regex] [--dry-run]
+
+**Arguments:**
+
+- ``--title``: Pattern to match against title
+- ``--desc``: Pattern to match against description
+- ``-s, --status``: New status
+- ``--priority``: New priority
+- ``--regex``: Treat patterns as regex
+- ``--dry-run``: Preview without making changes
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli bulk-update-pattern --title "*bug*" --priority high
+   issuedb-cli bulk-update-pattern --title ".*urgent.*" --regex -s in-progress
+
+bulk-delete-pattern
+~~~~~~~~~~~~~~~~~~~
+
+Delete issues matching a pattern.
+
+.. code-block:: bash
+
+   issuedb-cli bulk-delete-pattern --title "PATTERN" --confirm [--regex] [--dry-run]
+
+**Arguments:**
+
+- ``--title``: Pattern to match against title
+- ``--desc``: Pattern to match against description
+- ``--confirm``: Required unless using --dry-run
+- ``--regex``: Treat patterns as regex
+- ``--dry-run``: Preview without making changes
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli bulk-delete-pattern --title "*temp*" --confirm
+   issuedb-cli bulk-delete-pattern --title "test.*" --regex --dry-run
+
 Administrative Commands
 -----------------------
 

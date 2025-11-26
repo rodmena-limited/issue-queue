@@ -1,9 +1,10 @@
 """Database connection and initialization for IssueDB."""
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Any, Generator, Optional
 
 
 class Database:
@@ -70,6 +71,30 @@ class Database:
                 )
             """)
 
+            # Create code_references table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS code_references (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    issue_id INTEGER NOT NULL,
+                    file_path TEXT NOT NULL,
+                    start_line INTEGER,
+                    end_line INTEGER,
+                    note TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create workspace_state table (single-row table)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS workspace_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    active_issue_id INTEGER,
+                    started_at TIMESTAMP,
+                    FOREIGN KEY (active_issue_id) REFERENCES issues (id) ON DELETE SET NULL
+                )
+            """)
+
             # Create indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_issues_status
@@ -106,7 +131,203 @@ class Database:
                 ON comments(created_at)
             """)
 
+            # Create indexes for code_references
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_code_references_issue_id
+                ON code_references(issue_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_code_references_file_path
+                ON code_references(file_path)
+            """)
+
+            # Create saved_searches table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS saved_searches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    query_json TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Create index for saved_searches
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_saved_searches_name
+                ON saved_searches(name)
+            """)
+
+            # Create issue_dependencies table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS issue_dependencies (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    blocker_id INTEGER NOT NULL,
+                    blocked_id INTEGER NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (blocker_id) REFERENCES issues (id) ON DELETE CASCADE,
+                    FOREIGN KEY (blocked_id) REFERENCES issues (id) ON DELETE CASCADE,
+                    UNIQUE(blocker_id, blocked_id)
+                )
+            """)
+
+            # Create indexes for issue_dependencies
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_dependencies_blocker_id
+                ON issue_dependencies(blocker_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_dependencies_blocked_id
+                ON issue_dependencies(blocked_id)
+            """)
+
+            # Create time_entries table for time tracking
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS time_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    issue_id INTEGER NOT NULL,
+                    started_at TIMESTAMP NOT NULL,
+                    ended_at TIMESTAMP,
+                    duration_seconds INTEGER,
+                    note TEXT,
+                    FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create indexes for time_entries
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_time_entries_issue_id
+                ON time_entries(issue_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_time_entries_started_at
+                ON time_entries(started_at)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_time_entries_ended_at
+                ON time_entries(ended_at)
+            """)
+
+            # Add estimated_hours column to issues table if it doesn't exist
+            # Check if column exists first
+            cursor.execute("PRAGMA table_info(issues)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "estimated_hours" not in columns:
+                cursor.execute("ALTER TABLE issues ADD COLUMN estimated_hours REAL")
+
+            # Create issue_templates table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS issue_templates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    title_prefix TEXT,
+                    default_priority TEXT,
+                    default_status TEXT,
+                    required_fields TEXT,
+                    field_prompts TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Create index for templates
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_templates_name
+                ON issue_templates(name)
+            """)
+
+            # Create issue_links table for git integration
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS issue_links (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    issue_id INTEGER NOT NULL,
+                    link_type TEXT NOT NULL,
+                    reference TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE,
+                    UNIQUE(issue_id, link_type, reference)
+                )
+            """)
+
+            # Create indexes for issue_links
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_issue_links_issue_id
+                ON issue_links(issue_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_issue_links_link_type
+                ON issue_links(link_type)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_issue_links_reference
+                ON issue_links(reference)
+            """)
+
+            # Initialize built-in templates if they don't exist
+            self._initialize_builtin_templates(cursor)
+
             conn.commit()
+
+    def _initialize_builtin_templates(self, cursor: Any) -> None:
+        """Initialize built-in templates if they don't exist.
+
+        Args:
+            cursor: Database cursor to use for operations.
+        """
+        # Define built-in templates
+        builtin_templates = [
+            {
+                "name": "bug",
+                "title_prefix": "[BUG]",
+                "default_priority": "high",
+                "default_status": "open",
+                "required_fields": json.dumps(["description"]),
+                "field_prompts": json.dumps({
+                    "description": "Describe the bug (steps to reproduce, expected vs actual)"
+                }),
+            },
+            {
+                "name": "feature",
+                "title_prefix": "[FEATURE]",
+                "default_priority": "medium",
+                "default_status": "open",
+                "required_fields": json.dumps(["description"]),
+                "field_prompts": json.dumps({
+                    "description": "Describe the feature request and its benefits"
+                }),
+            },
+            {
+                "name": "task",
+                "title_prefix": "[TASK]",
+                "default_priority": "low",
+                "default_status": "open",
+                "required_fields": json.dumps([]),
+                "field_prompts": json.dumps({}),
+            },
+        ]
+
+        # Insert templates if they don't exist
+        for template in builtin_templates:
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO issue_templates
+                (name, title_prefix, default_priority, default_status,
+                 required_fields, field_prompts)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    template["name"],
+                    template["title_prefix"],
+                    template["default_priority"],
+                    template["default_status"],
+                    template["required_fields"],
+                    template["field_prompts"],
+                ),
+            )
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
@@ -148,7 +369,7 @@ class Database:
             cursor.execute("DELETE FROM audit_logs")
             conn.commit()
 
-    def get_database_info(self) -> dict:
+    def get_database_info(self) -> dict[str, Any]:
         """Get information about the database.
 
         Returns:

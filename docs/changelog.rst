@@ -6,6 +6,80 @@ All notable changes to IssueDB are documented here.
 The format is based on `Keep a Changelog <https://keepachangelog.com/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/>`_.
 
+[2.4.0] - 2025-11-26
+--------------------
+
+Added
+~~~~~
+
+- **Issue Dependencies**: Track blocking relationships between issues
+
+  - ``block`` command to mark issues as blocked by others
+  - ``unblock`` command to remove blockers
+  - ``deps`` command to view dependency graph
+  - ``blocked`` command to list all blocked issues
+
+- **Code References**: Link issues to specific code locations
+
+  - ``attach`` command to link files/lines to issues
+  - ``detach`` command to remove code references
+  - ``refs`` command to list references for an issue
+  - ``affected`` command to find issues referencing a file
+
+- **Time Tracking**: Track time spent on issues
+
+  - ``timer-start`` and ``timer-stop`` commands
+  - ``timer-status`` to check active timers
+  - ``set-estimate`` to set estimated hours
+  - ``time-log`` to view time entries
+  - ``time-report`` for time summaries (all/week/month)
+
+- **Workspace Awareness**: Track current working context
+
+  - ``workspace`` command for status overview
+  - ``start`` command to begin working (sets active + starts timer)
+  - ``stop`` command to finish working (with optional --close)
+  - ``active`` command to show current issue
+
+- **Issue Context**: Comprehensive context for LLM agents
+
+  - ``context`` command returns issue + comments + history + related + suggestions
+  - ``--compact`` flag for minimal context
+
+- **Duplicate Detection**: Find similar issues
+
+  - ``find-similar`` command with configurable threshold
+  - ``find-duplicates`` to find duplicate groups
+  - ``--check-duplicates`` flag for create command
+  - Similarity algorithms: Levenshtein and Jaccard
+
+- **Issue Templates**: Predefined issue templates
+
+  - ``templates`` command to list available templates
+  - ``--template`` flag for create command
+  - Built-in templates: bug, feature, task
+
+- **Bulk Pattern Operations**: Pattern-based bulk operations
+
+  - ``bulk-close-pattern`` for closing by pattern
+  - ``bulk-update-pattern`` for updating by pattern
+  - ``bulk-delete-pattern`` for deleting by pattern
+  - Support for glob and regex patterns
+  - ``--dry-run`` flag for preview
+
+- **Database schema**: New tables for dependencies, code_references, time_entries, workspace_state, issue_templates
+
+- **Tests**: 501 tests covering all new functionality
+
+Changed
+~~~~~~~
+
+- Updated LLM agent prompt (PROMPT.txt) with all new commands
+- Updated README.md with new features
+- Updated CLI reference documentation
+- Improved type annotations (mypy clean)
+- Code style improvements (ruff clean)
+
 [2.3.1] - 2025-11-25
 --------------------
 

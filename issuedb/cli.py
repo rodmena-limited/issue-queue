@@ -5,7 +5,7 @@ import json
 import sys
 from typing import Any, Optional
 
-from issuedb.models import Issue, Priority, Status
+from issuedb.models import AuditLog, Comment, Issue, Priority, Status
 from issuedb.repository import IssueRepository
 
 
@@ -77,9 +77,25 @@ class CLI:
             ]
         )
 
+        # Add code references if any
+        if issue.id is not None:
+            refs = self.repo.get_code_references(issue.id)
+            if refs:
+                lines.append("")
+                lines.append("Code References:")
+                for ref in refs:
+                    ref_str = f"  - {ref.file_path}"
+                    if ref.start_line and ref.end_line:
+                        ref_str += f":{ref.start_line}-{ref.end_line}"
+                    elif ref.start_line:
+                        ref_str += f":{ref.start_line}"
+                    if ref.note:
+                        ref_str += f" ({ref.note})"
+                    lines.append(ref_str)
+
         return "\n".join(lines)
 
-    def _format_dict(self, data: dict) -> str:
+    def _format_dict(self, data: dict[str, Any]) -> str:
         """Format a dictionary for display.
 
         Args:
@@ -102,7 +118,7 @@ class CLI:
         status: str = "open",
         as_json: bool = False,
         force: bool = False,
-        no_duplicate_check: bool = False,
+        check_duplicates: bool = False,
     ) -> str:
         """Create a new issue.
 
@@ -112,8 +128,8 @@ class CLI:
             priority: Priority level.
             status: Initial status.
             as_json: Output as JSON.
-            force: Create issue even if similar issues found.
-            no_duplicate_check: Skip duplicate checking entirely.
+            force: Create issue even if similar issues found (with check_duplicates).
+            check_duplicates: Enable duplicate checking (opt-in, disabled by default).
 
         Returns:
             Formatted output.
@@ -127,8 +143,8 @@ class CLI:
             status=Status.from_string(status),
         )
 
-        # Check for duplicates unless disabled
-        if not no_duplicate_check:
+        # Check for duplicates only if explicitly enabled
+        if check_duplicates:
             # Combine title and description for similarity check
             query_text = title
             if description:
@@ -152,7 +168,7 @@ class CLI:
                         })
                     return json.dumps({
                         "error": "Similar issues found",
-                        "message": "Use --force to create anyway or --no-duplicate-check to skip this check",
+                        "message": "Use --force to create anyway",
                         "similar_issues": warnings
                     }, indent=2)
                 else:
@@ -162,7 +178,7 @@ class CLI:
                             f"  - Issue #{similar_issue.id}: {similar_issue.title} "
                             f"({round(similarity * 100, 1)}% similar)"
                         )
-                    lines.append("\nUse --force to create anyway or --no-duplicate-check to skip this check")
+                    lines.append("\nUse --force to create anyway")
                     return "\n".join(lines)
 
         created_issue = self.repo.create_issue(issue)
@@ -681,14 +697,15 @@ class CLI:
         if as_json:
             groups_data = []
             for group in duplicate_groups:
-                group_data = {
-                    "primary": group[0][0].to_dict(),
-                    "duplicates": []
-                }
+                duplicates_list: list[dict[str, Any]] = []
                 for issue, similarity in group[1:]:
                     dup_dict = issue.to_dict()
                     dup_dict["similarity"] = round(similarity * 100, 1)
-                    group_data["duplicates"].append(dup_dict)
+                    duplicates_list.append(dup_dict)
+                group_data = {
+                    "primary": group[0][0].to_dict(),
+                    "duplicates": duplicates_list
+                }
                 groups_data.append(group_data)
 
             return json.dumps({
@@ -705,7 +722,7 @@ class CLI:
                 primary_issue, _ = group[0]
                 lines.append(f"Group {i}:")
                 lines.append(f"  Primary: Issue #{primary_issue.id} - {primary_issue.title}")
-                lines.append(f"  Potential duplicates:")
+                lines.append("  Potential duplicates:")
 
                 for issue, similarity in group[1:]:
                     lines.append(
@@ -756,7 +773,8 @@ class CLI:
         related_issues = []
         if not compact and issue.title:
             # Search for similar issues (exclude current issue)
-            similar = self.repo.search_issues(keyword=issue.title.split()[0] if issue.title.split() else "", limit=5)
+            first_word = issue.title.split()[0] if issue.title.split() else ""
+            similar = self.repo.search_issues(keyword=first_word, limit=5)
             related_issues = [iss for iss in similar if iss.id != issue_id][:3]
 
         # Generate suggested actions
@@ -792,7 +810,7 @@ class CLI:
                 compact=compact,
             )
 
-    def _get_git_info(self, issue_id: int) -> Optional[dict]:
+    def _get_git_info(self, issue_id: int) -> Optional[dict[str, Any]]:
         """Get git information related to an issue.
 
         Args:
@@ -853,7 +871,7 @@ class CLI:
             # Git not available or timeout
             return None
 
-    def _generate_suggested_actions(self, issue: Issue) -> list:
+    def _generate_suggested_actions(self, issue: Issue) -> list[str]:
         """Generate suggested actions based on issue status.
 
         Args:
@@ -866,13 +884,16 @@ class CLI:
 
         if issue.status == Status.OPEN:
             actions.append(
-                f"Issue is open - consider starting work with: issuedb-cli update {issue.id} -s in-progress"
+                f"Issue is open - start work with: "
+                f"issuedb-cli update {issue.id} -s in-progress"
             )
             if issue.priority == Priority.CRITICAL or issue.priority == Priority.HIGH:
                 actions.append("High priority issue - should be addressed soon")
         elif issue.status == Status.IN_PROGRESS:
             actions.append("Issue is in-progress - consider adding a progress update comment")
-            actions.append(f"When complete, close with: issuedb-cli update {issue.id} -s closed")
+            actions.append(
+                f"When complete, close with: issuedb-cli update {issue.id} -s closed"
+            )
         elif issue.status == Status.CLOSED:
             actions.append("Issue is closed - can be reopened if needed")
 
@@ -880,7 +901,8 @@ class CLI:
         comments_count = len(self.repo.get_comments(issue.id)) if issue.id else 0
         if comments_count == 0:
             actions.append(
-                f"No comments yet - add notes with: issuedb-cli comment {issue.id} -t 'your comment'"
+                f"No comments yet - add notes with: "
+                f"issuedb-cli comment {issue.id} -t 'your comment'"
             )
 
         return actions
@@ -888,11 +910,11 @@ class CLI:
     def _format_issue_context(
         self,
         issue: Issue,
-        comments: list,
-        audit_logs: list,
-        related_issues: list,
-        git_info: Optional[dict],
-        suggested_actions: list,
+        comments: list[Comment],
+        audit_logs: list[AuditLog],
+        related_issues: list[Issue],
+        git_info: Optional[dict[str, Any]],
+        suggested_actions: list[str],
         compact: bool = False,
     ) -> str:
         """Format issue context for text output.
@@ -958,7 +980,8 @@ class CLI:
                 elif log.action in ["UPDATE", "BULK_UPDATE"]:
                     if log.field_name:
                         lines.append(
-                            f"- {timestamp}: {log.field_name} changed from '{log.old_value}' to '{log.new_value}'"
+                            f"- {timestamp}: {log.field_name} changed "
+                            f"from '{log.old_value}' to '{log.new_value}'"
                         )
                     else:
                         lines.append(f"- {timestamp}: Issue updated")
@@ -973,7 +996,8 @@ class CLI:
             lines.append(f"## Related Issues ({len(related_issues)})")
             for rel_issue in related_issues:
                 lines.append(
-                    f"- #{rel_issue.id}: {rel_issue.title} ({rel_issue.status.value}, {rel_issue.priority.value})"
+                    f"- #{rel_issue.id}: {rel_issue.title} "
+                    f"({rel_issue.status.value}, {rel_issue.priority.value})"
                 )
             lines.append("")
 
@@ -999,6 +1023,874 @@ class CLI:
 
         return "\n".join(lines)
 
+
+
+
+    def workspace_status(self, as_json: bool = False) -> str:
+        """Get workspace status.
+
+        Args:
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted workspace status.
+        """
+        status = self.repo.get_workspace_status()
+
+        if as_json:
+            return json.dumps(status, indent=2)
+        else:
+            lines = ["=== Workspace Status ==="]
+
+            # Git branch
+            if status.get("git_branch"):
+                lines.append(f"Git Branch: {status['git_branch']}")
+            else:
+                lines.append("Git Branch: (not in git repo)")
+
+            # Active issue
+            if status.get("active_issue"):
+                active = status["active_issue"]
+                lines.append(
+                    f"Active Issue: #{active['id']} - {active['title']} "
+                    f"({active['status']})"
+                )
+                lines.append(f"Time on Issue: {active['time_spent']}")
+            else:
+                lines.append("Active Issue: None")
+
+            # Uncommitted files
+            if status.get("uncommitted_files") is not None:
+                lines.append(f"Uncommitted Files: {status['uncommitted_files']}")
+
+            # Recent activity
+            if status.get("recent_activity"):
+                lines.append("")
+                lines.append("Recent Activity:")
+                for activity in status["recent_activity"]:
+                    action_str = "started" if activity["action"] == "WORKSPACE_START" else "stopped"
+                    title = activity.get("title", f"Issue #{activity['issue_id']}")
+                    lines.append(f"- {title} ({action_str} {activity['time_ago']})")
+
+            return "\n".join(lines)
+
+    def start_issue_workspace(self, issue_id: int, as_json: bool = False) -> str:
+        """Start working on an issue.
+
+        Args:
+            issue_id: Issue ID to start.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+
+        Raises:
+            ValueError: If issue not found.
+        """
+        issue, started_at = self.repo.start_issue(issue_id)
+
+        if as_json:
+            return json.dumps({
+                "message": f"Started working on issue {issue_id}",
+                "issue": issue.to_dict(),
+                "started_at": started_at.isoformat(),
+            }, indent=2)
+        else:
+            lines = [
+                f"Started working on issue #{issue_id}",
+                f"Title: {issue.title}",
+                f"Status: {issue.status.value}",
+                f"Started at: {started_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            ]
+            return "\n".join(lines)
+
+    def stop_issue_workspace(self, close: bool = False, as_json: bool = False) -> str:
+        """Stop working on the active issue.
+
+        Args:
+            close: If True, also close the issue.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+
+        result = self.repo.stop_issue(close=close)
+
+        if not result:
+            msg = {"message": "No active issue to stop"}
+            return json.dumps(msg, indent=2) if as_json else msg["message"]
+
+        issue, started_at, stopped_at = result
+        time_spent = stopped_at - started_at
+        hours = int(time_spent.total_seconds() // 3600)
+        minutes = int((time_spent.total_seconds() % 3600) // 60)
+
+        if as_json:
+            return json.dumps({
+                "message": f"Stopped working on issue {issue.id}",
+                "issue": issue.to_dict(),
+                "started_at": started_at.isoformat(),
+                "stopped_at": stopped_at.isoformat(),
+                "time_spent": f"{hours}h {minutes}m",
+                "time_spent_seconds": int(time_spent.total_seconds()),
+            }, indent=2)
+        else:
+            lines = [
+                f"Stopped working on issue #{issue.id}",
+                f"Title: {issue.title}",
+                f"Time spent: {hours}h {minutes}m",
+            ]
+            if close:
+                lines.append(f"Status: {issue.status.value}")
+            return "\n".join(lines)
+
+    def get_active_issue_workspace(self, as_json: bool = False) -> str:
+        """Get the currently active issue.
+
+        Args:
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        from datetime import datetime
+
+        active = self.repo.get_active_issue()
+
+        if not active:
+            msg = {"message": "No active issue"}
+            return json.dumps(msg, indent=2) if as_json else msg["message"]
+
+        issue, started_at = active
+        time_spent = datetime.now() - started_at
+        hours = int(time_spent.total_seconds() // 3600)
+        minutes = int((time_spent.total_seconds() % 3600) // 60)
+
+        if as_json:
+            return json.dumps({
+                "issue": issue.to_dict(),
+                "started_at": started_at.isoformat(),
+                "time_spent": f"{hours}h {minutes}m",
+                "time_spent_seconds": int(time_spent.total_seconds()),
+            }, indent=2)
+        else:
+            lines = [
+                f"Active Issue: #{issue.id}",
+                f"Title: {issue.title}",
+                f"Status: {issue.status.value}",
+                f"Priority: {issue.priority.value}",
+                f"Started at: {started_at.strftime('%Y-%m-%d %H:%M:%S')}",
+                f"Time spent: {hours}h {minutes}m",
+            ]
+            return "\n".join(lines)
+
+    # Time tracking methods
+
+    def timer_start(
+        self, issue_id: int, note: Optional[str] = None, as_json: bool = False
+    ) -> str:
+        """Start a timer for an issue.
+
+        Args:
+            issue_id: Issue ID to start timer for.
+            note: Optional note for this time entry.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        entry = self.repo.start_timer(issue_id, note)
+        result = {
+            "message": f"Timer started for issue #{issue_id}",
+            "entry_id": entry.get("id"),
+            "issue_id": issue_id,
+        }
+        if note:
+            result["note"] = note
+        return self.format_output(result, as_json)
+
+    def timer_stop(
+        self, issue_id: Optional[int] = None, as_json: bool = False
+    ) -> str:
+        """Stop a timer for an issue.
+
+        Args:
+            issue_id: Issue ID (stops all running timers for this issue if None).
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        try:
+            entry = self.repo.stop_timer(issue_id)
+            duration = entry.get("duration_seconds", 0)
+            hours = duration // 3600
+            minutes = (duration % 3600) // 60
+            seconds = duration % 60
+            result = {
+                "message": "Timer stopped",
+                "entry_id": entry.get("id"),
+                "issue_id": entry.get("issue_id"),
+                "duration_seconds": duration,
+                "duration_formatted": f"{hours}h {minutes}m {seconds}s",
+            }
+            return self.format_output(result, as_json)
+        except ValueError:
+            result = {"message": "No running timer found"}
+            return self.format_output(result, as_json)
+
+    def timer_status(self, as_json: bool = False) -> str:
+        """Show running timers.
+
+        Args:
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        running = self.repo.get_running_timers()
+        if not running:
+            result = {"message": "No running timers", "timers": []}
+            return self.format_output(result, as_json)
+
+        timers = []
+        for entry in running:
+            # Repo already calculates elapsed_seconds
+            elapsed = entry.get("elapsed_seconds", 0)
+            hours = int(elapsed // 3600)
+            minutes = int((elapsed % 3600) // 60)
+            timers.append({
+                "entry_id": entry["id"],
+                "issue_id": entry["issue_id"],
+                "issue_title": entry.get("issue_title", ""),
+                "started_at": entry["started_at"],
+                "elapsed": f"{hours}h {minutes}m",
+                "elapsed_seconds": elapsed,
+                "note": entry.get("note"),
+            })
+
+        if as_json:
+            return json.dumps({"timers": timers}, indent=2)
+        else:
+            lines = ["Running Timers:"]
+            for t in timers:
+                note_str = f" - {t['note']}" if t.get("note") else ""
+                lines.append(
+                    f"  #{t['issue_id']} {t['issue_title']}: {t['elapsed']}{note_str}"
+                )
+            return "\n".join(lines)
+
+    def set_estimate(
+        self, issue_id: int, hours: float, as_json: bool = False
+    ) -> str:
+        """Set time estimate for an issue.
+
+        Args:
+            issue_id: Issue ID.
+            hours: Estimated hours.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        self.repo.set_estimate(issue_id, hours)
+        result = {
+            "message": f"Estimate set for issue {issue_id}",
+            "issue_id": issue_id,
+            "estimated_hours": hours,
+        }
+        return self.format_output(result, as_json)
+
+    def time_log(self, issue_id: int, as_json: bool = False) -> str:
+        """Show time entries for an issue.
+
+        Args:
+            issue_id: Issue ID.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        entries = self.repo.get_time_entries(issue_id)
+
+        if not entries:
+            result = {"message": f"No time entries for issue {issue_id}", "entries": []}
+            return self.format_output(result, as_json)
+
+        formatted = []
+        total_seconds = 0
+        for entry in entries:
+            duration = entry.get("duration_seconds", 0) or 0
+            total_seconds += duration
+            hours = duration // 3600
+            minutes = (duration % 3600) // 60
+            formatted.append({
+                "id": entry["id"],
+                "started_at": entry.get("started_at"),  # Already a string from SQLite
+                "ended_at": entry.get("ended_at"),
+                "duration": f"{hours}h {minutes}m",
+                "duration_seconds": duration,
+                "note": entry.get("note"),
+                "running": entry.get("ended_at") is None,
+            })
+
+        total_hours = total_seconds // 3600
+        total_minutes = (total_seconds % 3600) // 60
+
+        if as_json:
+            return json.dumps({
+                "issue_id": issue_id,
+                "entries": formatted,
+                "total_seconds": total_seconds,
+                "total_formatted": f"{total_hours}h {total_minutes}m",
+            }, indent=2)
+        else:
+            lines = [f"Time Log for Issue #{issue_id}:", ""]
+            for e in formatted:
+                status = "[RUNNING]" if e["running"] else ""
+                note_str = f" - {e['note']}" if e.get("note") else ""
+                lines.append(f"  {e['started_at']}: {e['duration']}{note_str} {status}")
+            lines.append("")
+            lines.append(f"Total: {total_hours}h {total_minutes}m")
+            return "\n".join(lines)
+
+    def time_report(
+        self, period: str = "all", issue_id: Optional[int] = None, as_json: bool = False
+    ) -> str:
+        """Generate time report.
+
+        Args:
+            period: Time period (all, week, month).
+            issue_id: Optional issue ID to filter by.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        report = self.repo.get_time_report(period, issue_id)
+
+        if as_json:
+            return json.dumps(report, indent=2)
+        else:
+            period_labels = {
+                "all": "All Time", "week": "This Week", "month": "This Month"
+            }
+            period_label = period_labels.get(period, period)
+            lines = [f"Time Report ({period_label})", "=" * 30]
+
+            total_hours = report["total_seconds"] // 3600
+            total_minutes = (report["total_seconds"] % 3600) // 60
+            lines.append(f"Total: {total_hours}h {total_minutes}m")
+            lines.append("")
+
+            if report.get("issues"):
+                lines.append("By Issue:")
+                for item in report["issues"]:
+                    seconds = item.get("total_seconds", 0)
+                    hours = seconds // 3600
+                    minutes = (seconds % 3600) // 60
+                    estimate_str = ""
+                    if item.get("estimated_hours"):
+                        est_h = item['estimated_hours']
+                        if item.get("over_estimate"):
+                            estimate_str = f" (est: {est_h}h) [OVER]"
+                        else:
+                            estimate_str = f" (est: {est_h}h)"
+                    issue_id = item['issue_id']
+                    title = item['title']
+                    lines.append(
+                        f"  #{issue_id} {title}: {hours}h {minutes}m{estimate_str}"
+                    )
+
+            return "\n".join(lines)
+
+    # Dependency management commands
+
+    def block_issue(
+        self, issue_id: int, blocker_id: int, as_json: bool = False
+    ) -> str:
+        """Mark an issue as blocked by another issue.
+
+        Args:
+            issue_id: ID of the issue being blocked.
+            blocker_id: ID of the issue that blocks.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+
+        Raises:
+            ValueError: If issues don't exist or operation is invalid.
+        """
+        try:
+            added = self.repo.add_dependency(issue_id, blocker_id)
+            if added:
+                result = {
+                    "message": f"Issue {issue_id} is now blocked by issue {blocker_id}",
+                    "blocked_id": issue_id,
+                    "blocker_id": blocker_id,
+                }
+            else:
+                result = {
+                    "message": f"Issue {issue_id} is already blocked by issue {blocker_id}",
+                    "blocked_id": issue_id,
+                    "blocker_id": blocker_id,
+                }
+            return self.format_output(result, as_json)
+        except ValueError as e:
+            raise ValueError(str(e)) from e
+
+    def unblock_issue(
+        self, issue_id: int, blocker_id: Optional[int] = None, as_json: bool = False
+    ) -> str:
+        """Remove block relationship(s) from an issue.
+
+        Args:
+            issue_id: ID of the blocked issue.
+            blocker_id: ID of the blocker issue (if None, removes all blockers).
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        count = self.repo.remove_dependency(issue_id, blocker_id)
+
+        if blocker_id:
+            if count > 0:
+                result = {
+                    "message": f"Removed blocker {blocker_id} from issue {issue_id}",
+                    "removed_count": count,
+                }
+            else:
+                result = {
+                    "message": f"No dependency found between issue {issue_id} "
+                               f"and blocker {blocker_id}",
+                    "removed_count": 0,
+                }
+        else:
+            result = {
+                "message": f"Removed {count} blocker(s) from issue {issue_id}",
+                "removed_count": count,
+            }
+
+        return self.format_output(result, as_json)
+
+    def show_dependencies(self, issue_id: int, as_json: bool = False) -> str:
+        """Show dependency graph for an issue.
+
+        Args:
+            issue_id: ID of the issue.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output showing blockers and blocking issues.
+
+        Raises:
+            ValueError: If issue not found.
+        """
+        issue = self.repo.get_issue(issue_id)
+        if not issue:
+            raise ValueError(f"Issue {issue_id} not found")
+
+        blockers = self.repo.get_blockers(issue_id)
+        blocking = self.repo.get_blocking(issue_id)
+        is_blocked = self.repo.is_blocked(issue_id)
+
+        if as_json:
+            result = {
+                "issue_id": issue_id,
+                "title": issue.title,
+                "is_blocked": is_blocked,
+                "blocked_by": [
+                    {
+                        "id": b.id,
+                        "title": b.title,
+                        "status": b.status.value,
+                        "priority": b.priority.value,
+                    }
+                    for b in blockers
+                ],
+                "blocking": [
+                    {
+                        "id": b.id,
+                        "title": b.title,
+                        "status": b.status.value,
+                        "priority": b.priority.value,
+                    }
+                    for b in blocking
+                ],
+            }
+            return json.dumps(result, indent=2)
+        else:
+            lines = []
+            lines.append(f"Dependencies for Issue #{issue_id}: {issue.title}")
+            lines.append("=" * 60)
+            lines.append("")
+
+            if blockers:
+                lines.append(f"Blocked by ({len(blockers)} issue(s)):")
+                for blocker in blockers:
+                    status_marker = "OPEN" if blocker.status != Status.CLOSED else "CLOSED"
+                    lines.append(
+                        f"  - Issue #{blocker.id}: {blocker.title} "
+                        f"[{status_marker}, {blocker.priority.value}]"
+                    )
+                if is_blocked:
+                    lines.append("\nThis issue is BLOCKED (has unresolved blockers)")
+            else:
+                lines.append("Blocked by: None")
+
+            lines.append("")
+
+            if blocking:
+                lines.append(f"Blocking ({len(blocking)} issue(s)):")
+                for blocked in blocking:
+                    status_marker = "OPEN" if blocked.status != Status.CLOSED else "CLOSED"
+                    lines.append(
+                        f"  - Issue #{blocked.id}: {blocked.title} "
+                        f"[{status_marker}, {blocked.priority.value}]"
+                    )
+            else:
+                lines.append("Blocking: None")
+
+            return "\n".join(lines)
+
+    def list_blocked_issues(
+        self, status: Optional[str] = None, as_json: bool = False
+    ) -> str:
+        """List all blocked issues.
+
+        Args:
+            status: Optional filter by status.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        issues = self.repo.get_all_blocked_issues(status=status)
+
+        if as_json:
+            result = []
+            for issue in issues:
+                if issue.id is None:
+                    continue
+                blockers = self.repo.get_blockers(issue.id)
+                issue_dict = issue.to_dict()
+                issue_dict["blockers"] = [
+                    {"id": b.id, "title": b.title, "status": b.status.value}
+                    for b in blockers
+                ]
+                result.append(issue_dict)
+            return json.dumps(result, indent=2)
+        else:
+            if not issues:
+                return "No blocked issues found."
+
+            lines = [f"Found {len(issues)} blocked issue(s):\n"]
+            for issue in issues:
+                if issue.id is None:
+                    continue
+                blockers = self.repo.get_blockers(issue.id)
+                blocker_ids = ", ".join([f"#{b.id}" for b in blockers])
+                lines.append(
+                    f"Issue #{issue.id}: {issue.title} "
+                    f"[{issue.status.value}, {issue.priority.value}]"
+                )
+                lines.append(f"  Blocked by: {blocker_ids}")
+                lines.append("")
+
+            return "\n".join(lines)
+
+    # Code Reference Methods
+    def attach_code_reference(
+        self,
+        issue_id: int,
+        file_spec: str,
+        note: Optional[str] = None,
+        as_json: bool = False,
+    ) -> str:
+        """Attach a code reference to an issue.
+
+        Args:
+            issue_id: ID of the issue.
+            file_spec: File path with optional line number (e.g., "file.py:10" or "file.py:10-20").
+            note: Optional note about the reference.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        # Parse file spec
+        file_path, start_line, end_line = self.repo.parse_file_spec(file_spec)
+
+        ref = self.repo.add_code_reference(
+            issue_id=issue_id,
+            file_path=file_path,
+            start_line=start_line,
+            end_line=end_line,
+            note=note,
+        )
+
+        if as_json:
+            return json.dumps(ref.to_dict(), indent=2)
+        else:
+            lines = ["Code reference added:"]
+            lines.append(f"  Issue: #{issue_id}")
+            lines.append(f"  File: {ref.file_path}")
+            if ref.start_line and ref.end_line:
+                lines.append(f"  Lines: {ref.start_line}-{ref.end_line}")
+            elif ref.start_line:
+                lines.append(f"  Line: {ref.start_line}")
+            if ref.note:
+                lines.append(f"  Note: {ref.note}")
+            return "\n".join(lines)
+
+    def detach_code_reference(
+        self,
+        issue_id: int,
+        file_path: Optional[str] = None,
+        reference_id: Optional[int] = None,
+        as_json: bool = False,
+    ) -> str:
+        """Detach a code reference from an issue.
+
+        Args:
+            issue_id: ID of the issue.
+            file_path: File path to remove references for.
+            reference_id: Specific reference ID to remove.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+
+        Raises:
+            ValueError: If neither file_path nor reference_id provided.
+        """
+        if not file_path and not reference_id:
+            raise ValueError("Must provide --file or --reference-id")
+
+        count = self.repo.remove_code_reference(
+            issue_id=issue_id,
+            file_path=file_path,
+            reference_id=reference_id,
+        )
+
+        if as_json:
+            return json.dumps({"removed_count": count}, indent=2)
+        else:
+            return f"Removed {count} code reference(s) from issue #{issue_id}"
+
+    def list_code_references(self, issue_id: int, as_json: bool = False) -> str:
+        """List all code references for an issue.
+
+        Args:
+            issue_id: ID of the issue.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        refs = self.repo.get_code_references(issue_id)
+
+        if as_json:
+            return json.dumps([ref.to_dict() for ref in refs], indent=2)
+        else:
+            if not refs:
+                return "No code references found."
+
+            lines = [f"Code references for issue #{issue_id}:"]
+            for ref in refs:
+                lines.append(f"\n  File: {ref.file_path}")
+                if ref.start_line and ref.end_line:
+                    lines.append(f"  Lines: {ref.start_line}-{ref.end_line}")
+                elif ref.start_line:
+                    lines.append(f"  Line: {ref.start_line}")
+                if ref.note:
+                    lines.append(f"  Note: {ref.note}")
+            return "\n".join(lines)
+
+    def list_affected_issues(self, file_path: str, as_json: bool = False) -> str:
+        """List issues that reference a specific file.
+
+        Args:
+            file_path: File path to search for.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        issues = self.repo.get_issues_by_file(file_path)
+
+        if as_json:
+            return json.dumps([issue.to_dict() for issue in issues], indent=2)
+        else:
+            if not issues:
+                return f"No issues found referencing {file_path}"
+
+            lines = [f"Issues referencing {file_path}:"]
+            for issue in issues:
+                lines.append(
+                    f"  - Issue #{issue.id}: {issue.title} "
+                    f"[{issue.status.value}, {issue.priority.value}]"
+                )
+            return "\n".join(lines)
+
+    # Bulk Pattern Methods
+    def bulk_close_pattern(
+        self,
+        title_pattern: Optional[str] = None,
+        desc_pattern: Optional[str] = None,
+        use_regex: bool = False,
+        dry_run: bool = False,
+        as_json: bool = False,
+    ) -> str:
+        """Close issues matching a pattern.
+
+        Args:
+            title_pattern: Pattern to match against title.
+            desc_pattern: Pattern to match against description.
+            use_regex: If True, patterns are regex; if False, glob patterns.
+            dry_run: If True, only show what would be done.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        closed = self.repo.bulk_close_by_pattern(
+            title_pattern=title_pattern,
+            desc_pattern=desc_pattern,
+            use_regex=use_regex,
+            dry_run=dry_run,
+        )
+
+        count = len(closed)
+        if dry_run:
+            message = f"Would close {count} issue(s) (dry-run)"
+        else:
+            message = f"Closed {count} issue(s)"
+
+        if as_json:
+            result = {
+                "count": count,
+                "message": message,
+                "issues": [issue.to_dict() for issue in closed],
+            }
+            return json.dumps(result, indent=2)
+        else:
+            lines = [message]
+            if closed:
+                for issue in closed:
+                    lines.append(f"  - Issue #{issue.id}: {issue.title}")
+            return "\n".join(lines)
+
+    def bulk_update_pattern(
+        self,
+        title_pattern: Optional[str] = None,
+        desc_pattern: Optional[str] = None,
+        use_regex: bool = False,
+        new_status: Optional[str] = None,
+        new_priority: Optional[str] = None,
+        dry_run: bool = False,
+        as_json: bool = False,
+    ) -> str:
+        """Update issues matching a pattern.
+
+        Args:
+            title_pattern: Pattern to match against title.
+            desc_pattern: Pattern to match against description.
+            use_regex: If True, patterns are regex; if False, glob patterns.
+            new_status: New status to set.
+            new_priority: New priority to set.
+            dry_run: If True, only show what would be done.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        updated = self.repo.bulk_update_by_pattern(
+            title_pattern=title_pattern,
+            desc_pattern=desc_pattern,
+            use_regex=use_regex,
+            new_status=new_status,
+            new_priority=new_priority,
+            dry_run=dry_run,
+        )
+
+        count = len(updated)
+        if dry_run:
+            message = f"Would update {count} issue(s) (dry-run)"
+        else:
+            message = f"Updated {count} issue(s)"
+
+        if as_json:
+            result = {
+                "count": count,
+                "message": message,
+                "issues": [issue.to_dict() for issue in updated],
+            }
+            return json.dumps(result, indent=2)
+        else:
+            lines = [message]
+            if updated:
+                for issue in updated:
+                    lines.append(f"  - Issue #{issue.id}: {issue.title}")
+            return "\n".join(lines)
+
+    def bulk_delete_pattern(
+        self,
+        title_pattern: Optional[str] = None,
+        desc_pattern: Optional[str] = None,
+        use_regex: bool = False,
+        confirm: bool = False,
+        dry_run: bool = False,
+        as_json: bool = False,
+    ) -> str:
+        """Delete issues matching a pattern.
+
+        Args:
+            title_pattern: Pattern to match against title.
+            desc_pattern: Pattern to match against description.
+            use_regex: If True, patterns are regex; if False, glob patterns.
+            confirm: Must be True to actually delete (unless dry_run is True).
+            dry_run: If True, only show what would be done.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+
+        Raises:
+            ValueError: If confirm is False and dry_run is False.
+        """
+        if not confirm and not dry_run:
+            raise ValueError("Must use --confirm flag to delete issues (or use --dry-run)")
+
+        deleted = self.repo.bulk_delete_by_pattern(
+            title_pattern=title_pattern,
+            desc_pattern=desc_pattern,
+            use_regex=use_regex,
+            dry_run=dry_run,
+        )
+
+        count = len(deleted)
+        if dry_run:
+            message = f"Would delete {count} issue(s) (dry-run)"
+        else:
+            message = f"Deleted {count} issue(s)"
+
+        if as_json:
+            result = {
+                "count": count,
+                "message": message,
+                "issues": [issue.to_dict() for issue in deleted],
+            }
+            return json.dumps(result, indent=2)
+        else:
+            lines = [message]
+            if deleted:
+                for issue in deleted:
+                    lines.append(f"  - Issue #{issue.id}: {issue.title}")
+            return "\n".join(lines)
 
 
 def main() -> None:
@@ -1246,6 +2138,58 @@ def main() -> None:
         "--compact",
         action="store_true",
         help="Minimal output (just issue + comments)",
+    )
+
+
+    # Workspace command
+    subparsers.add_parser("workspace", help="Show current workspace status")
+
+    # Start command
+    start_parser = subparsers.add_parser("start", help="Start working on an issue")
+    start_parser.add_argument("issue_id", type=int, help="Issue ID to start working on")
+
+    # Stop command
+    stop_parser = subparsers.add_parser("stop", help="Stop working on active issue")
+    stop_parser.add_argument(
+        "--close",
+        action="store_true",
+        help="Also close the issue when stopping",
+    )
+
+    # Active command
+    subparsers.add_parser("active", help="Show currently active issue")
+
+    # Block command
+    block_parser = subparsers.add_parser("block", help="Mark an issue as blocked by another issue")
+    block_parser.add_argument("issue_id", type=int, help="ID of the issue being blocked")
+    block_parser.add_argument(
+        "--by",
+        type=int,
+        required=True,
+        dest="blocker_id",
+        help="ID of the issue that blocks",
+    )
+
+    # Unblock command
+    unblock_parser = subparsers.add_parser(
+        "unblock", help="Remove block relationship(s) from an issue"
+    )
+    unblock_parser.add_argument("issue_id", type=int, help="ID of the blocked issue")
+    unblock_parser.add_argument(
+        "--by",
+        type=int,
+        dest="blocker_id",
+        help="ID of the blocker issue (if not specified, removes all blockers)",
+    )
+
+    # Deps command
+    deps_parser = subparsers.add_parser("deps", help="Show dependency graph for an issue")
+    deps_parser.add_argument("issue_id", type=int, help="Issue ID")
+
+    # Blocked command
+    blocked_parser = subparsers.add_parser("blocked", help="List all blocked issues")
+    blocked_parser.add_argument(
+        "-s", "--status", help="Filter by status (open, in-progress, closed)"
     )
 
     args = parser.parse_args()
@@ -1498,6 +2442,53 @@ def main() -> None:
             )
             print(result)
 
+
+        elif args.command == "block":
+            result = cli.block_issue(
+                issue_id=args.issue_id,
+                blocker_id=args.blocker_id,
+                as_json=args.json,
+            )
+            print(result)
+
+        elif args.command == "unblock":
+            result = cli.unblock_issue(
+                issue_id=args.issue_id,
+                blocker_id=args.blocker_id,
+                as_json=args.json,
+            )
+            print(result)
+
+        elif args.command == "deps":
+            result = cli.show_dependencies(
+                issue_id=args.issue_id,
+                as_json=args.json,
+            )
+            print(result)
+
+        elif args.command == "blocked":
+            result = cli.list_blocked_issues(
+                status=args.status,
+                as_json=args.json,
+            )
+            print(result)
+
+
+        elif args.command == "workspace":
+            result = cli.workspace_status(as_json=args.json)
+            print(result)
+
+        elif args.command == "start":
+            result = cli.start_issue_workspace(args.issue_id, as_json=args.json)
+            print(result)
+
+        elif args.command == "stop":
+            result = cli.stop_issue_workspace(close=args.close, as_json=args.json)
+            print(result)
+
+        elif args.command == "active":
+            result = cli.get_active_issue_workspace(as_json=args.json)
+            print(result)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

@@ -1,11 +1,16 @@
 """Repository layer for issue CRUD operations."""
 
+import contextlib
+import fnmatch
 import json
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+import os
+import re
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
 from issuedb.database import get_database
-from issuedb.models import AuditLog, Comment, Issue, Priority, Status
+from issuedb.date_utils import parse_date, validate_date_range
+from issuedb.models import AuditLog, CodeReference, Comment, Issue, IssueTemplate, Priority, Status
 
 
 class IssueRepository:
@@ -370,10 +375,27 @@ class IssueRepository:
 
             return [self._row_to_issue(row) for row in rows]
 
+
+    def get_all_issues(self) -> List[Issue]:
+        """Get all issues without any filters or pagination.
+
+        Returns:
+            List of all issues in the database.
+        """
+        query = "SELECT * FROM issues ORDER BY created_at DESC"
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+            return [self._row_to_issue(row) for row in rows]
     def get_next_issue(
         self, status: Optional[str] = None, log_fetch: bool = True
     ) -> Optional[Issue]:
         """Get the next issue based on priority and creation date (FIFO within priority).
+
+        Skips issues that are blocked by unresolved (open/in-progress) issues.
 
         Args:
             status: Filter by status (defaults to 'open' if not specified).
@@ -396,6 +418,16 @@ class IssueRepository:
         else:
             query += " AND status = ?"
             params.append(Status.OPEN.value)
+
+        # Exclude blocked issues (issues with unresolved blockers)
+        query += """
+            AND id NOT IN (
+                SELECT DISTINCT d.blocked_id
+                FROM issue_dependencies d
+                INNER JOIN issues blocker ON blocker.id = d.blocker_id
+                WHERE blocker.status != 'closed'
+            )
+        """
 
         # Order by priority (critical first) then by creation date (FIFO)
         query += """
@@ -587,7 +619,7 @@ class IssueRepository:
 
             return issues
 
-    def get_summary(self) -> dict:
+    def get_summary(self) -> dict[str, Any]:
         """Get summary statistics of issues.
 
         Returns:
@@ -649,7 +681,7 @@ class IssueRepository:
                 "priority_percentages": priority_percentages,
             }
 
-    def get_report(self, group_by: str = "status") -> dict:
+    def get_report(self, group_by: str = "status") -> dict[str, Any]:
         """Get detailed report of issues grouped by status or priority.
 
         Args:
@@ -700,7 +732,7 @@ class IssueRepository:
 
         return result
 
-    def bulk_create_issues(self, issues_data: List[dict]) -> List[Issue]:
+    def bulk_create_issues(self, issues_data: List[dict[str, Any]]) -> List[Issue]:
         """Bulk create multiple issues from JSON data.
 
         Args:
@@ -758,7 +790,7 @@ class IssueRepository:
 
         return created_issues
 
-    def bulk_update_issues_from_json(self, updates_data: List[dict]) -> List[Issue]:
+    def bulk_update_issues_from_json(self, updates_data: List[dict[str, Any]]) -> List[Issue]:
         """Bulk update multiple specific issues from JSON data.
 
         Args:
@@ -911,6 +943,194 @@ class IssueRepository:
             cursor.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
             return cursor.rowcount > 0
 
+    def find_by_pattern(
+        self,
+        title_pattern: Optional[str] = None,
+        desc_pattern: Optional[str] = None,
+        use_regex: bool = False,
+        case_sensitive: bool = False,
+    ) -> List[Issue]:
+        """Find issues matching title and/or description patterns.
+
+        Args:
+            title_pattern: Pattern to match against title (glob or regex).
+            desc_pattern: Pattern to match against description (glob or regex).
+            use_regex: If True, patterns are regex; if False, glob patterns.
+            case_sensitive: If True, matching is case-sensitive.
+
+        Returns:
+            List of matching issues.
+        """
+        all_issues = self.get_all_issues()
+        matching_issues = []
+
+        for issue in all_issues:
+            title_match = True
+            desc_match = True
+
+            # Match title if pattern provided
+            if title_pattern:
+                title_text = issue.title if case_sensitive else issue.title.lower()
+                pattern = title_pattern if case_sensitive else title_pattern.lower()
+
+                if use_regex:
+                    flags = 0 if case_sensitive else re.IGNORECASE
+                    title_match = bool(re.search(pattern, issue.title, flags=flags))
+                else:
+                    title_match = fnmatch.fnmatch(title_text, pattern)
+
+            # Match description if pattern provided
+            if desc_pattern and issue.description:
+                desc_text = issue.description if case_sensitive else issue.description.lower()
+                pattern = desc_pattern if case_sensitive else desc_pattern.lower()
+
+                if use_regex:
+                    flags = 0 if case_sensitive else re.IGNORECASE
+                    desc_match = bool(re.search(pattern, issue.description, flags=flags))
+                else:
+                    desc_match = fnmatch.fnmatch(desc_text, pattern)
+            elif desc_pattern and not issue.description:
+                desc_match = False
+
+            # Include issue if both patterns match (or pattern not provided)
+            if title_match and desc_match:
+                matching_issues.append(issue)
+
+        return matching_issues
+
+    def bulk_close_by_pattern(
+        self,
+        title_pattern: Optional[str] = None,
+        desc_pattern: Optional[str] = None,
+        use_regex: bool = False,
+        case_sensitive: bool = False,
+        dry_run: bool = False,
+    ) -> List[Issue]:
+        """Close issues matching the pattern.
+
+        Args:
+            title_pattern: Pattern to match against title.
+            desc_pattern: Pattern to match against description.
+            use_regex: If True, patterns are regex; if False, glob patterns.
+            case_sensitive: If True, matching is case-sensitive.
+            dry_run: If True, return matches without making changes.
+
+        Returns:
+            List of issues that were (or would be) closed.
+        """
+        matching_issues = self.find_by_pattern(
+            title_pattern=title_pattern,
+            desc_pattern=desc_pattern,
+            use_regex=use_regex,
+            case_sensitive=case_sensitive,
+        )
+
+        if dry_run:
+            return matching_issues
+
+        # Close all matching issues
+        closed_issues = []
+        for issue in matching_issues:
+            assert issue.id is not None  # Issues from DB always have ID
+            updated_issue = self.update_issue(issue.id, status="closed")
+            if updated_issue:
+                closed_issues.append(updated_issue)
+
+        return closed_issues
+
+    def bulk_update_by_pattern(
+        self,
+        title_pattern: Optional[str] = None,
+        desc_pattern: Optional[str] = None,
+        use_regex: bool = False,
+        case_sensitive: bool = False,
+        new_status: Optional[str] = None,
+        new_priority: Optional[str] = None,
+        dry_run: bool = False,
+    ) -> List[Issue]:
+        """Update issues matching the pattern.
+
+        Args:
+            title_pattern: Pattern to match against title.
+            desc_pattern: Pattern to match against description.
+            use_regex: If True, patterns are regex; if False, glob patterns.
+            case_sensitive: If True, matching is case-sensitive.
+            new_status: New status to set.
+            new_priority: New priority to set.
+            dry_run: If True, return matches without making changes.
+
+        Returns:
+            List of issues that were (or would be) updated.
+        """
+        matching_issues = self.find_by_pattern(
+            title_pattern=title_pattern,
+            desc_pattern=desc_pattern,
+            use_regex=use_regex,
+            case_sensitive=case_sensitive,
+        )
+
+        if dry_run:
+            return matching_issues
+
+        # Update all matching issues
+        updated_issues = []
+        updates = {}
+        if new_status:
+            updates["status"] = new_status
+        if new_priority:
+            updates["priority"] = new_priority
+
+        if not updates:
+            return []  # No updates to apply
+
+        for issue in matching_issues:
+            assert issue.id is not None  # Issues from DB always have ID
+            updated_issue = self.update_issue(issue.id, **updates)
+            if updated_issue:
+                updated_issues.append(updated_issue)
+
+        return updated_issues
+
+    def bulk_delete_by_pattern(
+        self,
+        title_pattern: Optional[str] = None,
+        desc_pattern: Optional[str] = None,
+        use_regex: bool = False,
+        case_sensitive: bool = False,
+        dry_run: bool = False,
+    ) -> List[Issue]:
+        """Delete issues matching the pattern.
+
+        Args:
+            title_pattern: Pattern to match against title.
+            desc_pattern: Pattern to match against description.
+            use_regex: If True, patterns are regex; if False, glob patterns.
+            case_sensitive: If True, matching is case-sensitive.
+            dry_run: If True, return matches without making changes.
+
+        Returns:
+            List of issues that were (or would be) deleted.
+        """
+        matching_issues = self.find_by_pattern(
+            title_pattern=title_pattern,
+            desc_pattern=desc_pattern,
+            use_regex=use_regex,
+            case_sensitive=case_sensitive,
+        )
+
+        if dry_run:
+            return matching_issues
+
+        # Delete all matching issues
+        deleted_issues = []
+        for issue in matching_issues:
+            assert issue.id is not None  # Issues from DB always have ID
+            # Store issue before deletion
+            deleted_issues.append(issue)
+            self.delete_issue(issue.id)
+
+        return deleted_issues
+
     def _row_to_issue(self, row: Any) -> Issue:
         """Convert a database row to an Issue object.
 
@@ -928,4 +1148,1507 @@ class IssueRepository:
             status=Status.from_string(row["status"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    def parse_file_spec(self, file_spec: str) -> Tuple[str, Optional[int], Optional[int]]:
+        """Parse file specification with optional line numbers.
+
+        Supports formats:
+        - path/to/file.py
+        - path/to/file.py:45
+        - path/to/file.py:45-60
+
+        Args:
+            file_spec: File specification string.
+
+        Returns:
+            Tuple of (file_path, start_line, end_line).
+
+        Raises:
+            ValueError: If format is invalid.
+        """
+        # Split by colon to separate path and line numbers
+        parts = file_spec.rsplit(":", 1)
+        file_path = parts[0]
+
+        start_line: Optional[int] = None
+        end_line: Optional[int] = None
+
+        if len(parts) == 2:
+            line_spec = parts[1]
+            # Check if it's a range (start-end)
+            if "-" in line_spec:
+                line_parts = line_spec.split("-", 1)
+                try:
+                    start_line = int(line_parts[0])
+                    end_line = int(line_parts[1])
+                    if start_line > end_line:
+                        raise ValueError(
+                            f"Invalid line range: {start_line}-{end_line} "
+                            "(start line must be <= end line)"
+                        )
+                except ValueError as e:
+                    if "invalid literal" in str(e):
+                        raise ValueError(f"Invalid line range format: {line_spec}") from e
+                    raise
+            else:
+                # Single line number
+                try:
+                    start_line = int(line_spec)
+                    end_line = None
+                except ValueError as e:
+                    raise ValueError(f"Invalid line number: {line_spec}") from e
+
+        return file_path, start_line, end_line
+
+    def add_code_reference(
+        self,
+        issue_id: int,
+        file_path: str,
+        start_line: Optional[int] = None,
+        end_line: Optional[int] = None,
+        note: Optional[str] = None,
+        validate_file: bool = True,
+    ) -> CodeReference:
+        """Add a code reference to an issue.
+
+        Args:
+            issue_id: ID of the issue.
+            file_path: Path to the file (relative or absolute).
+            start_line: Optional starting line number.
+            end_line: Optional ending line number.
+            note: Optional note about this reference.
+            validate_file: If True, validate that file exists.
+
+        Returns:
+            Created CodeReference object.
+
+        Raises:
+            ValueError: If issue not found or file doesn't exist (when validate_file=True).
+        """
+        # Verify issue exists
+        issue = self.get_issue(issue_id)
+        if not issue:
+            raise ValueError(f"Issue {issue_id} not found")
+
+        # Validate line numbers
+        if start_line is not None and start_line < 1:
+            raise ValueError("Line numbers must be >= 1")
+        if end_line is not None and end_line < 1:
+            raise ValueError("Line numbers must be >= 1")
+        if start_line is not None and end_line is not None and start_line > end_line:
+            raise ValueError("start_line must be <= end_line")
+
+        # Convert to relative path if absolute
+        if os.path.isabs(file_path):
+            with contextlib.suppress(ValueError):
+                file_path = os.path.relpath(file_path)
+
+        # Validate file exists if requested
+        if validate_file and not os.path.exists(file_path):
+            raise ValueError(f"File not found: {file_path}")
+
+        code_ref = CodeReference(
+            issue_id=issue_id,
+            file_path=file_path,
+            start_line=start_line,
+            end_line=end_line,
+            note=note,
+        )
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO code_references
+                (issue_id, file_path, start_line, end_line, note, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    code_ref.issue_id,
+                    code_ref.file_path,
+                    code_ref.start_line,
+                    code_ref.end_line,
+                    code_ref.note,
+                    code_ref.created_at.isoformat(),
+                ),
+            )
+            code_ref.id = cursor.lastrowid
+
+        return code_ref
+
+    def remove_code_reference(
+        self,
+        issue_id: int,
+        file_path: Optional[str] = None,
+        reference_id: Optional[int] = None,
+    ) -> int:
+        """Remove code reference(s) from an issue.
+
+        Args:
+            issue_id: ID of the issue.
+            file_path: Optional file path to remove (removes all refs to this file).
+            reference_id: Optional specific reference ID to remove.
+
+        Returns:
+            Number of references removed.
+
+        Raises:
+            ValueError: If neither file_path nor reference_id is provided.
+        """
+        if file_path is None and reference_id is None:
+            raise ValueError("Must provide either file_path or reference_id")
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if reference_id is not None:
+                # Remove specific reference
+                cursor.execute(
+                    "DELETE FROM code_references WHERE id = ? AND issue_id = ?",
+                    (reference_id, issue_id),
+                )
+            else:
+                # Remove all references to file_path
+                # Convert to relative path if absolute for comparison
+                if file_path and os.path.isabs(file_path):
+                    with contextlib.suppress(ValueError):
+                        file_path = os.path.relpath(file_path)
+
+                cursor.execute(
+                    "DELETE FROM code_references WHERE issue_id = ? AND file_path = ?",
+                    (issue_id, file_path),
+                )
+
+            return cursor.rowcount
+
+    def get_code_references(self, issue_id: int) -> List[CodeReference]:
+        """Get all code references for an issue.
+
+        Args:
+            issue_id: ID of the issue.
+
+        Returns:
+            List of CodeReference objects.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM code_references
+                WHERE issue_id = ?
+                ORDER BY created_at ASC
+            """,
+                (issue_id,),
+            )
+            rows = cursor.fetchall()
+
+            references = []
+            for row in rows:
+                ref = CodeReference(
+                    id=row["id"],
+                    issue_id=row["issue_id"],
+                    file_path=row["file_path"],
+                    start_line=row["start_line"],
+                    end_line=row["end_line"],
+                    note=row["note"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+                references.append(ref)
+
+            return references
+
+    def get_issues_by_file(self, file_path: str) -> List[Issue]:
+        """Get all issues that reference a specific file.
+
+        Args:
+            file_path: Path to the file.
+
+        Returns:
+            List of Issue objects that reference this file.
+        """
+        # Convert to relative path if absolute for comparison
+        if os.path.isabs(file_path):
+            with contextlib.suppress(ValueError):
+                file_path = os.path.relpath(file_path)
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT DISTINCT i.*
+                FROM issues i
+                JOIN code_references cr ON i.id = cr.issue_id
+                WHERE cr.file_path = ?
+                ORDER BY i.created_at DESC
+            """,
+                (file_path,),
+            )
+            rows = cursor.fetchall()
+
+            return [self._row_to_issue(row) for row in rows]
+
+    # Dependency management methods
+
+    def add_dependency(self, blocked_id: int, blocker_id: int) -> bool:
+        """Add a dependency relationship between issues.
+
+        Args:
+            blocked_id: ID of the issue being blocked.
+            blocker_id: ID of the issue that blocks.
+
+        Returns:
+            True if dependency was added, False if it already exists.
+
+        Raises:
+            ValueError: If either issue doesn't exist or if adding would create a cycle.
+        """
+        # Verify both issues exist
+        blocked_issue = self.get_issue(blocked_id)
+        blocker_issue = self.get_issue(blocker_id)
+
+        if not blocked_issue:
+            raise ValueError(f"Blocked issue {blocked_id} not found")
+        if not blocker_issue:
+            raise ValueError(f"Blocker issue {blocker_id} not found")
+
+        # Prevent self-blocking
+        if blocked_id == blocker_id:
+            raise ValueError("Issue cannot block itself")
+
+        # Check for cycles (would blocker_id be blocked by blocked_id?)
+        if self._would_create_cycle(blocked_id, blocker_id):
+            raise ValueError(
+                f"Adding this dependency would create a cycle: "
+                f"issue {blocker_id} is already transitively blocked by issue {blocked_id}"
+            )
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO issue_dependencies (blocker_id, blocked_id)
+                    VALUES (?, ?)
+                """,
+                    (blocker_id, blocked_id),
+                )
+                return True
+            except Exception as e:
+                # Check if it's a unique constraint violation
+                if "UNIQUE constraint failed" in str(e):
+                    return False
+                raise
+
+    def remove_dependency(
+        self, blocked_id: int, blocker_id: Optional[int] = None
+    ) -> int:
+        """Remove dependency relationship(s) for an issue.
+
+        Args:
+            blocked_id: ID of the blocked issue.
+            blocker_id: ID of the blocker issue. If None, removes all blockers.
+
+        Returns:
+            Number of dependencies removed.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if blocker_id is not None:
+                cursor.execute(
+                    """
+                    DELETE FROM issue_dependencies
+                    WHERE blocked_id = ? AND blocker_id = ?
+                """,
+                    (blocked_id, blocker_id),
+                )
+            else:
+                cursor.execute(
+                    """
+                    DELETE FROM issue_dependencies
+                    WHERE blocked_id = ?
+                """,
+                    (blocked_id,),
+                )
+
+            return cursor.rowcount
+
+    def get_blockers(self, issue_id: int) -> List[Issue]:
+        """Get all issues blocking this issue.
+
+        Args:
+            issue_id: ID of the issue.
+
+        Returns:
+            List of Issue objects that are blocking this issue.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT i.* FROM issues i
+                INNER JOIN issue_dependencies d ON i.id = d.blocker_id
+                WHERE d.blocked_id = ?
+                ORDER BY
+                    CASE i.priority
+                        WHEN 'critical' THEN 1
+                        WHEN 'high' THEN 2
+                        WHEN 'medium' THEN 3
+                        WHEN 'low' THEN 4
+                    END,
+                    i.created_at ASC
+            """,
+                (issue_id,),
+            )
+            rows = cursor.fetchall()
+            return [self._row_to_issue(row) for row in rows]
+
+    def get_blocking(self, issue_id: int) -> List[Issue]:
+        """Get all issues that this issue is blocking.
+
+        Args:
+            issue_id: ID of the issue.
+
+        Returns:
+            List of Issue objects that are blocked by this issue.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT i.* FROM issues i
+                INNER JOIN issue_dependencies d ON i.id = d.blocked_id
+                WHERE d.blocker_id = ?
+                ORDER BY
+                    CASE i.priority
+                        WHEN 'critical' THEN 1
+                        WHEN 'high' THEN 2
+                        WHEN 'medium' THEN 3
+                        WHEN 'low' THEN 4
+                    END,
+                    i.created_at ASC
+            """,
+                (issue_id,),
+            )
+            rows = cursor.fetchall()
+            return [self._row_to_issue(row) for row in rows]
+
+    def is_blocked(self, issue_id: int) -> bool:
+        """Check if an issue has unresolved blockers.
+
+        Args:
+            issue_id: ID of the issue.
+
+        Returns:
+            True if the issue has at least one open/in-progress blocker.
+        """
+        blockers = self.get_blockers(issue_id)
+        # Issue is blocked if it has any blocker that is not closed
+        return any(blocker.status != Status.CLOSED for blocker in blockers)
+
+    def get_all_blocked_issues(
+        self, status: Optional[str] = None
+    ) -> List[Issue]:
+        """Get all issues that are currently blocked.
+
+        Args:
+            status: Optional filter by status.
+
+        Returns:
+            List of Issue objects that have unresolved blockers.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get all issues with dependencies
+            query = """
+                SELECT DISTINCT i.* FROM issues i
+                INNER JOIN issue_dependencies d ON i.id = d.blocked_id
+                INNER JOIN issues blocker ON blocker.id = d.blocker_id
+                WHERE blocker.status != 'closed'
+            """
+            params: List[Any] = []
+
+            if status:
+                Status.from_string(status)  # Validate status
+                query += " AND i.status = ?"
+                params.append(status.lower())
+
+            query += """
+                ORDER BY
+                    CASE i.priority
+                        WHEN 'critical' THEN 1
+                        WHEN 'high' THEN 2
+                        WHEN 'medium' THEN 3
+                        WHEN 'low' THEN 4
+                    END,
+                    i.created_at ASC
+            """
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [self._row_to_issue(row) for row in rows]
+
+    def _would_create_cycle(self, blocked_id: int, blocker_id: int) -> bool:
+        """Check if adding a dependency would create a cycle.
+
+        A cycle would be created if blocker_id is already (transitively)
+        blocked by blocked_id.
+
+        Args:
+            blocked_id: ID of the issue to be blocked.
+            blocker_id: ID of the potential blocker.
+
+        Returns:
+            True if adding this dependency would create a cycle.
+        """
+        # Check if blocker_id is blocked by blocked_id (directly or transitively)
+        visited = set()
+        to_check = [blocker_id]
+
+        while to_check:
+            current = to_check.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+
+            # If we find blocked_id in the blocker chain, we have a cycle
+            if current == blocked_id:
+                return True
+
+            # Add all blockers of current issue to check
+            blockers = self.get_blockers(current)
+            for blocker in blockers:
+                if blocker.id and blocker.id not in visited:
+                    to_check.append(blocker.id)
+
+        return False
+
+    def search_issues_advanced(
+        self,
+        keyword: Optional[str] = None,
+        created_after: Optional[str] = None,
+        created_before: Optional[str] = None,
+        updated_after: Optional[str] = None,
+        updated_before: Optional[str] = None,
+        priorities: Optional[List[str]] = None,
+        statuses: Optional[List[str]] = None,
+        sort_by: str = "created",
+        order: str = "desc",
+        limit: Optional[int] = None,
+    ) -> List[Issue]:
+        """Advanced search for issues with multiple filters and sorting.
+
+        Args:
+            keyword: Search keyword for title and description.
+            created_after: Issues created after this date (supports relative dates).
+            created_before: Issues created before this date (supports relative dates).
+            updated_after: Issues updated after this date (supports relative dates).
+            updated_before: Issues updated before this date (supports relative dates).
+            priorities: List of priority values to filter by.
+            statuses: List of status values to filter by.
+            sort_by: Field to sort by ('created', 'updated', 'priority').
+            order: Sort order ('asc' or 'desc').
+            limit: Maximum number of results.
+
+        Returns:
+            List of matching issues.
+
+        Raises:
+            ValueError: If invalid parameters are provided.
+        """
+        # Parse date strings
+        created_after_dt = parse_date(created_after) if created_after else None
+        created_before_dt = parse_date(created_before) if created_before else None
+        updated_after_dt = parse_date(updated_after) if updated_after else None
+        updated_before_dt = parse_date(updated_before) if updated_before else None
+
+        # Validate date ranges
+        validate_date_range(created_after_dt, created_before_dt)
+        validate_date_range(updated_after_dt, updated_before_dt)
+
+        # Validate priorities and statuses
+        if priorities:
+            for p in priorities:
+                Priority.from_string(p)  # Will raise ValueError if invalid
+
+        if statuses:
+            for s in statuses:
+                Status.from_string(s)  # Will raise ValueError if invalid
+
+        # Validate sort parameters
+        if sort_by not in ["created", "updated", "priority"]:
+            raise ValueError(
+                f"Invalid sort_by: {sort_by}. Must be 'created', 'updated', or 'priority'"
+            )
+
+        if order not in ["asc", "desc"]:
+            raise ValueError(f"Invalid order: {order}. Must be 'asc' or 'desc'")
+
+        # Build query
+        query = "SELECT * FROM issues WHERE 1=1"
+        params: List[Any] = []
+
+        # Keyword search
+        if keyword:
+            query += " AND (title LIKE ? OR description LIKE ?)"
+            params.extend([f"%{keyword}%", f"%{keyword}%"])
+
+        # Date filters
+        if created_after_dt:
+            query += " AND created_at >= ?"
+            params.append(created_after_dt.isoformat())
+
+        if created_before_dt:
+            query += " AND created_at <= ?"
+            params.append(created_before_dt.isoformat())
+
+        if updated_after_dt:
+            query += " AND updated_at >= ?"
+            params.append(updated_after_dt.isoformat())
+
+        if updated_before_dt:
+            query += " AND updated_at <= ?"
+            params.append(updated_before_dt.isoformat())
+
+        # Priority filter
+        if priorities:
+            placeholders = ",".join(["?"] * len(priorities))
+            query += f" AND priority IN ({placeholders})"
+            params.extend([p.lower() for p in priorities])
+
+        # Status filter
+        if statuses:
+            placeholders = ",".join(["?"] * len(statuses))
+            query += f" AND status IN ({placeholders})"
+            params.extend([s.lower() for s in statuses])
+
+        # Sorting
+        if sort_by == "created":
+            query += f" ORDER BY created_at {order.upper()}"
+        elif sort_by == "updated":
+            query += f" ORDER BY updated_at {order.upper()}"
+        elif sort_by == "priority":
+            # Custom priority ordering
+            if order == "desc":
+                query += """
+                    ORDER BY
+                        CASE priority
+                            WHEN 'critical' THEN 1
+                            WHEN 'high' THEN 2
+                            WHEN 'medium' THEN 3
+                            WHEN 'low' THEN 4
+                        END ASC
+                """
+            else:
+                query += """
+                    ORDER BY
+                        CASE priority
+                            WHEN 'critical' THEN 1
+                            WHEN 'high' THEN 2
+                            WHEN 'medium' THEN 3
+                            WHEN 'low' THEN 4
+                        END DESC
+                """
+
+        # Limit
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        # Execute query
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            return [self._row_to_issue(row) for row in rows]
+
+    def save_search(self, name: str, search_params: Dict[str, Any]) -> int:
+        """Save a search query for later reuse.
+
+        Args:
+            name: Unique name for the saved search.
+            search_params: Dictionary of search parameters.
+
+        Returns:
+            ID of the saved search.
+
+        Raises:
+            ValueError: If name already exists or is invalid.
+        """
+        if not name or not name.strip():
+            raise ValueError("Search name cannot be empty")
+
+        # Convert params to JSON
+        query_json = json.dumps(search_params)
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO saved_searches (name, query_json)
+                    VALUES (?, ?)
+                """,
+                    (name.strip(), query_json),
+                )
+                # lastrowid should never be None after successful INSERT
+                return cursor.lastrowid or 0
+            except Exception as e:
+                if "UNIQUE constraint failed" in str(e):
+                    raise ValueError(f"A saved search with name '{name}' already exists") from e
+                raise
+
+    def get_saved_search(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get a saved search by name.
+
+        Args:
+            name: Name of the saved search.
+
+        Returns:
+            Dictionary with saved search details, or None if not found.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM saved_searches WHERE name = ?
+            """,
+                (name,),
+            )
+            row = cursor.fetchone()
+
+            if row:
+                return {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "query_params": json.loads(row["query_json"]),
+                    "created_at": datetime.fromisoformat(row["created_at"]),
+                }
+            return None
+
+    def list_saved_searches(self) -> List[Dict[str, Any]]:
+        """List all saved searches.
+
+        Returns:
+            List of saved search dictionaries.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM saved_searches ORDER BY name ASC
+            """
+            )
+            rows = cursor.fetchall()
+
+            searches = []
+            for row in rows:
+                searches.append(
+                    {
+                        "id": row["id"],
+                        "name": row["name"],
+                        "query_params": json.loads(row["query_json"]),
+                        "created_at": datetime.fromisoformat(row["created_at"]),
+                    }
+                )
+
+            return searches
+
+    def delete_saved_search(self, name: str) -> bool:
+        """Delete a saved search.
+
+        Args:
+            name: Name of the saved search to delete.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM saved_searches WHERE name = ?", (name,))
+            return cursor.rowcount > 0
+
+    def run_saved_search(self, name: str) -> List[Issue]:
+        """Execute a saved search.
+
+        Args:
+            name: Name of the saved search.
+
+        Returns:
+            List of matching issues.
+
+        Raises:
+            ValueError: If saved search not found.
+        """
+        saved_search = self.get_saved_search(name)
+        if not saved_search:
+            raise ValueError(f"Saved search '{name}' not found")
+
+        # Execute the search with saved parameters
+        return self.search_issues_advanced(**saved_search["query_params"])
+
+    # Workspace methods
+
+    def get_active_issue(self) -> Optional[tuple[Issue, datetime]]:
+        """Get the currently active issue and when it was started.
+
+        Returns:
+            Tuple of (Issue, started_at) if there's an active issue, None otherwise.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT active_issue_id, started_at
+                FROM workspace_state
+                WHERE id = 1
+            """
+            )
+            row = cursor.fetchone()
+
+            if row and row["active_issue_id"]:
+                issue = self.get_issue(row["active_issue_id"])
+                if issue:
+                    started_at = datetime.fromisoformat(row["started_at"])
+                    return (issue, started_at)
+
+            return None
+
+    def start_issue(self, issue_id: int) -> tuple[Issue, datetime]:
+        """Set an issue as the active issue and update its status to in-progress.
+
+        Args:
+            issue_id: ID of the issue to start.
+
+        Returns:
+            Tuple of (Issue, started_at).
+
+        Raises:
+            ValueError: If issue not found.
+        """
+        # Verify issue exists
+        issue = self.get_issue(issue_id)
+        if not issue:
+            raise ValueError(f"Issue {issue_id} not found")
+
+        started_at = datetime.now()
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Initialize workspace_state if not exists
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO workspace_state (id, active_issue_id, started_at)
+                VALUES (1, NULL, NULL)
+            """
+            )
+
+            # Update workspace_state
+            cursor.execute(
+                """
+                UPDATE workspace_state
+                SET active_issue_id = ?, started_at = ?
+                WHERE id = 1
+            """,
+                (issue_id, started_at.isoformat()),
+            )
+
+            # Log workspace action in audit log
+            self._log_audit(
+                conn,
+                issue_id,
+                "WORKSPACE_START",
+                None,
+                None,
+                started_at.isoformat(),
+            )
+
+        # Auto-update issue status to in-progress
+        updated_issue = self.update_issue(issue_id, status="in-progress")
+        if not updated_issue:
+            raise ValueError(f"Failed to update issue {issue_id}")
+
+        return (updated_issue, started_at)
+
+    def stop_issue(self, close: bool = False) -> Optional[tuple[Issue, datetime, datetime]]:
+        """Clear the active issue and optionally close it.
+
+        Args:
+            close: If True, also set the issue status to closed.
+
+        Returns:
+            Tuple of (Issue, started_at, stopped_at) if there was an active issue,
+            None otherwise.
+        """
+        active = self.get_active_issue()
+        if not active:
+            return None
+
+        issue, started_at = active
+        stopped_at = datetime.now()
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Clear workspace_state
+            cursor.execute(
+                """
+                UPDATE workspace_state
+                SET active_issue_id = NULL, started_at = NULL
+                WHERE id = 1
+            """
+            )
+
+            # Log workspace action in audit log
+            assert issue.id is not None
+            self._log_audit(
+                conn,
+                issue.id,
+                "WORKSPACE_STOP",
+                None,
+                started_at.isoformat(),
+                stopped_at.isoformat(),
+            )
+
+        # Optionally close the issue
+        if close and issue.id:
+            updated_issue = self.update_issue(issue.id, status="closed")
+            if updated_issue:
+                issue = updated_issue
+
+        return (issue, started_at, stopped_at)
+
+    def get_workspace_status(self) -> dict[str, Any]:
+        """Get comprehensive workspace status including git info and recent activity.
+
+        Returns:
+            Dictionary with workspace status information.
+        """
+        import subprocess
+        from pathlib import Path
+
+        status: Dict[str, Any] = {}
+
+        # Get active issue
+        active = self.get_active_issue()
+        if active:
+            issue, started_at = active
+            time_spent = datetime.now() - started_at
+            hours = int(time_spent.total_seconds() // 3600)
+            minutes = int((time_spent.total_seconds() % 3600) // 60)
+
+            status["active_issue"] = {
+                "id": issue.id,
+                "title": issue.title,
+                "status": issue.status.value,
+                "priority": issue.priority.value,
+                "started_at": started_at.isoformat(),
+                "time_spent": f"{hours}h {minutes}m",
+                "time_spent_seconds": int(time_spent.total_seconds()),
+            }
+        else:
+            status["active_issue"] = None
+
+        # Get git branch
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                cwd=Path.cwd(),
+            )
+            if result.returncode == 0:
+                branch_result = subprocess.run(
+                    ["git", "branch", "--show-current"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    cwd=Path.cwd(),
+                )
+                if branch_result.returncode == 0:
+                    status["git_branch"] = branch_result.stdout.strip()
+
+                # Get uncommitted files count
+                status_result = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    cwd=Path.cwd(),
+                )
+                if status_result.returncode == 0:
+                    uncommitted = [
+                        line for line in status_result.stdout.split("\n") if line.strip()
+                    ]
+                    status["uncommitted_files"] = len(uncommitted)
+            else:
+                status["git_branch"] = None
+                status["uncommitted_files"] = None
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            status["git_branch"] = None
+            status["uncommitted_files"] = None
+
+        # Get recent workspace activity (last 5 start/stop events)
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT al.issue_id, al.action, al.new_value, al.timestamp, i.title
+                FROM audit_logs al
+                LEFT JOIN issues i ON al.issue_id = i.id
+                WHERE al.action IN ('WORKSPACE_START', 'WORKSPACE_STOP')
+                ORDER BY al.timestamp DESC
+                LIMIT 5
+            """
+            )
+            rows = cursor.fetchall()
+
+            recent_activity = []
+            for row in rows:
+                activity: Dict[str, Any] = {
+                    "issue_id": row["issue_id"],
+                    "action": row["action"],
+                    "timestamp": row["timestamp"],
+                }
+                if row["title"]:
+                    activity["title"] = row["title"]
+
+                # Calculate time ago
+                timestamp = datetime.fromisoformat(row["timestamp"])
+                time_diff = datetime.now() - timestamp
+                if time_diff.days > 0:
+                    activity["time_ago"] = f"{time_diff.days}d ago"
+                elif time_diff.seconds >= 3600:
+                    activity["time_ago"] = f"{time_diff.seconds // 3600}h ago"
+                elif time_diff.seconds >= 60:
+                    activity["time_ago"] = f"{time_diff.seconds // 60}m ago"
+                else:
+                    activity["time_ago"] = "just now"
+
+                recent_activity.append(activity)
+
+            status["recent_activity"] = recent_activity
+
+        return status
+
+    # Time Tracking Methods
+
+    def start_timer(self, issue_id: int, note: Optional[str] = None) -> Dict[str, Any]:
+        """Start a timer for an issue.
+
+        Args:
+            issue_id: ID of the issue to track time for.
+            note: Optional note about what work is being done.
+
+        Returns:
+            Dictionary with timer information.
+
+        Raises:
+            ValueError: If issue not found or timer already running for this issue.
+        """
+        # Verify issue exists
+        issue = self.get_issue(issue_id)
+        if not issue:
+            raise ValueError(f"Issue {issue_id} not found")
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Check if there's already a running timer for this issue
+            cursor.execute(
+                """
+                SELECT id FROM time_entries
+                WHERE issue_id = ? AND ended_at IS NULL
+            """,
+                (issue_id,),
+            )
+            if cursor.fetchone():
+                raise ValueError(f"Timer already running for issue {issue_id}")
+
+            # Create new time entry
+            started_at = datetime.now()
+            cursor.execute(
+                """
+                INSERT INTO time_entries (issue_id, started_at, note)
+                VALUES (?, ?, ?)
+            """,
+                (issue_id, started_at.isoformat(), note),
+            )
+
+            entry_id = cursor.lastrowid
+
+            return {
+                "id": entry_id,
+                "issue_id": issue_id,
+                "started_at": started_at.isoformat(),
+                "note": note,
+            }
+
+    def stop_timer(self, issue_id: Optional[int] = None) -> Dict[str, Any]:
+        """Stop a running timer.
+
+        Args:
+            issue_id: Optional issue ID. If not provided, stops the most recent running timer.
+
+        Returns:
+            Dictionary with completed timer information including duration.
+
+        Raises:
+            ValueError: If no running timer found.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Find running timer
+            if issue_id:
+                cursor.execute(
+                    """
+                    SELECT * FROM time_entries
+                    WHERE issue_id = ? AND ended_at IS NULL
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                """,
+                    (issue_id,),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT * FROM time_entries
+                    WHERE ended_at IS NULL
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                """
+                )
+
+            row = cursor.fetchone()
+            if not row:
+                if issue_id:
+                    raise ValueError(f"No running timer found for issue {issue_id}")
+                else:
+                    raise ValueError("No running timer found")
+
+            # Stop the timer
+            ended_at = datetime.now()
+            started_at = datetime.fromisoformat(row["started_at"])
+            duration_seconds = int((ended_at - started_at).total_seconds())
+
+            cursor.execute(
+                """
+                UPDATE time_entries
+                SET ended_at = ?, duration_seconds = ?
+                WHERE id = ?
+            """,
+                (ended_at.isoformat(), duration_seconds, row["id"]),
+            )
+
+            return {
+                "id": row["id"],
+                "issue_id": row["issue_id"],
+                "started_at": row["started_at"],
+                "ended_at": ended_at.isoformat(),
+                "duration_seconds": duration_seconds,
+                "note": row["note"],
+            }
+
+    def get_running_timers(self) -> List[Dict[str, Any]]:
+        """Get all currently running timers.
+
+        Returns:
+            List of dictionaries with running timer information.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT te.*, i.title
+                FROM time_entries te
+                JOIN issues i ON te.issue_id = i.id
+                WHERE te.ended_at IS NULL
+                ORDER BY te.started_at DESC
+            """
+            )
+            rows = cursor.fetchall()
+
+            timers = []
+            for row in rows:
+                started_at = datetime.fromisoformat(row["started_at"])
+                elapsed_seconds = int((datetime.now() - started_at).total_seconds())
+
+                timers.append(
+                    {
+                        "id": row["id"],
+                        "issue_id": row["issue_id"],
+                        "issue_title": row["title"],
+                        "started_at": row["started_at"],
+                        "elapsed_seconds": elapsed_seconds,
+                        "note": row["note"],
+                    }
+                )
+
+            return timers
+
+    def get_time_entries(self, issue_id: int) -> List[Dict[str, Any]]:
+        """Get all time entries for an issue.
+
+        Args:
+            issue_id: ID of the issue.
+
+        Returns:
+            List of time entry dictionaries.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM time_entries
+                WHERE issue_id = ?
+                ORDER BY started_at DESC
+            """,
+                (issue_id,),
+            )
+            rows = cursor.fetchall()
+
+            entries = []
+            for row in rows:
+                entry = {
+                    "id": row["id"],
+                    "issue_id": row["issue_id"],
+                    "started_at": row["started_at"],
+                    "ended_at": row["ended_at"],
+                    "duration_seconds": row["duration_seconds"],
+                    "note": row["note"],
+                }
+                entries.append(entry)
+
+            return entries
+
+    def set_estimate(self, issue_id: int, hours: float) -> Optional[Issue]:
+        """Set time estimate for an issue.
+
+        Args:
+            issue_id: ID of the issue.
+            hours: Estimated hours to complete the issue.
+
+        Returns:
+            Updated Issue object, or None if issue not found.
+
+        Raises:
+            ValueError: If hours is negative.
+        """
+        if hours < 0:
+            raise ValueError("Estimated hours must be non-negative")
+
+        # Get current issue for audit logging
+        current_issue = self.get_issue(issue_id)
+        if not current_issue:
+            return None
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE issues
+                SET estimated_hours = ?, updated_at = ?
+                WHERE id = ?
+            """,
+                (hours, datetime.now().isoformat(), issue_id),
+            )
+
+            # Log the change in audit log
+            old_value = getattr(current_issue, "estimated_hours", None)
+            self._log_audit(
+                conn,
+                issue_id,
+                "UPDATE",
+                "estimated_hours",
+                str(old_value) if old_value is not None else None,
+                str(hours),
+            )
+
+        return self.get_issue(issue_id)
+
+    def get_time_report(
+        self, period: str = "all", issue_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Generate a time report for specified period.
+
+        Args:
+            period: Report period - 'week', 'month', or 'all'.
+            issue_id: Optional issue ID to filter by specific issue.
+
+        Returns:
+            Dictionary with time report data.
+
+        Raises:
+            ValueError: If invalid period specified.
+        """
+        if period not in ["week", "month", "all"]:
+            raise ValueError("Period must be 'week', 'month', or 'all'")
+
+        # Calculate date range
+        now = datetime.now()
+        if period == "week":
+            start_date = now - timedelta(days=7)
+            period_label = "This Week"
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+            period_label = "This Month"
+        else:
+            start_date = datetime(1970, 1, 1)
+            period_label = "All Time"
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Build query based on filters
+            query = """
+                SELECT
+                    i.id,
+                    i.title,
+                    i.estimated_hours,
+                    SUM(te.duration_seconds) as total_seconds,
+                    COUNT(te.id) as entry_count
+                FROM issues i
+                LEFT JOIN time_entries te ON i.id = te.issue_id
+                WHERE te.ended_at IS NOT NULL
+                AND te.started_at >= ?
+            """
+            params: List[Any] = [start_date.isoformat()]
+
+            if issue_id:
+                query += " AND i.id = ?"
+                params.append(issue_id)
+
+            query += """
+                GROUP BY i.id
+                ORDER BY total_seconds DESC
+            """
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            # Process results
+            issues = []
+            total_seconds = 0
+
+            for row in rows:
+                seconds = row["total_seconds"] or 0
+                total_seconds += seconds
+                hours = seconds / 3600
+                estimated_hours = row["estimated_hours"]
+
+                issue_data = {
+                    "issue_id": row["id"],
+                    "title": row["title"],
+                    "total_seconds": seconds,
+                    "total_hours": round(hours, 2),
+                    "estimated_hours": estimated_hours,
+                    "entry_count": row["entry_count"],
+                }
+
+                # Calculate if over/under estimate
+                if estimated_hours:
+                    issue_data["over_estimate"] = hours > estimated_hours
+                    issue_data["difference_hours"] = round(hours - estimated_hours, 2)
+                else:
+                    issue_data["over_estimate"] = None
+                    issue_data["difference_hours"] = None
+
+                issues.append(issue_data)
+
+            return {
+                "period": period,
+                "period_label": period_label,
+                "total_seconds": total_seconds,
+                "total_hours": round(total_seconds / 3600, 2),
+                "issues": issues,
+                "issue_count": len(issues),
+            }
+
+    # Template management methods
+
+    def create_template(
+        self,
+        name: str,
+        title_prefix: Optional[str] = None,
+        default_priority: Optional[str] = None,
+        default_status: Optional[str] = None,
+        required_fields: Optional[List[str]] = None,
+        field_prompts: Optional[Dict[str, str]] = None,
+    ) -> IssueTemplate:
+        """Create a new issue template.
+
+        Args:
+            name: Unique template name.
+            title_prefix: Optional prefix to add to issue titles.
+            default_priority: Default priority for issues created from template.
+            default_status: Default status for issues created from template.
+            required_fields: List of required field names.
+            field_prompts: Dictionary mapping field names to prompt text.
+
+        Returns:
+            Created IssueTemplate object.
+
+        Raises:
+            ValueError: If template name already exists or invalid values provided.
+        """
+        if not name or not name.strip():
+            raise ValueError("Template name cannot be empty")
+
+        # Validate priority and status if provided
+        if default_priority:
+            Priority.from_string(default_priority)  # Will raise if invalid
+        if default_status:
+            Status.from_string(default_status)  # Will raise if invalid
+
+        # Validate required fields
+        if required_fields is None:
+            required_fields = []
+        valid_fields = {"title", "description", "priority", "status"}
+        invalid_fields = [f for f in required_fields if f not in valid_fields]
+        if invalid_fields:
+            raise ValueError(f"Invalid field names: {', '.join(invalid_fields)}")
+
+        # Create template object
+        template = IssueTemplate(
+            name=name.strip(),
+            title_prefix=title_prefix,
+            default_priority=default_priority,
+            default_status=default_status,
+            required_fields=required_fields,
+            field_prompts=field_prompts or {},
+        )
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO issue_templates
+                    (name, title_prefix, default_priority, default_status,
+                     required_fields, field_prompts, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        template.name,
+                        template.title_prefix,
+                        template.default_priority,
+                        template.default_status,
+                        json.dumps(template.required_fields),
+                        json.dumps(template.field_prompts),
+                        template.created_at.isoformat(),
+                    ),
+                )
+                template.id = cursor.lastrowid
+            except Exception as e:
+                if "UNIQUE constraint failed" in str(e):
+                    raise ValueError(f"Template '{name}' already exists") from e
+                raise
+
+        return template
+
+    def get_template(self, name: str) -> Optional[IssueTemplate]:
+        """Get a template by name.
+
+        Args:
+            name: Template name.
+
+        Returns:
+            IssueTemplate if found, None otherwise.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM issue_templates WHERE name = ?",
+                (name,),
+            )
+            row = cursor.fetchone()
+
+            if row:
+                return self._row_to_template(row)
+            return None
+
+    def list_templates(self) -> List[IssueTemplate]:
+        """List all templates.
+
+        Returns:
+            List of IssueTemplate objects.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM issue_templates ORDER BY name ASC"
+            )
+            rows = cursor.fetchall()
+            return [self._row_to_template(row) for row in rows]
+
+    def delete_template(self, name: str) -> bool:
+        """Delete a template.
+
+        Args:
+            name: Template name.
+
+        Returns:
+            True if template was deleted, False if not found.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM issue_templates WHERE name = ?",
+                (name,),
+            )
+            return cursor.rowcount > 0
+
+    def validate_against_template(
+        self, template: IssueTemplate, issue_data: Dict[str, Any]
+    ) -> List[str]:
+        """Validate issue data against a template's requirements.
+
+        Args:
+            template: The template to validate against.
+            issue_data: Dictionary of issue data to validate.
+
+        Returns:
+            List of error messages (empty if validation passes).
+        """
+        errors: List[str] = []
+
+        # Check required fields
+        for field in template.required_fields:
+            if field not in issue_data or not issue_data[field]:
+                # Get custom prompt if available, otherwise generic message
+                if field in template.field_prompts:
+                    errors.append(f"{field}: {template.field_prompts[field]}")
+                else:
+                    errors.append(f"{field} is required")
+
+        return errors
+
+    def _row_to_template(self, row: Any) -> IssueTemplate:
+        """Convert a database row to an IssueTemplate object.
+
+        Args:
+            row: SQLite row object.
+
+        Returns:
+            IssueTemplate object.
+        """
+        # Parse JSON fields
+        required_fields = json.loads(row["required_fields"]) if row["required_fields"] else []
+        field_prompts = json.loads(row["field_prompts"]) if row["field_prompts"] else {}
+
+        return IssueTemplate(
+            id=row["id"],
+            name=row["name"],
+            title_prefix=row["title_prefix"],
+            default_priority=row["default_priority"],
+            default_status=row["default_status"],
+            required_fields=required_fields,
+            field_prompts=field_prompts,
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
