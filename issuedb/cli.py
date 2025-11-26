@@ -101,6 +101,8 @@ class CLI:
         priority: str = "medium",
         status: str = "open",
         as_json: bool = False,
+        force: bool = False,
+        no_duplicate_check: bool = False,
     ) -> str:
         """Create a new issue.
 
@@ -110,16 +112,58 @@ class CLI:
             priority: Priority level.
             status: Initial status.
             as_json: Output as JSON.
+            force: Create issue even if similar issues found.
+            no_duplicate_check: Skip duplicate checking entirely.
 
         Returns:
             Formatted output.
         """
+        from issuedb.similarity import find_similar_issues
+
         issue = Issue(
             title=title,
             description=description,
             priority=Priority.from_string(priority),
             status=Status.from_string(status),
         )
+
+        # Check for duplicates unless disabled
+        if not no_duplicate_check:
+            # Combine title and description for similarity check
+            query_text = title
+            if description:
+                query_text = f"{title} {description}"
+
+            # Get all existing issues
+            all_issues = self.repo.get_all_issues()
+
+            # Find similar issues
+            similar_issues = find_similar_issues(query_text, all_issues, threshold=0.7)
+
+            # If similar issues found and not forced, show warning
+            if similar_issues and not force:
+                if as_json:
+                    warnings = []
+                    for similar_issue, similarity in similar_issues[:3]:  # Show top 3
+                        warnings.append({
+                            "id": similar_issue.id,
+                            "title": similar_issue.title,
+                            "similarity": round(similarity * 100, 1)
+                        })
+                    return json.dumps({
+                        "error": "Similar issues found",
+                        "message": "Use --force to create anyway or --no-duplicate-check to skip this check",
+                        "similar_issues": warnings
+                    }, indent=2)
+                else:
+                    lines = ["Warning: Similar issues found:"]
+                    for similar_issue, similarity in similar_issues[:3]:  # Show top 3
+                        lines.append(
+                            f"  - Issue #{similar_issue.id}: {similar_issue.title} "
+                            f"({round(similarity * 100, 1)}% similar)"
+                        )
+                    lines.append("\nUse --force to create anyway or --no-duplicate-check to skip this check")
+                    return "\n".join(lines)
 
         created_issue = self.repo.create_issue(issue)
         return self.format_output(created_issue, as_json)
@@ -561,6 +605,402 @@ class CLI:
         return self.format_output(issues, as_json)
 
 
+    def find_similar_issues(
+        self,
+        query: str,
+        threshold: float = 0.6,
+        limit: Optional[int] = 10,
+        as_json: bool = False,
+    ) -> str:
+        """Find issues similar to given text.
+
+        Args:
+            query: Text to find similar issues for.
+            threshold: Similarity threshold (0.0 to 1.0).
+            limit: Maximum number of results.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        from issuedb.similarity import find_similar_issues
+
+        # Get all issues
+        all_issues = self.repo.get_all_issues()
+
+        # Find similar issues
+        similar_issues = find_similar_issues(query, all_issues, threshold=threshold)
+
+        # Limit results
+        if limit:
+            similar_issues = similar_issues[:limit]
+
+        if as_json:
+            results = []
+            for issue, similarity in similar_issues:
+                issue_dict = issue.to_dict()
+                issue_dict["similarity"] = round(similarity * 100, 1)
+                results.append(issue_dict)
+            return json.dumps(results, indent=2)
+        else:
+            if not similar_issues:
+                return "No similar issues found."
+
+            lines = [f"Found {len(similar_issues)} similar issue(s):\n"]
+            for issue, similarity in similar_issues:
+                lines.append(f"Issue #{issue.id} ({round(similarity * 100, 1)}% similar)")
+                lines.append(f"  Title: {issue.title}")
+                lines.append(f"  Status: {issue.status.value}")
+                lines.append(f"  Priority: {issue.priority.value}")
+                lines.append("")
+
+            return "\n".join(lines)
+
+    def find_duplicates(
+        self,
+        threshold: float = 0.7,
+        as_json: bool = False,
+    ) -> str:
+        """Find potential duplicate issues.
+
+        Args:
+            threshold: Similarity threshold for considering duplicates.
+            as_json: Output as JSON.
+
+        Returns:
+            Formatted output.
+        """
+        from issuedb.similarity import find_duplicate_groups
+
+        # Get all issues
+        all_issues = self.repo.get_all_issues()
+
+        # Find duplicate groups
+        duplicate_groups = find_duplicate_groups(all_issues, threshold=threshold)
+
+        if as_json:
+            groups_data = []
+            for group in duplicate_groups:
+                group_data = {
+                    "primary": group[0][0].to_dict(),
+                    "duplicates": []
+                }
+                for issue, similarity in group[1:]:
+                    dup_dict = issue.to_dict()
+                    dup_dict["similarity"] = round(similarity * 100, 1)
+                    group_data["duplicates"].append(dup_dict)
+                groups_data.append(group_data)
+
+            return json.dumps({
+                "total_groups": len(duplicate_groups),
+                "groups": groups_data
+            }, indent=2)
+        else:
+            if not duplicate_groups:
+                return "No potential duplicates found."
+
+            lines = [f"Found {len(duplicate_groups)} group(s) of potential duplicates:\n"]
+
+            for i, group in enumerate(duplicate_groups, 1):
+                primary_issue, _ = group[0]
+                lines.append(f"Group {i}:")
+                lines.append(f"  Primary: Issue #{primary_issue.id} - {primary_issue.title}")
+                lines.append(f"  Potential duplicates:")
+
+                for issue, similarity in group[1:]:
+                    lines.append(
+                        f"    - Issue #{issue.id}: {issue.title} "
+                        f"({round(similarity * 100, 1)}% similar)"
+                    )
+                lines.append("")
+
+            return "\n".join(lines)
+
+    def get_issue_context(
+        self,
+        issue_id: int,
+        as_json: bool = False,
+        compact: bool = False,
+    ) -> str:
+        """Get comprehensive context about an issue for LLM agents.
+
+        Args:
+            issue_id: Issue ID.
+            as_json: Output as JSON.
+            compact: Minimal output (just issue + comments).
+
+        Returns:
+            Formatted context output.
+
+        Raises:
+            ValueError: If issue not found.
+        """
+        # Get the issue
+        issue = self.repo.get_issue(issue_id)
+        if not issue:
+            raise ValueError(f"Issue {issue_id} not found")
+
+        # Get comments
+        comments = self.repo.get_comments(issue_id)
+
+        # Get audit history (last 10 entries)
+        audit_logs = self.repo.get_audit_logs(issue_id=issue_id)
+        recent_audit = audit_logs[:10] if not compact else []
+
+        # Get git info if available and not in compact mode
+        git_info = None
+        if not compact:
+            git_info = self._get_git_info(issue_id)
+
+        # Get related issues (similar title/description) if not in compact mode
+        related_issues = []
+        if not compact and issue.title:
+            # Search for similar issues (exclude current issue)
+            similar = self.repo.search_issues(keyword=issue.title.split()[0] if issue.title.split() else "", limit=5)
+            related_issues = [iss for iss in similar if iss.id != issue_id][:3]
+
+        # Generate suggested actions
+        suggested_actions = self._generate_suggested_actions(issue)
+
+        # Build context object
+        context = {
+            "issue": issue.to_dict(),
+            "comments": [c.to_dict() for c in comments],
+            "comments_count": len(comments),
+        }
+
+        if not compact:
+            context["audit_history"] = [log.to_dict() for log in recent_audit]
+            context["audit_history_count"] = len(recent_audit)
+            context["related_issues"] = [iss.to_dict() for iss in related_issues]
+            context["related_issues_count"] = len(related_issues)
+            if git_info:
+                context["git_info"] = git_info
+            context["suggested_actions"] = suggested_actions
+
+        # Format output
+        if as_json:
+            return json.dumps(context, indent=2)
+        else:
+            return self._format_issue_context(
+                issue=issue,
+                comments=comments,
+                audit_logs=recent_audit,
+                related_issues=related_issues,
+                git_info=git_info,
+                suggested_actions=suggested_actions,
+                compact=compact,
+            )
+
+    def _get_git_info(self, issue_id: int) -> Optional[dict]:
+        """Get git information related to an issue.
+
+        Args:
+            issue_id: Issue ID.
+
+        Returns:
+            Dictionary with git info, or None if not in git repo.
+        """
+        import subprocess
+
+        try:
+            # Check if we're in a git repository
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode != 0:
+                return None
+
+            # Get current branch
+            branch_result = subprocess.run(
+                ["git", "branch", "--show-current"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            current_branch = branch_result.stdout.strip() if branch_result.returncode == 0 else None
+
+            # Search for commits mentioning this issue ID
+            # Look for patterns like "#ID", "issue ID", "issue #ID", etc.
+            patterns = [f"#{issue_id}", f"issue {issue_id}", f"issue #{issue_id}"]
+            recent_commits = []
+
+            for pattern in patterns:
+                commit_result = subprocess.run(
+                    ["git", "log", "--all", f"--grep={pattern}", "-i", "--oneline", "-n", "5"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                if commit_result.returncode == 0 and commit_result.stdout.strip():
+                    commits = commit_result.stdout.strip().split("\n")
+                    for commit in commits:
+                        if commit and commit not in recent_commits:
+                            recent_commits.append(commit)
+
+            git_info = {
+                "current_branch": current_branch,
+                "related_commits": recent_commits[:5],  # Limit to 5 commits
+                "related_commits_count": len(recent_commits[:5]),
+            }
+
+            return git_info
+
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            # Git not available or timeout
+            return None
+
+    def _generate_suggested_actions(self, issue: Issue) -> list:
+        """Generate suggested actions based on issue status.
+
+        Args:
+            issue: Issue object.
+
+        Returns:
+            List of suggested action strings.
+        """
+        actions = []
+
+        if issue.status == Status.OPEN:
+            actions.append(
+                f"Issue is open - consider starting work with: issuedb-cli update {issue.id} -s in-progress"
+            )
+            if issue.priority == Priority.CRITICAL or issue.priority == Priority.HIGH:
+                actions.append("High priority issue - should be addressed soon")
+        elif issue.status == Status.IN_PROGRESS:
+            actions.append("Issue is in-progress - consider adding a progress update comment")
+            actions.append(f"When complete, close with: issuedb-cli update {issue.id} -s closed")
+        elif issue.status == Status.CLOSED:
+            actions.append("Issue is closed - can be reopened if needed")
+
+        # Check if there are no comments
+        comments_count = len(self.repo.get_comments(issue.id)) if issue.id else 0
+        if comments_count == 0:
+            actions.append(
+                f"No comments yet - add notes with: issuedb-cli comment {issue.id} -t 'your comment'"
+            )
+
+        return actions
+
+    def _format_issue_context(
+        self,
+        issue: Issue,
+        comments: list,
+        audit_logs: list,
+        related_issues: list,
+        git_info: Optional[dict],
+        suggested_actions: list,
+        compact: bool = False,
+    ) -> str:
+        """Format issue context for text output.
+
+        Args:
+            issue: Issue object.
+            comments: List of Comment objects.
+            audit_logs: List of AuditLog objects.
+            related_issues: List of related Issue objects.
+            git_info: Git information dictionary.
+            suggested_actions: List of suggested action strings.
+            compact: If True, show minimal output.
+
+        Returns:
+            Formatted string.
+        """
+        lines = []
+
+        # Header
+        lines.append("=" * 60)
+        lines.append("ISSUE CONTEXT")
+        lines.append("=" * 60)
+        lines.append("")
+
+        # Issue details
+        lines.append(f"## Issue #{issue.id}")
+        lines.append(f"Title: {issue.title}")
+        lines.append(f"Status: {issue.status.value}")
+        lines.append(f"Priority: {issue.priority.value}")
+        lines.append(f"Created: {issue.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"Updated: {issue.updated_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append("")
+
+        # Description
+        if issue.description:
+            lines.append("## Description")
+            lines.append(issue.description)
+            lines.append("")
+
+        # Comments
+        if comments:
+            lines.append(f"## Comments ({len(comments)})")
+            for comment in comments:
+                timestamp = comment.created_at.strftime('%Y-%m-%d %H:%M')
+                lines.append(f"[{timestamp}] {comment.text}")
+            lines.append("")
+        else:
+            lines.append("## Comments")
+            lines.append("No comments yet.")
+            lines.append("")
+
+        # Skip the rest if compact mode
+        if compact:
+            return "\n".join(lines)
+
+        # Recent activity
+        if audit_logs:
+            lines.append(f"## Recent Activity (Last {len(audit_logs)} changes)")
+            for log in audit_logs:
+                timestamp = log.timestamp.strftime('%Y-%m-%d %H:%M')
+                if log.action in ["CREATE", "BULK_CREATE"]:
+                    lines.append(f"- {timestamp}: Issue created")
+                elif log.action in ["UPDATE", "BULK_UPDATE"]:
+                    if log.field_name:
+                        lines.append(
+                            f"- {timestamp}: {log.field_name} changed from '{log.old_value}' to '{log.new_value}'"
+                        )
+                    else:
+                        lines.append(f"- {timestamp}: Issue updated")
+                elif log.action == "DELETE":
+                    lines.append(f"- {timestamp}: Issue deleted")
+                elif log.action == "FETCH":
+                    lines.append(f"- {timestamp}: Issue fetched via get-next")
+            lines.append("")
+
+        # Related issues
+        if related_issues:
+            lines.append(f"## Related Issues ({len(related_issues)})")
+            for rel_issue in related_issues:
+                lines.append(
+                    f"- #{rel_issue.id}: {rel_issue.title} ({rel_issue.status.value}, {rel_issue.priority.value})"
+                )
+            lines.append("")
+
+        # Git information
+        if git_info:
+            lines.append("## Git Information")
+            if git_info.get("current_branch"):
+                lines.append(f"Current branch: {git_info['current_branch']}")
+            if git_info.get("related_commits"):
+                lines.append(f"Related commits ({len(git_info['related_commits'])}):")
+                for commit in git_info["related_commits"]:
+                    lines.append(f"  {commit}")
+            elif git_info.get("current_branch"):
+                lines.append("No commits found mentioning this issue")
+            lines.append("")
+
+        # Suggested actions
+        if suggested_actions:
+            lines.append("## Suggested Actions")
+            for action in suggested_actions:
+                lines.append(f"- {action}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -797,7 +1237,51 @@ def main() -> None:
     delete_comment_parser = subparsers.add_parser("delete-comment", help="Delete a comment")
     delete_comment_parser.add_argument("comment_id", type=int, help="Comment ID")
 
+    # Context command
+    context_parser = subparsers.add_parser(
+        "context", help="Get comprehensive context about an issue for LLM agents"
+    )
+    context_parser.add_argument("issue_id", type=int, help="Issue ID")
+    context_parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="Minimal output (just issue + comments)",
+    )
+
     args = parser.parse_args()
+
+    # Find-similar command
+    find_similar_parser = subparsers.add_parser(
+        "find-similar", help="Find issues similar to given text"
+    )
+    find_similar_parser.add_argument(
+        "query",
+        help="Text to find similar issues for",
+    )
+    find_similar_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.6,
+        help="Similarity threshold (0.0 to 1.0, default: 0.6)",
+    )
+    find_similar_parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Maximum number of results (default: 10)",
+    )
+
+    # Dedupe command
+    dedupe_parser = subparsers.add_parser(
+        "dedupe", help="Find potential duplicate issues"
+    )
+    dedupe_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.7,
+        help="Similarity threshold for duplicates (0.0 to 1.0, default: 0.7)",
+    )
+
 
     # Handle --prompt flag
     if args.prompt:
@@ -1004,6 +1488,14 @@ def main() -> None:
 
         elif args.command == "delete-comment":
             result = cli.delete_comment(args.comment_id, as_json=args.json)
+            print(result)
+
+        elif args.command == "context":
+            result = cli.get_issue_context(
+                args.issue_id,
+                as_json=args.json,
+                compact=args.compact,
+            )
             print(result)
 
     except Exception as e:
