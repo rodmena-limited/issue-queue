@@ -29,6 +29,9 @@ A command-line issue tracking system for software development projects. IssueDB 
 - **Issue Browser**: Filter and search issues with status/priority badges
 - **API Endpoints**: Full REST API for programmatic access
 
+![Issue Detail Full](docs/screenshots/issue-detail-full.png)
+*Complete issue detail with context, git integration, comments, and audit history*
+
 ![Dashboard](docs/screenshots/dashboard.png)
 *Dashboard with statistics, priority breakdown, and active issue tracking*
 
