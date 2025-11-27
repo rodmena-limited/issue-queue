@@ -2,6 +2,23 @@
 
 A command-line issue tracking system for software development projects. IssueDB provides a simple yet concrete way to manage issues, bugs, and tasks directly from your terminal with a **per-directory database model** - each directory gets its own issue database.
 
+--------------------
+# Quick Start:
+
+```bash
+pip install issuedb
+```
+then in your [CLAUDE/QWEN/GEMINI].md
+```markdown
+STRICT RULES:
+- You need to use issuedb as issue tracker.
+- Every request, feature, bugfix must have a ticket.
+- run `issuedb-cli --prompt` to learn how to use it.
+```
+That's it!
+--------------------
+
+
 ## Features
 
 ### Core Features
