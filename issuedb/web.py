@@ -981,6 +981,69 @@ BASE_TEMPLATE = """
         .loading-placeholder {
             animation: pulse 1.5s ease-in-out infinite;
         }
+
+        /* Context section */
+        .context-section {
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .context-section:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .context-section:first-child {
+            padding-top: 0;
+        }
+
+        .context-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .context-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            font-size: 13px;
+        }
+
+        .context-icon {
+            font-size: 14px;
+            width: 18px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .context-commit {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 0;
+            font-size: 12px;
+        }
+
+        .commit-hash {
+            background-color: var(--bg-tertiary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: var(--accent-cyan);
+            flex-shrink: 0;
+        }
+
+        .commit-msg {
+            color: var(--text-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -1009,7 +1072,7 @@ BASE_TEMPLATE = """
 
     <footer class="footer">
         <div class="container">
-            IssueDB v2.5.3 &middot; Command-line issue tracking for developers
+            IssueDB v2.5.4 &middot; Command-line issue tracking for developers
         </div>
     </footer>
 
@@ -1364,6 +1427,16 @@ ISSUE_DETAIL_TEMPLATE = (
             </div>
         </div>
 
+        <!-- Context Card (async loaded) -->
+        <div class="card" id="context-card">
+            <div class="card-header">
+                <h3 class="card-title">Context</h3>
+            </div>
+            <div class="card-body" id="context-content">
+                <div class="loading-placeholder">Loading context...</div>
+            </div>
+        </div>
+
         <!-- Audit Log Card (async loaded) -->
         <div class="card">
             <div class="card-header">
@@ -1623,6 +1696,77 @@ ISSUE_DETAIL_TEMPLATE = (
             }
         })
         .catch(function() {});
+
+    // Load context
+    fetch(baseUrl + '/context')
+        .then(function(r) { return r.json(); })
+        .then(function(ctx) {
+            var content = document.getElementById('context-content');
+            var html = '';
+
+            // Git info section
+            if (ctx.git) {
+                html += '<div class="context-section">';
+                html += '<div class="context-label">Git Integration</div>';
+                html += '<div class="context-item">';
+                html += '<span class="context-icon" style="color: var(--accent-purple);">&#x2387;</span>';
+                html += '<span>Branch: <strong>' + escapeHtml(ctx.git.branch || 'N/A') + '</strong></span>';
+                if (ctx.git.branch_matches_issue) {
+                    html += '<span class="badge badge-open" style="margin-left: 8px; font-size: 9px;">matches</span>';
+                }
+                html += '</div>';
+                if (ctx.git.commits_mentioning_issue && ctx.git.commits_mentioning_issue.length > 0) {
+                    html += '<div style="margin-top: 10px; font-size: 11px; color: var(--text-muted);">Commits mentioning #' + issueId + ':</div>';
+                    for (var i = 0; i < ctx.git.commits_mentioning_issue.length; i++) {
+                        var c = ctx.git.commits_mentioning_issue[i];
+                        html += '<div class="context-commit">';
+                        html += '<code class="commit-hash">' + c.hash + '</code>';
+                        html += '<span class="commit-msg">' + escapeHtml(c.message) + '</span>';
+                        html += '</div>';
+                    }
+                }
+                html += '</div>';
+            }
+
+            // Suggested actions section
+            if (ctx.suggested_actions && ctx.suggested_actions.length > 0) {
+                html += '<div class="context-section">';
+                html += '<div class="context-label">Suggested Actions</div>';
+                for (var i = 0; i < ctx.suggested_actions.length; i++) {
+                    var action = ctx.suggested_actions[i];
+                    var iconColor = action.priority === 'high' ? 'var(--accent-red)' : 'var(--accent-blue)';
+                    var icon = action.type === 'blocked' ? '&#x26D4;' : action.type === 'start' ? '&#x25B6;' : action.type === 'close' ? '&#x2713;' : '&#x2022;';
+                    html += '<div class="context-item">';
+                    html += '<span class="context-icon" style="color: ' + iconColor + ';">' + icon + '</span>';
+                    html += '<span>' + escapeHtml(action.text) + '</span>';
+                    html += '</div>';
+                }
+                html += '</div>';
+            }
+
+            // Related issues section
+            if (ctx.related_issues && ctx.related_issues.length > 0) {
+                html += '<div class="context-section">';
+                html += '<div class="context-label">Related Issues</div>';
+                for (var i = 0; i < ctx.related_issues.length; i++) {
+                    var rel = ctx.related_issues[i];
+                    html += '<div class="context-item">';
+                    html += '<a href="/issues/' + rel.id + '">#' + rel.id + ' ' + escapeHtml(rel.title) + '</a>';
+                    html += '<span class="badge badge-' + rel.status + '" style="margin-left: 8px; font-size: 9px;">' + rel.status + '</span>';
+                    html += '</div>';
+                }
+                html += '</div>';
+            }
+
+            if (html === '') {
+                html = '<p style="color: var(--text-muted); font-style: italic;">No additional context available.</p>';
+            }
+
+            content.innerHTML = html;
+        })
+        .catch(function() {
+            document.getElementById('context-content').innerHTML = '<p style="color: var(--accent-red);">Failed to load context</p>';
+        });
 })();
 </script>
 {% endblock %}""")
@@ -2224,6 +2368,135 @@ def api_get_code_refs(issue_id: int) -> Any:
         }
         for r in refs
     ])
+
+
+@app.route("/api/issues/<int:issue_id>/context", methods=["GET"])
+def api_get_context(issue_id: int) -> Any:
+    """API: Get comprehensive context for an issue."""
+    import subprocess
+
+    repo = get_repo()
+    issue = repo.get_issue(issue_id)
+
+    if not issue:
+        return jsonify({"error": "Issue not found"}), 404
+
+    context: dict[str, Any] = {
+        "git": None,
+        "suggested_actions": [],
+        "related_issues": [],
+    }
+
+    # Get git info
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            # Get current branch
+            branch_result = subprocess.run(
+                ["git", "branch", "--show-current"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            current_branch = branch_result.stdout.strip() if branch_result.returncode == 0 else None
+
+            # Get recent commits mentioning this issue
+            commits = []
+            try:
+                log_result = subprocess.run(
+                    ["git", "log", "--oneline", "-10", f"--grep=#{issue_id}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if log_result.returncode == 0 and log_result.stdout.strip():
+                    for line in log_result.stdout.strip().split("\n")[:5]:
+                        if line:
+                            parts = line.split(" ", 1)
+                            commits.append({
+                                "hash": parts[0],
+                                "message": parts[1] if len(parts) > 1 else "",
+                            })
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                pass
+
+            # Check if branch matches issue
+            branch_matches = current_branch and str(issue_id) in current_branch
+
+            context["git"] = {
+                "branch": current_branch,
+                "branch_matches_issue": branch_matches,
+                "commits_mentioning_issue": commits,
+            }
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    # Generate suggested actions
+    actions = []
+    if issue.status.value == "open":
+        actions.append({
+            "type": "start",
+            "text": "Start working on this issue",
+            "priority": "high" if issue.priority.value in ["critical", "high"] else "normal",
+        })
+    elif issue.status.value == "in-progress":
+        actions.append({
+            "type": "progress",
+            "text": "Add a progress update comment",
+            "priority": "normal",
+        })
+        actions.append({
+            "type": "close",
+            "text": "Close issue when complete",
+            "priority": "normal",
+        })
+    elif issue.status.value == "closed":
+        actions.append({
+            "type": "reopen",
+            "text": "Reopen if issue persists",
+            "priority": "low",
+        })
+
+    # Check comments
+    comments = repo.get_comments(issue_id)
+    if len(comments) == 0:
+        actions.append({
+            "type": "comment",
+            "text": "Add notes or context",
+            "priority": "normal",
+        })
+
+    # Check blockers
+    blockers = repo.get_blockers(issue_id)
+    open_blockers = [b for b in blockers if b.status.value != "closed"]
+    if open_blockers:
+        actions.insert(0, {
+            "type": "blocked",
+            "text": f"Blocked by {len(open_blockers)} open issue(s)",
+            "priority": "high",
+        })
+
+    context["suggested_actions"] = actions
+
+    # Get related issues (by keyword search)
+    if issue.title:
+        words = issue.title.split()
+        if words:
+            keyword = words[0]
+            similar = repo.search_issues(keyword=keyword, limit=5)
+            related = [
+                {"id": i.id, "title": i.title, "status": i.status.value}
+                for i in similar
+                if i.id != issue_id
+            ][:3]
+            context["related_issues"] = related
+
+    return jsonify(context)
 
 
 def run_server(
