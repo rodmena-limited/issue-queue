@@ -8,7 +8,7 @@ This file contains:
 
 # === ARGUMENT PARSERS (add before 'args = parser.parse_args()') ===
 
-ARGUMENT_PARSERS = '''
+ARGUMENT_PARSERS = """
     # Git link command
     link_parser = subparsers.add_parser("link", help="Link an issue to a git commit or branch")
     link_parser.add_argument("issue_id", type=int, help="Issue ID")
@@ -59,11 +59,11 @@ ARGUMENT_PARSERS = '''
     git_status_parser = subparsers.add_parser(
         "git-status", help="Show git repository status"
     )
-'''
+"""
 
 # === COMMAND HANDLERS (add before the 'except Exception' at the end of main()) ===
 
-COMMAND_HANDLERS = '''
+COMMAND_HANDLERS = """
         elif args.command == "link":
             from issuedb.git_cli import GitCLI
 
@@ -121,7 +121,7 @@ COMMAND_HANDLERS = '''
             git_cli = GitCLI(args.db)
             result = git_cli.git_status(as_json=args.json)
             print(result)
-'''
+"""
 
 if __name__ == "__main__":
     print("This file contains integration code for git commands.")

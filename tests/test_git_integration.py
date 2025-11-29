@@ -396,9 +396,7 @@ class TestGitLinkRepository:
 
     def test_get_issues_by_branch(self, git_repo, repo):
         """Test finding issues linked to a branch."""
-        issue = repo.create_issue(
-            Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN)
-        )
+        issue = repo.create_issue(Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN))
         git_repo.add_link(issue.id, "branch", "feature/test")
 
         issues = git_repo.get_issues_by_link(link_type="branch", reference="feature/test")
@@ -450,9 +448,7 @@ class TestGitLinkRepository:
     def test_scan_commits_auto_close(self, git_repo, repo):
         """Test scanning commits with auto-close."""
         # Create issue
-        issue = repo.create_issue(
-            Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN)
-        )
+        issue = repo.create_issue(Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN))
 
         # Mock commit with closing keyword
         commits = [
@@ -476,9 +472,7 @@ class TestGitLinkRepository:
 
     def test_scan_commits_no_auto_close(self, git_repo, repo):
         """Test scanning commits without auto-close."""
-        issue = repo.create_issue(
-            Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN)
-        )
+        issue = repo.create_issue(Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN))
 
         commits = [
             {
@@ -522,9 +516,7 @@ class TestGitLinkRepository:
 
     def test_scan_commits_duplicate_link(self, git_repo, repo):
         """Test scanning same commit twice doesn't create duplicate links."""
-        issue = repo.create_issue(
-            Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN)
-        )
+        issue = repo.create_issue(Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN))
 
         commits = [
             {

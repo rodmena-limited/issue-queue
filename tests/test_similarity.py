@@ -350,14 +350,10 @@ class TestFindSimilarIssues:
     def test_find_similar_issues_with_threshold(self, sample_issues):
         """Test finding similar issues with threshold."""
         # Low threshold should return more results
-        low_results = find_similar_issues(
-            "login", sample_issues, threshold=0.3
-        )
+        low_results = find_similar_issues("login", sample_issues, threshold=0.3)
 
         # High threshold should return fewer results
-        high_results = find_similar_issues(
-            "login", sample_issues, threshold=0.9
-        )
+        high_results = find_similar_issues("login", sample_issues, threshold=0.9)
 
         assert len(low_results) >= len(high_results)
 
@@ -381,9 +377,7 @@ class TestFindSimilarIssues:
 
     def test_find_similar_issues_no_matches(self, sample_issues):
         """Test with query that matches nothing."""
-        results = find_similar_issues(
-            "quantum physics relativity", sample_issues, threshold=0.7
-        )
+        results = find_similar_issues("quantum physics relativity", sample_issues, threshold=0.7)
 
         # Should return empty list or very few results
         assert len(results) == 0 or all(sim < 0.7 for _, sim in results)

@@ -77,9 +77,7 @@ class GitLinkRepository:
                 )
             return None
 
-    def add_link(
-        self, issue_id: int, link_type: str, reference: str
-    ) -> Optional[IssueLink]:
+    def add_link(self, issue_id: int, link_type: str, reference: str) -> Optional[IssueLink]:
         """Add a git link (commit or branch) to an issue.
 
         Args:

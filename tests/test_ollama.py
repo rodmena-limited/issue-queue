@@ -95,8 +95,7 @@ This will create a new issue."""
         text = 'issuedb-cli create -t "Fix login bug" -p "Auth Service" --priority critical'
         result = client._extract_command(text)
         assert (
-            result
-            == 'issuedb-cli create -t "Fix login bug" -p "Auth Service" --priority critical'
+            result == 'issuedb-cli create -t "Fix login bug" -p "Auth Service" --priority critical'
         )
 
     def test_extract_command_with_explanation(self):

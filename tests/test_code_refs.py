@@ -47,7 +47,7 @@ def sample_issue(repo):
 @pytest.fixture
 def temp_file():
     """Create a temporary file for testing."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write("def test():\n    pass\n")
         file_path = f.name
     yield file_path
@@ -343,9 +343,7 @@ class TestGetIssuesByFile:
 
     def test_get_issues_by_file_relative_path(self, repo, temp_file):
         """Test getting issues using relative path."""
-        issue = repo.create_issue(
-            Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN)
-        )
+        issue = repo.create_issue(Issue(title="Issue", priority=Priority.HIGH, status=Status.OPEN))
         repo.add_code_reference(issue_id=issue.id, file_path=temp_file)
 
         # Query with relative path
@@ -473,9 +471,7 @@ class TestCLIAffected:
 
     def test_affected_list(self, cli, repo, temp_file):
         """Test listing affected issues."""
-        issue1 = repo.create_issue(
-            Issue(title="Bug 1", priority=Priority.HIGH, status=Status.OPEN)
-        )
+        issue1 = repo.create_issue(Issue(title="Bug 1", priority=Priority.HIGH, status=Status.OPEN))
         issue2 = repo.create_issue(
             Issue(title="Bug 2", priority=Priority.MEDIUM, status=Status.CLOSED)
         )
@@ -492,9 +488,7 @@ class TestCLIAffected:
         """Test affected with JSON output."""
         import json
 
-        issue = repo.create_issue(
-            Issue(title="Bug", priority=Priority.HIGH, status=Status.OPEN)
-        )
+        issue = repo.create_issue(Issue(title="Bug", priority=Priority.HIGH, status=Status.OPEN))
         repo.add_code_reference(issue_id=issue.id, file_path=temp_file)
 
         result = cli.list_affected_issues(file_path=temp_file, as_json=True)
@@ -545,9 +539,7 @@ class TestIntegration:
 
     def test_references_deleted_with_issue(self, repo, temp_file):
         """Test that references are deleted when issue is deleted."""
-        issue = repo.create_issue(
-            Issue(title="Test", priority=Priority.HIGH, status=Status.OPEN)
-        )
+        issue = repo.create_issue(Issue(title="Test", priority=Priority.HIGH, status=Status.OPEN))
         repo.add_code_reference(issue_id=issue.id, file_path=temp_file)
 
         # Verify reference exists

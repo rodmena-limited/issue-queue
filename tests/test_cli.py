@@ -271,9 +271,7 @@ class TestCLI:
         assert len(data) == 3
 
         # Test JSON output
-        json_output = cli.bulk_create(
-            json.dumps([{"title": "Issue 4"}]), as_json=True
-        )
+        json_output = cli.bulk_create(json.dumps([{"title": "Issue 4"}]), as_json=True)
         result = json.loads(json_output)
         assert result["count"] == 1
         assert len(result["issues"]) == 1

@@ -169,6 +169,7 @@ class IssueRepository:
                 raise ValueError(f"Cannot update field: {field}")
 
             # Validate and convert enums
+            old_value: Any
             if field == "priority":
                 value = Priority.from_string(value).value
                 old_value = current_issue.priority.value
@@ -182,7 +183,7 @@ class IssueRepository:
                     try:
                         datetime.fromisoformat(value)
                     except ValueError:
-                        raise ValueError(f"Invalid date format for {field}: {value}")
+                        raise ValueError(f"Invalid date format for {field}: {value}") from None
                 old_value = current_issue.due_date.isoformat() if current_issue.due_date else None
             else:
                 old_value = getattr(current_issue, field)
@@ -422,7 +423,6 @@ class IssueRepository:
 
             return [self._row_to_issue(row) for row in rows]
 
-
     def get_all_issues(self) -> List[Issue]:
         """Get all issues without any filters or pagination.
 
@@ -437,6 +437,7 @@ class IssueRepository:
             rows = cursor.fetchall()
 
             return [self._row_to_issue(row) for row in rows]
+
     def get_next_issue(
         self, status: Optional[str] = None, log_fetch: bool = True
     ) -> Optional[Issue]:
@@ -509,9 +510,7 @@ class IssueRepository:
                 return issue
             return None
 
-    def search_issues(
-        self, keyword: str, limit: Optional[int] = None
-    ) -> List[Issue]:
+    def search_issues(self, keyword: str, limit: Optional[int] = None) -> List[Issue]:
         """Search issues by keyword in title and description.
 
         Args:
@@ -568,9 +567,7 @@ class IssueRepository:
             cursor.execute("DELETE FROM issues")
             return cursor.rowcount
 
-    def get_audit_logs(
-        self, issue_id: Optional[int] = None
-    ) -> List[AuditLog]:
+    def get_audit_logs(self, issue_id: Optional[int] = None) -> List[AuditLog]:
         """Get audit logs for issues.
 
         Args:
@@ -1197,10 +1194,10 @@ class IssueRepository:
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
 
-        if "estimated_hours" in row.keys() and row["estimated_hours"] is not None:
+        if "estimated_hours" in row and row["estimated_hours"] is not None:
             issue.estimated_hours = row["estimated_hours"]
 
-        if "due_date" in row.keys() and row["due_date"] is not None:
+        if "due_date" in row and row["due_date"] is not None:
             issue.due_date = datetime.fromisoformat(row["due_date"])
 
         return issue
@@ -1495,9 +1492,7 @@ class IssueRepository:
                     return False
                 raise
 
-    def remove_dependency(
-        self, blocked_id: int, blocker_id: Optional[int] = None
-    ) -> int:
+    def remove_dependency(self, blocked_id: int, blocker_id: Optional[int] = None) -> int:
         """Remove dependency relationship(s) for an issue.
 
         Args:
@@ -1602,9 +1597,7 @@ class IssueRepository:
         # Issue is blocked if it has any blocker that is not closed
         return any(blocker.status != Status.CLOSED for blocker in blockers)
 
-    def get_all_blocked_issues(
-        self, status: Optional[str] = None
-    ) -> List[Issue]:
+    def get_all_blocked_issues(self, status: Optional[str] = None) -> List[Issue]:
         """Get all issues that are currently blocked.
 
         Args:
@@ -2636,9 +2629,7 @@ class IssueRepository:
         """
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM issue_templates ORDER BY name ASC"
-            )
+            cursor.execute("SELECT * FROM issue_templates ORDER BY name ASC")
             rows = cursor.fetchall()
             return [self._row_to_template(row) for row in rows]
 
@@ -2868,34 +2859,49 @@ class IssueRepository:
                     created_at=datetime.fromisoformat(row["created_at"]),
                     updated_at=datetime.fromisoformat(row["updated_at"]),
                 )
-            return None
+        return None
 
-    def list_memory(self, category: Optional[str] = None, search: Optional[str] = None) -> List[Memory]:
+    def list_memory(
+        self, category: Optional[str] = None, search: Optional[str] = None
+    ) -> List[Memory]:
         """List memory items.
 
+
         Args:
+
             category: Filter by category.
+
             search: Search in key or value.
 
+
+
         Returns:
+
             List of Memory objects.
+
         """
+
         query = "SELECT * FROM memory WHERE 1=1"
-        params = []
+
+        params: List[Any] = []
 
         if category:
             query += " AND category = ?"
+
             params.append(category)
 
         if search:
             query += " AND (key LIKE ? OR value LIKE ?)"
+
             params.extend([f"%{search}%", f"%{search}%"])
 
         query += " ORDER BY key ASC"
 
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
+
             cursor.execute(query, params)
+
             rows = cursor.fetchall()
 
             return [
@@ -2912,7 +2918,9 @@ class IssueRepository:
 
     # Lessons Learned methods
 
-    def add_lesson(self, lesson: str, issue_id: Optional[int] = None, category: str = "general") -> LessonLearned:
+    def add_lesson(
+        self, lesson: str, issue_id: Optional[int] = None, category: str = "general"
+    ) -> LessonLearned:
         """Add a lesson learned.
 
         Args:
@@ -2977,7 +2985,7 @@ class IssueRepository:
             return None
 
         updates = []
-        values = []
+        values: List[Any] = []
         audit_entries = []
 
         if lesson is not None and lesson != current_lesson.lesson:
@@ -3066,7 +3074,9 @@ class IssueRepository:
                 )
             return None
 
-    def list_lessons(self, issue_id: Optional[int] = None, category: Optional[str] = None) -> List[LessonLearned]:
+    def list_lessons(
+        self, issue_id: Optional[int] = None, category: Optional[str] = None
+    ) -> List[LessonLearned]:
         """List lessons learned.
 
         Args:
@@ -3077,7 +3087,7 @@ class IssueRepository:
             List of LessonLearned objects.
         """
         query = "SELECT * FROM lessons_learned WHERE 1=1"
-        params = []
+        params: List[Any] = []
 
         if issue_id:
             query += " AND issue_id = ?"
@@ -3086,7 +3096,6 @@ class IssueRepository:
         if category:
             query += " AND category = ?"
             params.append(category)
-
         query += " ORDER BY created_at DESC"
 
         with self.db.get_connection() as conn:
@@ -3175,10 +3184,8 @@ class IssueRepository:
             True if tag was added, False if already present.
         """
         # Ensure tag exists
-        try:
+        with contextlib.suppress(ValueError):
             self.create_tag(tag_name)
-        except ValueError:
-            pass  # Tag already exists, which is fine
 
         # Get tag ID
         with self.db.get_connection() as conn:
@@ -3338,7 +3345,9 @@ class IssueRepository:
 
         return relation
 
-    def unlink_issues(self, source_id: int, target_id: int, relation_type: Optional[str] = None) -> bool:
+    def unlink_issues(
+        self, source_id: int, target_id: int, relation_type: Optional[str] = None
+    ) -> bool:
         """Remove link between issues.
 
         Args:
@@ -3350,7 +3359,7 @@ class IssueRepository:
             True if removed.
         """
         query = "DELETE FROM issue_relations WHERE source_issue_id = ? AND target_issue_id = ?"
-        params = [source_id, target_id]
+        params: List[Any] = [source_id, target_id]
 
         if relation_type:
             query += " AND relation_type = ?"
@@ -3390,7 +3399,7 @@ class IssueRepository:
         Returns:
             Dictionary with 'source' and 'target' relations.
         """
-        result = {"source": [], "target": []}
+        result: Dict[str, List[dict[str, Any]]] = {"source": [], "target": []}
 
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -3407,14 +3416,16 @@ class IssueRepository:
             )
             rows = cursor.fetchall()
             for row in rows:
-                result["source"].append({
-                    "id": row["id"],
-                    "target_id": row["target_issue_id"],
-                    "target_title": row["title"],
-                    "target_status": row["status"],
-                    "type": row["relation_type"],
-                    "created_at": row["created_at"],
-                })
+                result["source"].append(
+                    {
+                        "id": row["id"],
+                        "target_id": row["target_issue_id"],
+                        "target_title": row["title"],
+                        "target_status": row["status"],
+                        "type": row["relation_type"],
+                        "created_at": row["created_at"],
+                    }
+                )
 
             # Get relations where issue is target
             cursor.execute(
@@ -3428,13 +3439,15 @@ class IssueRepository:
             )
             rows = cursor.fetchall()
             for row in rows:
-                result["target"].append({
-                    "id": row["id"],
-                    "source_id": row["source_issue_id"],
-                    "source_title": row["title"],
-                    "source_status": row["status"],
-                    "type": row["relation_type"],
-                    "created_at": row["created_at"],
-                })
+                result["target"].append(
+                    {
+                        "id": row["id"],
+                        "source_id": row["source_issue_id"],
+                        "source_title": row["title"],
+                        "source_status": row["status"],
+                        "type": row["relation_type"],
+                        "created_at": row["created_at"],
+                    }
+                )
 
         return result

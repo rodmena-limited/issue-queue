@@ -158,9 +158,7 @@ class TestIssueRepository:
         """Test getting next issue based on priority and FIFO."""
         # Create issues in specific order
         repo.create_issue(Issue(title="Low", priority=Priority.LOW))
-        critical = repo.create_issue(
-            Issue(title="Critical", priority=Priority.CRITICAL)
-        )
+        critical = repo.create_issue(Issue(title="Critical", priority=Priority.CRITICAL))
         high1 = repo.create_issue(Issue(title="High 1", priority=Priority.HIGH))
         repo.create_issue(Issue(title="High 2", priority=Priority.HIGH))
 
@@ -189,12 +187,8 @@ class TestIssueRepository:
 
     def test_search_issues(self, repo):
         """Test searching issues by keyword."""
-        repo.create_issue(
-            Issue(title="Fix bug in login", description="Login fails")
-        )
-        repo.create_issue(
-            Issue(title="Add feature", description="New feature request")
-        )
+        repo.create_issue(Issue(title="Fix bug in login", description="Login fails"))
+        repo.create_issue(Issue(title="Add feature", description="New feature request"))
         repo.create_issue(Issue(title="Update docs", description="Documentation"))
 
         # Search in title
@@ -246,15 +240,9 @@ class TestIssueRepository:
     def test_bulk_update_all_issues(self, repo):
         """Test bulk updating all issues."""
         # Create multiple issues
-        issue1 = repo.create_issue(
-            Issue(title="Issue 1", status=Status.OPEN)
-        )
-        issue2 = repo.create_issue(
-            Issue(title="Issue 2", status=Status.OPEN)
-        )
-        issue3 = repo.create_issue(
-            Issue(title="Issue 3", status=Status.IN_PROGRESS)
-        )
+        issue1 = repo.create_issue(Issue(title="Issue 1", status=Status.OPEN))
+        issue2 = repo.create_issue(Issue(title="Issue 2", status=Status.OPEN))
+        issue3 = repo.create_issue(Issue(title="Issue 3", status=Status.IN_PROGRESS))
 
         # Bulk update all to closed
         count = repo.bulk_update_issues(new_status="closed")
@@ -275,20 +263,12 @@ class TestIssueRepository:
     def test_bulk_update_by_status_filter(self, repo):
         """Test bulk updating issues with specific status."""
         # Create issues with different statuses
-        issue1 = repo.create_issue(
-            Issue(title="Issue 1", status=Status.OPEN)
-        )
-        issue2 = repo.create_issue(
-            Issue(title="Issue 2", status=Status.IN_PROGRESS)
-        )
-        issue3 = repo.create_issue(
-            Issue(title="Issue 3", status=Status.OPEN)
-        )
+        issue1 = repo.create_issue(Issue(title="Issue 1", status=Status.OPEN))
+        issue2 = repo.create_issue(Issue(title="Issue 2", status=Status.IN_PROGRESS))
+        issue3 = repo.create_issue(Issue(title="Issue 3", status=Status.OPEN))
 
         # Bulk update only open issues
-        count = repo.bulk_update_issues(
-            filter_status="open", new_status="in-progress"
-        )
+        count = repo.bulk_update_issues(filter_status="open", new_status="in-progress")
         assert count == 2
 
         # Verify only open issues were updated
@@ -302,15 +282,9 @@ class TestIssueRepository:
     def test_bulk_update_by_priority_filter(self, repo):
         """Test bulk updating issues with specific priority."""
         # Create issues with different priorities
-        issue1 = repo.create_issue(
-            Issue(title="Issue 1", priority=Priority.HIGH)
-        )
-        issue2 = repo.create_issue(
-            Issue(title="Issue 2", priority=Priority.CRITICAL)
-        )
-        issue3 = repo.create_issue(
-            Issue(title="Issue 3", priority=Priority.HIGH)
-        )
+        issue1 = repo.create_issue(Issue(title="Issue 1", priority=Priority.HIGH))
+        issue2 = repo.create_issue(Issue(title="Issue 2", priority=Priority.CRITICAL))
+        issue3 = repo.create_issue(Issue(title="Issue 3", priority=Priority.HIGH))
 
         # Bulk update only high priority issues
         count = repo.bulk_update_issues(filter_priority="high", new_priority="medium")
@@ -345,12 +319,8 @@ class TestIssueRepository:
     def test_get_summary_all_issues(self, repo):
         """Test getting summary of all issues."""
         # Create issues with different statuses and priorities
-        repo.create_issue(
-            Issue(title="Issue 1", status=Status.OPEN, priority=Priority.HIGH)
-        )
-        repo.create_issue(
-            Issue(title="Issue 2", status=Status.OPEN, priority=Priority.LOW)
-        )
+        repo.create_issue(Issue(title="Issue 1", status=Status.OPEN, priority=Priority.HIGH))
+        repo.create_issue(Issue(title="Issue 2", status=Status.OPEN, priority=Priority.LOW))
         repo.create_issue(
             Issue(
                 title="Issue 3",
@@ -382,13 +352,9 @@ class TestIssueRepository:
     def test_get_report_grouped_by_status(self, repo):
         """Test getting report grouped by status."""
         # Create issues with different statuses
-        issue1 = repo.create_issue(
-            Issue(title="Issue 1", status=Status.OPEN)
-        )
+        issue1 = repo.create_issue(Issue(title="Issue 1", status=Status.OPEN))
         repo.create_issue(Issue(title="Issue 2", status=Status.CLOSED))
-        repo.create_issue(
-            Issue(title="Issue 3", status=Status.IN_PROGRESS)
-        )
+        repo.create_issue(Issue(title="Issue 3", status=Status.IN_PROGRESS))
 
         report = repo.get_report(group_by="status")
 
@@ -403,15 +369,9 @@ class TestIssueRepository:
     def test_get_report_grouped_by_priority(self, repo):
         """Test getting report grouped by priority."""
         # Create issues with different priorities
-        repo.create_issue(
-            Issue(title="Issue 1", priority=Priority.HIGH)
-        )
-        repo.create_issue(
-            Issue(title="Issue 2", priority=Priority.CRITICAL)
-        )
-        repo.create_issue(
-            Issue(title="Issue 3", priority=Priority.HIGH)
-        )
+        repo.create_issue(Issue(title="Issue 1", priority=Priority.HIGH))
+        repo.create_issue(Issue(title="Issue 2", priority=Priority.CRITICAL))
+        repo.create_issue(Issue(title="Issue 3", priority=Priority.HIGH))
 
         report = repo.get_report(group_by="priority")
 
@@ -546,9 +506,7 @@ class TestIssueRepository:
         """Test bulk closing multiple issues."""
         # Create issues with different statuses
         issue1 = repo.create_issue(Issue(title="Issue 1", status=Status.OPEN))
-        issue2 = repo.create_issue(
-            Issue(title="Issue 2", status=Status.IN_PROGRESS)
-        )
+        issue2 = repo.create_issue(Issue(title="Issue 2", status=Status.IN_PROGRESS))
         issue3 = repo.create_issue(Issue(title="Issue 3", status=Status.OPEN))
 
         # Bulk close specific issues

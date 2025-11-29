@@ -185,9 +185,7 @@ def _combine_issue_text(issue: Issue) -> str:
 
 
 def find_similar_issues(
-    query: str,
-    issues: List[Issue],
-    threshold: float = 0.6
+    query: str, issues: List[Issue], threshold: float = 0.6
 ) -> List[Tuple[Issue, float]]:
     """Find issues similar to a query text.
 
@@ -220,8 +218,7 @@ def find_similar_issues(
 
 
 def find_duplicate_groups(
-    issues: List[Issue],
-    threshold: float = 0.7
+    issues: List[Issue], threshold: float = 0.7
 ) -> List[List[Tuple[Issue, float]]]:
     """Find groups of potentially duplicate issues.
 
@@ -254,7 +251,7 @@ def find_duplicate_groups(
         group = [(primary_issue, 1.0)]  # Primary has 100% similarity to itself
 
         # Compare with remaining issues
-        for other_issue in sorted_issues[i + 1:]:
+        for other_issue in sorted_issues[i + 1 :]:
             # Skip if already grouped
             if other_issue.id in grouped_ids:
                 continue

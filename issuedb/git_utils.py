@@ -259,9 +259,7 @@ def validate_commit_hash(commit_hash: str, path: Optional[str] = None) -> bool:
         return False
 
 
-def get_branches_containing_commit(
-    commit_hash: str, path: Optional[str] = None
-) -> List[str]:
+def get_branches_containing_commit(commit_hash: str, path: Optional[str] = None) -> List[str]:
     """Get list of branches that contain the given commit.
 
     Args:
