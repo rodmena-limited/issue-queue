@@ -6,6 +6,47 @@ All notable changes to IssueDB are documented here.
 The format is based on `Keep a Changelog <https://keepachangelog.com/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/>`_.
 
+[2.5.0] - 2025-11-29
+--------------------
+
+Added
+~~~~~
+
+- **Memory System**: Persistent storage for AI agents and general knowledge
+
+  - ``memory`` command to add, list, update, and delete memory items
+  - ``Memory`` model and database table
+  - Web UI integration at ``/memory``
+
+- **Lessons Learned**: Track knowledge gained from resolved issues
+
+  - ``lesson`` command to add and list lessons
+  - ``LessonLearned`` model and database table
+  - Web UI integration at ``/lessons``
+
+- **Tagging**: Flexible categorization for issues
+
+  - ``tag`` command to add, remove, and list tags
+  - ``--tag`` flag in ``create`` and ``list`` commands
+  - Tag filtering in CLI and Web UI
+
+- **Due Dates**: Set deadlines for issues
+
+  - ``--due-date`` flag in ``create`` and ``update`` commands
+  - Due date display in CLI and Web UI
+
+- **Linked Issues**: Connect related issues
+
+  - ``link`` and ``unlink`` commands to manage relationships
+  - Relationship types (e.g., "related", "blocks")
+  - Web UI support for linking issues
+
+- **Web UI Enhancements**:
+
+  - New Memory and Lessons pages
+  - Linked Issues section in Issue Detail
+  - Improved sidebar layout
+
 [2.4.0] - 2025-11-26
 --------------------
 

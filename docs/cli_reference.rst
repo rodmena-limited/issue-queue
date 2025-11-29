@@ -39,7 +39,7 @@ Create a new issue.
 
 .. code-block:: bash
 
-   issuedb-cli create -t "TITLE" [-d "DESCRIPTION"] [--priority PRIORITY] [--status STATUS]
+   issuedb-cli create -t "TITLE" [-d "DESCRIPTION"] [--priority PRIORITY] [--status STATUS] [--due-date YYYY-MM-DD] [--tag TAG1] [--tag TAG2]
 
 **Arguments:**
 
@@ -47,6 +47,8 @@ Create a new issue.
 - ``-d, --description``: Detailed description
 - ``--priority``: Priority level (low, medium, high, critical). Default: medium
 - ``--status``: Initial status (open, in-progress, closed). Default: open
+- ``--due-date``: Due date in YYYY-MM-DD format
+- ``--tag``: Add one or more tags (can be specified multiple times)
 
 **Examples:**
 
@@ -56,7 +58,7 @@ Create a new issue.
    issuedb-cli create -t "Fix bug"
 
    # With all options
-   issuedb-cli create -t "Critical security fix" -d "SQL injection in login form" --priority critical
+   issuedb-cli create -t "Critical security fix" -d "SQL injection" --priority critical --due-date 2025-12-31 --tag security --tag bug
 
    # With JSON output
    issuedb-cli --json create -t "New feature" --priority high
@@ -68,13 +70,15 @@ List issues with optional filters.
 
 .. code-block:: bash
 
-   issuedb-cli list [-s STATUS] [--priority PRIORITY] [-l LIMIT]
+   issuedb-cli list [-s STATUS] [--priority PRIORITY] [-l LIMIT] [--due-date YYYY-MM-DD] [--tag TAG]
 
 **Arguments:**
 
 - ``-s, --status``: Filter by status (open, in-progress, closed)
 - ``--priority``: Filter by priority (low, medium, high, critical)
 - ``-l, --limit``: Maximum number of issues to return
+- ``--due-date``: Filter by specific due date
+- ``--tag``: Filter by tag name
 
 **Examples:**
 
@@ -86,8 +90,8 @@ List issues with optional filters.
    # List open high-priority issues
    issuedb-cli list -s open --priority high
 
-   # Get top 5 issues as JSON
-   issuedb-cli --json list -l 5
+   # Filter by tag
+   issuedb-cli list --tag bug
 
 get
 ~~~
@@ -116,7 +120,7 @@ Update an existing issue.
 
 .. code-block:: bash
 
-   issuedb-cli update ID [-t "TITLE"] [-d "DESCRIPTION"] [-s STATUS] [--priority PRIORITY]
+   issuedb-cli update ID [-t "TITLE"] [-d "DESCRIPTION"] [-s STATUS] [--priority PRIORITY] [--due-date YYYY-MM-DD]
 
 **Arguments:**
 
@@ -125,6 +129,7 @@ Update an existing issue.
 - ``-d, --description``: New description
 - ``-s, --status``: New status (open, in-progress, closed)
 - ``--priority``: New priority (low, medium, high, critical)
+- ``--due-date``: New due date (YYYY-MM-DD)
 
 **Examples:**
 
@@ -133,114 +138,148 @@ Update an existing issue.
    # Update status
    issuedb-cli update 1 -s in-progress
 
-   # Update multiple fields
-   issuedb-cli update 1 -t "Updated title" --priority critical -s closed
+   # Update due date
+   issuedb-cli update 1 --due-date 2025-01-01
 
-delete
+Memory Commands
+---------------
+
+memory
 ~~~~~~
 
-Delete an issue. The audit trail is preserved.
+Manage persistent memory for AI agents.
 
 .. code-block:: bash
 
-   issuedb-cli delete ID
+   issuedb-cli memory COMMAND [ARGS]
 
-**Arguments:**
+**Subcommands:**
 
-- ``ID`` (required): Issue ID
+- ``add``: Add a memory item
+- ``list``: List memory items
+- ``update``: Update a memory item
+- ``delete``: Delete a memory item
 
 **Examples:**
 
 .. code-block:: bash
 
-   issuedb-cli delete 42
+   # Add memory
+   issuedb-cli memory add "project_style" "Use PEP 8" --category "coding_standards"
 
-get-next
-~~~~~~~~
+   # List memory
+   issuedb-cli memory list
+   issuedb-cli memory list --category coding_standards
 
-Get the next issue to work on based on priority (FIFO within each priority level).
+   # Update memory
+   issuedb-cli memory update "project_style" "Use PEP 8 and Google docstrings"
 
-.. code-block:: bash
+   # Delete memory
+   issuedb-cli memory delete "project_style"
 
-   issuedb-cli get-next [-s STATUS]
+Lesson Commands
+---------------
 
-**Arguments:**
-
-- ``-s, --status``: Filter by status. Default: open
-
-**Behavior:**
-
-- Returns the highest priority issue (critical > high > medium > low)
-- Within the same priority, returns the oldest (FIFO)
-- **Logs the fetch in the audit trail** with a ``FETCH`` action
-- Use ``get-last`` to retrieve fetch history
-
-**Examples:**
-
-.. code-block:: bash
-
-   issuedb-cli get-next
-   issuedb-cli --json get-next -s in-progress
-
-get-last
-~~~~~~~~
-
-Get the last fetched issue(s) from the fetch history.
-
-.. code-block:: bash
-
-   issuedb-cli get-last [-n NUMBER]
-
-**Arguments:**
-
-- ``-n, --number``: Number of last fetched issues to return. Default: 1
-
-**Behavior:**
-
-- Returns issues in reverse chronological order (most recent first)
-- Shows current state of existing issues
-- Reconstructs deleted issues from audit log history
-- Does not return duplicates (same issue fetched multiple times counts once)
-
-**Examples:**
-
-.. code-block:: bash
-
-   # Get the last issue you fetched
-   issuedb-cli get-last
-
-   # Get the last 5 fetched issues
-   issuedb-cli get-last -n 5
-
-   # JSON output for automation
-   issuedb-cli --json get-last -n 3
-
-**Use Cases:**
-
-- Track what issues you've recently worked on
-- Review fetch history when switching contexts
-- Find previously fetched issue that was deleted
-
-search
+lesson
 ~~~~~~
 
-Search issues by keyword in title and description.
+Manage lessons learned.
 
 .. code-block:: bash
 
-   issuedb-cli search -k "KEYWORD" [-l LIMIT]
+   issuedb-cli lesson COMMAND [ARGS]
 
-**Arguments:**
+**Subcommands:**
 
-- ``-k, --keyword`` (required): Search keyword
-- ``-l, --limit``: Maximum results
+- ``add``: Add a lesson learned
+- ``list``: List lessons learned
 
 **Examples:**
 
 .. code-block:: bash
 
-   issuedb-cli search -k "login"
-   issuedb-cli --json search -k "bug" -l 10
+   # Add lesson
+   issuedb-cli lesson add "Always backup before update" --issue-id 42 --category "devops"
+
+   # List lessons
+   issuedb-cli lesson list
+   issuedb-cli lesson list --category devops
+
+Tag Commands
+-------------
+
+tag
+~~~
+
+Manage tags.
+
+.. code-block:: bash
+
+   issuedb-cli tag COMMAND [ARGS]
+
+**Subcommands:**
+
+- ``add``: Add tags to an issue
+- ``remove``: Remove tags from an issue
+- ``list``: List all available tags
+
+**Examples:**
+
+.. code-block:: bash
+
+   # Add tags to issue
+   issuedb-cli tag add 1 bug security
+
+   # Remove tags
+   issuedb-cli tag remove 1 security
+
+   # List all tags
+   issuedb-cli tag list
+
+Link Commands
+-------------
+
+link
+~~~~
+
+Link two issues.
+
+.. code-block:: bash
+
+   issuedb-cli link SOURCE_ID TARGET_ID --type TYPE
+
+**Arguments:**
+
+- ``SOURCE_ID``: ID of the source issue
+- ``TARGET_ID``: ID of the target issue
+- ``--type``: Relationship type (e.g., "related", "blocks")
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli link 1 2 --type related
+
+unlink
+~~~~~~
+
+Unlink two issues.
+
+.. code-block:: bash
+
+   issuedb-cli unlink SOURCE_ID TARGET_ID [--type TYPE]
+
+**Arguments:**
+
+- ``SOURCE_ID``: ID of the source issue
+- ``TARGET_ID``: ID of the target issue
+- ``--type``: Optional type filter
+
+**Examples:**
+
+.. code-block:: bash
+
+   issuedb-cli unlink 1 2
 
 Comment Commands
 ----------------

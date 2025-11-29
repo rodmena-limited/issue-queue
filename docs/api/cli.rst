@@ -23,10 +23,113 @@ CLI Class
       cli = CLI()  # Use default database
       cli = CLI("/path/to/custom.db")  # Use custom database
 
+   :returns: Formatted output string
+
+.. py:method:: CLI.memory_add(key: str, value: str, category: str = "general", as_json: bool = False) -> str
+
+   Add a memory item.
+
+   :param key: Unique key for the memory item
+   :param value: Value/content of the memory
+   :param category: Category grouping
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.memory_list(category: Optional[str] = None, search: Optional[str] = None, as_json: bool = False) -> str
+
+   List memory items.
+
+   :param category: Filter by category
+   :param search: Search term for key/value
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.memory_update(key: str, value: Optional[str] = None, category: Optional[str] = None, as_json: bool = False) -> str
+
+   Update a memory item.
+
+   :param key: Key of the item to update
+   :param value: New value
+   :param category: New category
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.memory_delete(key: str, as_json: bool = False) -> str
+
+   Delete a memory item.
+
+   :param key: Key of the item to delete
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.lesson_add(lesson: str, issue_id: Optional[int] = None, category: str = "general", as_json: bool = False) -> str
+
+   Add a lesson learned.
+
+   :param lesson: The lesson text
+   :param issue_id: Related issue ID
+   :param category: Category grouping
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.lesson_list(issue_id: Optional[int] = None, category: Optional[str] = None, as_json: bool = False) -> str
+
+   List lessons learned.
+
+   :param issue_id: Filter by related issue
+   :param category: Filter by category
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.tag_issue(issue_id: int, tags: list[str], as_json: bool = False) -> str
+
+   Add tags to an issue.
+
+   :param issue_id: Issue ID
+   :param tags: List of tags to add
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.untag_issue(issue_id: int, tags: list[str], as_json: bool = False) -> str
+
+   Remove tags from an issue.
+
+   :param issue_id: Issue ID
+   :param tags: List of tags to remove
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.tag_list(as_json: bool = False) -> str
+
+   List all available tags.
+
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.link_issues(source: int, target: int, type: str, as_json: bool = False) -> str
+
+   Link two issues together.
+
+   :param source: Source issue ID
+   :param target: Target issue ID
+   :param type: Relationship type (e.g., "related", "blocks")
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
+.. py:method:: CLI.unlink_issues(source: int, target: int, type: Optional[str] = None, as_json: bool = False) -> str
+
+   Unlink issues.
+
+   :param source: Source issue ID
+   :param target: Target issue ID
+   :param type: Optional relationship type filter
+   :param as_json: Return JSON output
+   :returns: Formatted output string
+
 Issue Methods
 ~~~~~~~~~~~~~
 
-.. py:method:: CLI.create_issue(title: str, description: Optional[str] = None, priority: str = "medium", status: str = "open", as_json: bool = False) -> str
+.. py:method:: CLI.create_issue(title: str, description: Optional[str] = None, priority: str = "medium", status: str = "open", due_date: Optional[str] = None, as_json: bool = False, force: bool = False, check_duplicates: bool = False) -> str
 
    Create a new issue.
 
@@ -34,7 +137,10 @@ Issue Methods
    :param description: Issue description
    :param priority: Priority level
    :param status: Initial status
+   :param due_date: Due date (YYYY-MM-DD)
    :param as_json: Return JSON output
+   :param force: Force creation even if duplicates found
+   :param check_duplicates: Enable duplicate checking
    :returns: Formatted output string
 
    **Example:**
@@ -44,20 +150,23 @@ Issue Methods
       output = cli.create_issue(
           "Fix bug",
           description="Details here",
-          priority="high"
+          priority="high",
+          due_date="2025-12-31"
       )
       print(output)
 
       # JSON output
       json_output = cli.create_issue("Fix bug", as_json=True)
 
-.. py:method:: CLI.list_issues(status: Optional[str] = None, priority: Optional[str] = None, limit: Optional[int] = None, as_json: bool = False) -> str
+.. py:method:: CLI.list_issues(status: Optional[str] = None, priority: Optional[str] = None, limit: Optional[int] = None, due_date: Optional[str] = None, tag: Optional[str] = None, as_json: bool = False) -> str
 
    List issues with optional filters.
 
    :param status: Filter by status
    :param priority: Filter by priority
    :param limit: Maximum results
+   :param due_date: Filter by due date
+   :param tag: Filter by tag
    :param as_json: Return JSON output
    :returns: Formatted output string
 
@@ -76,7 +185,7 @@ Issue Methods
 
    :param issue_id: Issue ID
    :param as_json: Return JSON output
-   :param updates: Fields to update
+   :param updates: Fields to update (title, description, priority, status, due_date)
    :returns: Formatted output string
    :raises ValueError: If issue not found
 
@@ -84,33 +193,7 @@ Issue Methods
 
    .. code-block:: python
 
-      cli.update_issue(1, status="closed", priority="low")
-
-.. py:method:: CLI.delete_issue(issue_id: int, as_json: bool = False) -> str
-
-   Delete an issue.
-
-   :param issue_id: Issue ID
-   :param as_json: Return JSON output
-   :returns: Formatted output string
-   :raises ValueError: If issue not found
-
-.. py:method:: CLI.get_next_issue(status: str = "open", as_json: bool = False) -> str
-
-   Get the next issue to work on.
-
-   :param status: Status filter
-   :param as_json: Return JSON output
-   :returns: Formatted output string
-
-.. py:method:: CLI.search_issues(keyword: str, limit: Optional[int] = None, as_json: bool = False) -> str
-
-   Search issues by keyword.
-
-   :param keyword: Search keyword
-   :param limit: Maximum results
-   :param as_json: Return JSON output
-   :returns: Formatted output string
+      cli.update_issue(1, status="closed", priority="low", due_date="2025-01-01")
 
 Comment Methods
 ~~~~~~~~~~~~~~~

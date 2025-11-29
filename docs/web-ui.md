@@ -51,6 +51,21 @@ Browse and filter all issues:
 - **Search**: Full-text search across issue titles and descriptions
 - **Actions**: Quick edit and close buttons for each issue
 
+### Memory (`/memory`)
+
+Manage persistent memory items:
+
+- **List**: View all memory items grouped by category
+- **Add**: Add new memory items
+- **Delete**: Remove memory items
+
+### Lessons (`/lessons`)
+
+View and manage lessons learned:
+
+- **List**: View lessons learned from resolved issues
+- **Add**: Record new lessons
+
 ### Issue Detail (`/issues/<id>`)
 
 Full issue view with:
@@ -59,6 +74,7 @@ Full issue view with:
 - **Comments**: View and add comments to the issue
 - **Quick Actions**: Start, close, or reopen the issue
 - **Status/Priority Dropdowns**: Change status and priority inline
+- **Linked Issues**: View and manage related issues
 - **Blockers**: Issues blocking this issue (if any)
 - **Blocking**: Issues this issue is blocking (if any)
 - **Code References**: Files and line numbers linked to this issue

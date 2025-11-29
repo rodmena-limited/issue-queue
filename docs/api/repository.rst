@@ -46,7 +46,8 @@ Issue Operations
       issue = Issue(
           title="Fix bug",
           description="Detailed description",
-          priority=Priority.HIGH
+          priority=Priority.HIGH,
+          due_date=datetime(2025, 12, 31)
       )
       created = repo.create_issue(issue)
       print(f"Created issue #{created.id}")
@@ -73,7 +74,7 @@ Issue Operations
    Update an issue.
 
    :param issue_id: Issue ID
-   :param updates: Field updates (title, description, priority, status)
+   :param updates: Field updates (title, description, priority, status, due_date)
    :returns: Updated issue or None if not found
    :raises ValueError: If invalid field name provided
 
@@ -83,7 +84,8 @@ Issue Operations
 
       updated = repo.update_issue(1,
           status="in-progress",
-          priority="high"
+          priority="high",
+          due_date="2025-01-01"
       )
 
 .. py:method:: IssueRepository.delete_issue(issue_id: int) -> bool
@@ -102,7 +104,7 @@ Issue Operations
       else:
           print("Issue not found")
 
-.. py:method:: IssueRepository.list_issues(status: Optional[str] = None, priority: Optional[str] = None, limit: Optional[int] = None, offset: Optional[int] = None) -> List[Issue]
+.. py:method:: IssueRepository.list_issues(status: Optional[str] = None, priority: Optional[str] = None, limit: Optional[int] = None, offset: int = 0, due_date: Optional[str] = None, tag: Optional[str] = None) -> List[Issue]
 
    List issues with optional filters.
 
@@ -110,6 +112,8 @@ Issue Operations
    :param priority: Filter by priority
    :param limit: Maximum number of results
    :param offset: Number of results to skip
+   :param due_date: Filter by due date (exact match)
+   :param tag: Filter by tag name
    :returns: List of issues
 
    **Example:**
@@ -122,66 +126,139 @@ Issue Operations
       # High priority issues, first 10
       urgent = repo.list_issues(priority="high", limit=10)
 
-.. py:method:: IssueRepository.get_next_issue(status: str = "open", log_fetch: bool = True) -> Optional[Issue]
+      # Issues with 'bug' tag
+      bugs = repo.list_issues(tag="bug")
 
-   Get the next issue to work on (FIFO by priority).
+Memory Operations
+~~~~~~~~~~~~~~~~~
 
-   :param status: Status to filter by (default: "open")
-   :param log_fetch: If True, logs the fetch in audit trail (default: True)
-   :returns: Next issue or None
+.. py:method:: IssueRepository.add_memory(key: str, value: str, category: str = "general") -> Memory
 
-   **Example:**
+   Add a memory item.
 
-   .. code-block:: python
+   :param key: Unique key
+   :param value: Content
+   :param category: Category
+   :returns: Created Memory object
 
-      next_issue = repo.get_next_issue()
-      if next_issue:
-          print(f"Work on: #{next_issue.id} - {next_issue.title}")
+.. py:method:: IssueRepository.get_memory(key: str) -> Optional[Memory]
 
-      # Fetch without logging (for preview)
-      preview = repo.get_next_issue(log_fetch=False)
+   Get a memory item by key.
 
-.. py:method:: IssueRepository.get_last_fetched(limit: int = 1) -> List[Issue]
+   :param key: Key to search for
+   :returns: Memory object or None
 
-   Get the last fetched issue(s) from the audit log.
+.. py:method:: IssueRepository.list_memory(category: Optional[str] = None, search: Optional[str] = None) -> List[Memory]
 
-   :param limit: Maximum number of fetched issues to return (default: 1)
-   :returns: List of Issue objects in reverse chronological order (most recent first)
+   List memory items.
 
-   **Behavior:**
+   :param category: Filter by category
+   :param search: Search in key or value
+   :returns: List of Memory objects
 
-   - Returns issues that were retrieved via ``get_next_issue``
-   - Shows current state of existing issues
-   - Reconstructs deleted issues from audit log
-   - Does not return duplicates
+.. py:method:: IssueRepository.update_memory(key: str, value: Optional[str] = None, category: Optional[str] = None) -> Optional[Memory]
 
-   **Example:**
+   Update a memory item.
 
-   .. code-block:: python
+   :param key: Key of item to update
+   :param value: New value
+   :param category: New category
+   :returns: Updated Memory object or None
 
-      # Get last fetched issue
-      last = repo.get_last_fetched()
-      if last:
-          print(f"Last worked on: {last[0].title}")
+.. py:method:: IssueRepository.delete_memory(key: str) -> bool
 
-      # Get last 5 fetched issues
-      recent = repo.get_last_fetched(limit=5)
-      for issue in recent:
-          print(f"#{issue.id}: {issue.title}")
+   Delete a memory item.
 
-.. py:method:: IssueRepository.search_issues(keyword: str, limit: Optional[int] = None) -> List[Issue]
+   :param key: Key of item to delete
+   :returns: True if deleted
 
-   Search issues by keyword in title and description.
+Lessons Learned
+~~~~~~~~~~~~~~~
 
-   :param keyword: Search keyword
-   :param limit: Maximum results
-   :returns: List of matching issues
+.. py:method:: IssueRepository.add_lesson(lesson: str, issue_id: Optional[int] = None, category: str = "general") -> LessonLearned
 
-   **Example:**
+   Add a lesson learned.
 
-   .. code-block:: python
+   :param lesson: Lesson text
+   :param issue_id: Related issue ID
+   :param category: Category
+   :returns: Created LessonLearned object
 
-      results = repo.search_issues("login", limit=5)
+.. py:method:: IssueRepository.list_lessons(issue_id: Optional[int] = None, category: Optional[str] = None) -> List[LessonLearned]
+
+   List lessons learned.
+
+   :param issue_id: Filter by related issue
+   :param category: Filter by category
+   :returns: List of LessonLearned objects
+
+Tag Operations
+~~~~~~~~~~~~~~
+
+.. py:method:: IssueRepository.create_tag(name: str, color: Optional[str] = None) -> Tag
+
+   Create a new tag.
+
+   :param name: Tag name
+   :param color: Optional color code
+   :returns: Created Tag object
+
+.. py:method:: IssueRepository.list_tags() -> List[Tag]
+
+   List all tags.
+
+   :returns: List of Tag objects
+
+.. py:method:: IssueRepository.add_issue_tag(issue_id: int, tag_name: str) -> bool
+
+   Add a tag to an issue.
+
+   :param issue_id: Issue ID
+   :param tag_name: Tag name
+   :returns: True if added, False if already exists
+
+.. py:method:: IssueRepository.remove_issue_tag(issue_id: int, tag_name: str) -> bool
+
+   Remove a tag from an issue.
+
+   :param issue_id: Issue ID
+   :param tag_name: Tag name
+   :returns: True if removed
+
+.. py:method:: IssueRepository.get_issue_tags(issue_id: int) -> List[Tag]
+
+   Get tags for an issue.
+
+   :param issue_id: Issue ID
+   :returns: List of Tag objects
+
+Link Operations
+~~~~~~~~~~~~~~~
+
+.. py:method:: IssueRepository.link_issues(source_id: int, target_id: int, relation_type: str) -> IssueRelation
+
+   Link two issues.
+
+   :param source_id: Source issue ID
+   :param target_id: Target issue ID
+   :param relation_type: Relationship type
+   :returns: Created IssueRelation object
+
+.. py:method:: IssueRepository.unlink_issues(source_id: int, target_id: int, relation_type: Optional[str] = None) -> bool
+
+   Unlink issues.
+
+   :param source_id: Source issue ID
+   :param target_id: Target issue ID
+   :param relation_type: Optional type filter
+   :returns: True if removed
+
+.. py:method:: IssueRepository.get_issue_relations(issue_id: int) -> Dict[str, List[dict]]
+
+   Get all relations for an issue.
+
+   :param issue_id: Issue ID
+   :returns: Dictionary with 'source' and 'target' lists
 
 Comment Operations
 ~~~~~~~~~~~~~~~~~~
