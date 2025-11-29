@@ -1864,7 +1864,7 @@ ISSUE_DETAIL_TEMPLATE = (
                     html += '<a href="/issues/' + link.id + '" style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#' + link.id + ' ' + truncate(link.title, 20) + '</a>';
                     
                     // Delete button
-                    html += '<button onclick="deleteLink(' + issueId + ', ' + link.id + ', \'' + escapeHtml(link.type) + '\')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 14px;">&times;</button>';
+                    html += '<button onclick="deleteLink(' + issueId + ', ' + link.id + ', \\'' + escapeHtml(link.type) + '\\')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 14px;">&times;</button>';
                     
                     html += '</div>';
                 }
@@ -2130,6 +2130,15 @@ ISSUE_FORM_TEMPLATE = (
                        value="{{ issue.due_date.strftime('%Y-%m-%d') if issue and issue.due_date else '' }}">
             </div>
 
+            <div class="form-group">
+                <label class="form-label" for="related_issues">Related Issues (IDs)</label>
+                <input type="text" id="related_issues" name="related_issues" class="form-control"
+                       placeholder="e.g. 12, 15 (comma separated)">
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                    Enter IDs of issues related to this one. They will be linked as 'related'.
+                </div>
+            </div>
+
             <div style="display: flex; gap: 12px; margin-top: 8px;">
                 <button type="submit" class="btn btn-primary">{{ 'Update Issue' if issue else 'Create Issue' }}</button>
                 <a href="{{ '/issues/' ~ issue.id if issue else '/issues' }}" class="btn">Cancel</a>
@@ -2343,15 +2352,15 @@ def lessons_page() -> str:
 def memory_add() -> Any:
     """Form handler for adding memory."""
     repo = get_repo()
-    
+
     try:
         key = request.form.get("key")
         value = request.form.get("value")
         category = request.form.get("category", "general")
-        
+
         if not key or not value:
             return "Key and value required", 400
-            
+
         repo.add_memory(key=key, value=value, category=category)
         return redirect(url_for("memory_page"))
     except Exception as e:
@@ -2370,16 +2379,16 @@ def memory_delete(key: str) -> Any:
 def lessons_add() -> Any:
     """Form handler for adding lessons."""
     repo = get_repo()
-    
+
     try:
         lesson = request.form.get("lesson")
         category = request.form.get("category", "general")
         issue_id_str = request.form.get("issue_id")
         issue_id = int(issue_id_str) if issue_id_str else None
-        
+
         if not lesson:
             return "Lesson text required", 400
-            
+
         repo.add_lesson(lesson=lesson, category=category, issue_id=issue_id)
         return redirect(url_for("lessons_page"))
     except Exception as e:
@@ -2424,7 +2433,7 @@ def api_create_issue() -> Any:
         priority=Priority.from_string(data.get("priority", "medium")),
         status=Status.from_string(data.get("status", "open")),
     )
-    
+
     if data.get("due_date"):
         try:
             from datetime import datetime
@@ -2433,6 +2442,20 @@ def api_create_issue() -> Any:
             pass # Ignore invalid date for now or handle error
 
     created = repo.create_issue(issue)
+
+    # Handle related issues
+    related_ids_str = data.get("related_issues", "")
+    if related_ids_str:
+        for part in related_ids_str.split(","):
+            try:
+                target_id = int(part.strip())
+                if target_id:
+                    try:
+                        repo.link_issues(created.id, target_id, "related")
+                    except ValueError:
+                        pass
+            except ValueError:
+                pass
 
     if request.is_json:
         return jsonify(created.to_dict()), 201
@@ -2492,6 +2515,20 @@ def api_update_issue(issue_id: int) -> Any:
         if request.is_json:
             return jsonify({"error": "Issue not found"}), 404
         return redirect(url_for("issues_list", message="Issue not found"))
+
+    # Handle related issues
+    related_ids_str = data.get("related_issues", "")
+    if related_ids_str:
+        for part in related_ids_str.split(","):
+            try:
+                target_id = int(part.strip())
+                if target_id:
+                    try:
+                        repo.link_issues(issue_id, target_id, "related")
+                    except ValueError:
+                        pass
+            except ValueError:
+                pass
 
     if request.is_json:
         return jsonify(updated.to_dict())
@@ -2975,22 +3012,22 @@ def api_issue_tags(issue_id: int) -> Any:
     if request.method == "GET":
         tags = repo.get_issue_tags(issue_id)
         return jsonify([t.to_dict() for t in tags])
-    
+
     elif request.method == "POST":
         data = request.get_json()
         tag_name = data.get("tag")
         if not tag_name:
             return jsonify({"error": "Tag name required"}), 400
-        
+
         if repo.add_issue_tag(issue_id, tag_name):
             return jsonify({"message": "Tag added"}), 201
         return jsonify({"message": "Tag already exists"}), 200
-        
+
     elif request.method == "DELETE":
         tag_name = request.args.get("tag")
         if not tag_name:
             return jsonify({"error": "Tag name required"}), 400
-            
+
         if repo.remove_issue_tag(issue_id, tag_name):
             return jsonify({"message": "Tag removed"})
         return jsonify({"error": "Tag not found on issue"}), 404
@@ -3017,7 +3054,7 @@ def api_links() -> Any:
             return jsonify(rel.to_dict()), 201
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-            
+
     elif request.method == "DELETE":
         if repo.unlink_issues(source, target, type):
             return jsonify({"message": "Unlinked"})

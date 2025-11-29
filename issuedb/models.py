@@ -289,7 +289,7 @@ class Issue:
                 issue.due_date = datetime.fromisoformat(data["due_date"])
             else:
                 issue.due_date = data["due_date"]
-        
+
         if "tags" in data and isinstance(data["tags"], list):
             issue.tags = []
             for tag_data in data["tags"]:
@@ -350,13 +350,13 @@ class LessonLearned:
 @dataclass
 class IssueRelation:
     """Represents a relationship between issues."""
-    
+
     id: Optional[int] = field(default=None)
     source_issue_id: int = field(default=0)
     target_issue_id: int = field(default=0)
     relation_type: str = field(default="")
     created_at: datetime = field(default_factory=datetime.now)
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
