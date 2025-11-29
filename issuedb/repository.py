@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from issuedb.database import get_database
 from issuedb.date_utils import parse_date, validate_date_range
-from issuedb.models import AuditLog, CodeReference, Comment, Issue, IssueTemplate, Priority, Status
+from issuedb.models import AuditLog, CodeReference, Comment, Issue, IssueTemplate, Priority, Status, Memory, LessonLearned, Tag, IssueRelation
 
 
 class IssueRepository:
@@ -72,8 +72,8 @@ class IssueRepository:
             cursor.execute(
                 """
                 INSERT INTO issues (title, description, priority, status,
-                                   created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                                   created_at, updated_at, estimated_hours, due_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     issue.title,
@@ -82,6 +82,8 @@ class IssueRepository:
                     issue.status.value,
                     issue.created_at.isoformat(),
                     issue.updated_at.isoformat(),
+                    issue.estimated_hours,
+                    issue.due_date.isoformat() if issue.due_date else None,
                 ),
             )
 
@@ -120,7 +122,10 @@ class IssueRepository:
             row = cursor.fetchone()
 
             if row:
-                return self._row_to_issue(row)
+                issue = self._row_to_issue(row)
+                # Populate tags
+                issue.tags = self.get_issue_tags(issue_id)
+                return issue
             return None
 
     def update_issue(self, issue_id: int, **updates: Any) -> Optional[Issue]:
@@ -142,7 +147,7 @@ class IssueRepository:
             return None
 
         # Validate and prepare updates
-        allowed_fields = {"title", "description", "priority", "status"}
+        allowed_fields = {"title", "description", "priority", "status", "due_date"}
         update_fields: List[str] = []
         update_values: List[Any] = []
         audit_entries: List[tuple[str, str, str]] = []
@@ -158,6 +163,15 @@ class IssueRepository:
             elif field == "status":
                 value = Status.from_string(value).value
                 old_value = current_issue.status.value
+            elif field == "due_date":
+                # Value should be ISO format string or None
+                if value:
+                    # Validate date format
+                    try:
+                        datetime.fromisoformat(value)
+                    except ValueError:
+                        raise ValueError(f"Invalid date format for {field}: {value}")
+                old_value = current_issue.due_date.isoformat() if current_issue.due_date else None
             else:
                 old_value = getattr(current_issue, field)
 
@@ -334,6 +348,8 @@ class IssueRepository:
         priority: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
+        due_date: Optional[str] = None,
+        tag: Optional[str] = None,
     ) -> List[Issue]:
         """List issues with optional filters.
 
@@ -342,24 +358,43 @@ class IssueRepository:
             priority: Filter by priority.
             limit: Maximum number of issues to return.
             offset: Number of issues to skip.
+            due_date: Filter by due date (exact match).
+            tag: Filter by tag name.
 
         Returns:
             List of matching issues.
         """
-        query = "SELECT * FROM issues WHERE 1=1"
+        query = "SELECT DISTINCT i.* FROM issues i"
         params: List[Any] = []
+        
+        joins = []
+        wheres = ["1=1"]
+
+        if tag:
+            joins.append("JOIN issue_tags it ON i.id = it.issue_id")
+            joins.append("JOIN tags t ON it.tag_id = t.id")
+            wheres.append("t.name = ?")
+            params.append(tag)
 
         if status:
             Status.from_string(status)  # Validate status
-            query += " AND status = ?"
+            wheres.append("i.status = ?")
             params.append(status.lower())
 
         if priority:
             Priority.from_string(priority)  # Validate priority
-            query += " AND priority = ?"
+            wheres.append("i.priority = ?")
             params.append(priority.lower())
+            
+        if due_date:
+            wheres.append("date(i.due_date) = date(?)")
+            params.append(due_date)
 
-        query += " ORDER BY created_at DESC"
+        if joins:
+            query += " " + " ".join(joins)
+            
+        query += " WHERE " + " AND ".join(wheres)
+        query += " ORDER BY i.created_at DESC"
 
         if limit:
             query += " LIMIT ?"
@@ -1140,7 +1175,7 @@ class IssueRepository:
         Returns:
             Issue object.
         """
-        return Issue(
+        issue = Issue(
             id=row["id"],
             title=row["title"],
             description=row["description"],
@@ -1149,6 +1184,14 @@ class IssueRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
+        
+        if "estimated_hours" in row.keys() and row["estimated_hours"] is not None:
+            issue.estimated_hours = row["estimated_hours"]
+            
+        if "due_date" in row.keys() and row["due_date"] is not None:
+            issue.due_date = datetime.fromisoformat(row["due_date"])
+            
+        return issue
 
     def parse_file_spec(self, file_spec: str) -> Tuple[str, Optional[int], Optional[int]]:
         """Parse file specification with optional line numbers.
@@ -2652,3 +2695,734 @@ class IssueRepository:
             field_prompts=field_prompts,
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
+    # Memory methods
+
+    def add_memory(self, key: str, value: str, category: str = "general") -> Memory:
+        """Add a memory item.
+
+        Args:
+            key: Unique key.
+            value: Value to store.
+            category: Category (default: general).
+
+        Returns:
+            Created Memory object.
+
+        Raises:
+            ValueError: If key already exists.
+        """
+        memory = Memory(key=key, value=value, category=category)
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO memory (key, value, category, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+                    (
+                        memory.key,
+                        memory.value,
+                        memory.category,
+                        memory.created_at.isoformat(),
+                        memory.updated_at.isoformat(),
+                    ),
+                )
+                memory.id = cursor.lastrowid
+                
+                # Log audit
+                self._log_audit(
+                    conn,
+                    0,  # System level
+                    "MEMORY_ADD",
+                    None,
+                    None,
+                    json.dumps(memory.to_dict()),
+                )
+            except Exception as e:
+                if "UNIQUE constraint failed" in str(e):
+                    raise ValueError(f"Memory with key '{key}' already exists") from e
+                raise
+
+        return memory
+
+    def update_memory(
+        self, key: str, value: Optional[str] = None, category: Optional[str] = None
+    ) -> Optional[Memory]:
+        """Update a memory item.
+
+        Args:
+            key: Key to identify memory.
+            value: New value.
+            category: New category.
+
+        Returns:
+            Updated Memory object or None if not found.
+        """
+        current_memory = self.get_memory(key)
+        if not current_memory:
+            return None
+
+        updates = []
+        values = []
+        audit_entries = []
+
+        if value is not None and value != current_memory.value:
+            updates.append("value = ?")
+            values.append(value)
+            audit_entries.append(("value", current_memory.value, value))
+        
+        if category is not None and category != current_memory.category:
+            updates.append("category = ?")
+            values.append(category)
+            audit_entries.append(("category", current_memory.category, category))
+
+        if not updates:
+            return current_memory
+
+        updates.append("updated_at = ?")
+        values.append(datetime.now().isoformat())
+        values.append(key)
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            query = f"UPDATE memory SET {', '.join(updates)} WHERE key = ?"
+            cursor.execute(query, values)
+            
+            # Log audit
+            for field, old_val, new_val in audit_entries:
+                self._log_audit(
+                    conn,
+                    0,
+                    "MEMORY_UPDATE",
+                    f"{key}:{field}",
+                    old_val,
+                    new_val,
+                )
+                
+        return self.get_memory(key)
+
+    def delete_memory(self, key: str) -> bool:
+        """Delete a memory item.
+
+        Args:
+            key: Key to identify memory.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        memory = self.get_memory(key)
+        if not memory:
+            return False
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM memory WHERE key = ?", (key,))
+            
+            # Log audit
+            self._log_audit(
+                conn,
+                0,
+                "MEMORY_DELETE",
+                None,
+                json.dumps(memory.to_dict()),
+                None,
+            )
+            
+            return cursor.rowcount > 0
+
+    def get_memory(self, key: str) -> Optional[Memory]:
+        """Get a memory item by key.
+
+        Args:
+            key: Key to identify memory.
+
+        Returns:
+            Memory object or None.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM memory WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            
+            if row:
+                return Memory(
+                    id=row["id"],
+                    key=row["key"],
+                    value=row["value"],
+                    category=row["category"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                    updated_at=datetime.fromisoformat(row["updated_at"]),
+                )
+            return None
+
+    def list_memory(self, category: Optional[str] = None, search: Optional[str] = None) -> List[Memory]:
+        """List memory items.
+
+        Args:
+            category: Filter by category.
+            search: Search in key or value.
+
+        Returns:
+            List of Memory objects.
+        """
+        query = "SELECT * FROM memory WHERE 1=1"
+        params = []
+
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+        
+        if search:
+            query += " AND (key LIKE ? OR value LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
+            
+        query += " ORDER BY key ASC"
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            return [
+                Memory(
+                    id=row["id"],
+                    key=row["key"],
+                    value=row["value"],
+                    category=row["category"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                    updated_at=datetime.fromisoformat(row["updated_at"]),
+                )
+                for row in rows
+            ]
+
+    # Lessons Learned methods
+
+    def add_lesson(self, lesson: str, issue_id: Optional[int] = None, category: str = "general") -> LessonLearned:
+        """Add a lesson learned.
+
+        Args:
+            lesson: The lesson text.
+            issue_id: Related issue ID (optional).
+            category: Category (default: general).
+
+        Returns:
+            Created LessonLearned object.
+        """
+        # Verify issue if provided
+        if issue_id:
+            issue = self.get_issue(issue_id)
+            if not issue:
+                raise ValueError(f"Issue {issue_id} not found")
+
+        ll = LessonLearned(issue_id=issue_id, lesson=lesson, category=category)
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO lessons_learned (issue_id, lesson, category, created_at)
+                VALUES (?, ?, ?, ?)
+            """,
+                (
+                    ll.issue_id,
+                    ll.lesson,
+                    ll.category,
+                    ll.created_at.isoformat(),
+                ),
+            )
+            ll.id = cursor.lastrowid
+            
+            # Log audit
+            self._log_audit(
+                conn,
+                issue_id if issue_id else 0,
+                "LESSON_ADD",
+                None,
+                None,
+                json.dumps(ll.to_dict()),
+            )
+
+        return ll
+
+    def update_lesson(
+        self, lesson_id: int, lesson: Optional[str] = None, category: Optional[str] = None
+    ) -> Optional[LessonLearned]:
+        """Update a lesson learned.
+
+        Args:
+            lesson_id: ID of the lesson.
+            lesson: New lesson text.
+            category: New category.
+
+        Returns:
+            Updated LessonLearned object or None.
+        """
+        current_lesson = self.get_lesson(lesson_id)
+        if not current_lesson:
+            return None
+
+        updates = []
+        values = []
+        audit_entries = []
+
+        if lesson is not None and lesson != current_lesson.lesson:
+            updates.append("lesson = ?")
+            values.append(lesson)
+            audit_entries.append(("lesson", current_lesson.lesson, lesson))
+        
+        if category is not None and category != current_lesson.category:
+            updates.append("category = ?")
+            values.append(category)
+            audit_entries.append(("category", current_lesson.category, category))
+
+        if not updates:
+            return current_lesson
+
+        values.append(lesson_id)
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            query = f"UPDATE lessons_learned SET {', '.join(updates)} WHERE id = ?"
+            cursor.execute(query, values)
+            
+            # Log audit
+            for field, old_val, new_val in audit_entries:
+                self._log_audit(
+                    conn,
+                    current_lesson.issue_id if current_lesson.issue_id else 0,
+                    "LESSON_UPDATE",
+                    f"lesson:{lesson_id}:{field}",
+                    old_val,
+                    new_val,
+                )
+                
+        return self.get_lesson(lesson_id)
+
+    def delete_lesson(self, lesson_id: int) -> bool:
+        """Delete a lesson learned.
+
+        Args:
+            lesson_id: ID of the lesson.
+
+        Returns:
+            True if deleted.
+        """
+        current_lesson = self.get_lesson(lesson_id)
+        if not current_lesson:
+            return False
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM lessons_learned WHERE id = ?", (lesson_id,))
+            
+            # Log audit
+            self._log_audit(
+                conn,
+                current_lesson.issue_id if current_lesson.issue_id else 0,
+                "LESSON_DELETE",
+                None,
+                json.dumps(current_lesson.to_dict()),
+                None,
+            )
+            
+            return cursor.rowcount > 0
+
+    def get_lesson(self, lesson_id: int) -> Optional[LessonLearned]:
+        """Get a lesson learned by ID.
+
+        Args:
+            lesson_id: ID of the lesson.
+
+        Returns:
+            LessonLearned object or None.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM lessons_learned WHERE id = ?", (lesson_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                return LessonLearned(
+                    id=row["id"],
+                    issue_id=row["issue_id"],
+                    lesson=row["lesson"],
+                    category=row["category"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+            return None
+
+    def list_lessons(self, issue_id: Optional[int] = None, category: Optional[str] = None) -> List[LessonLearned]:
+        """List lessons learned.
+
+        Args:
+            issue_id: Filter by issue ID.
+            category: Filter by category.
+
+        Returns:
+            List of LessonLearned objects.
+        """
+        query = "SELECT * FROM lessons_learned WHERE 1=1"
+        params = []
+
+        if issue_id:
+            query += " AND issue_id = ?"
+            params.append(issue_id)
+        
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+            
+        query += " ORDER BY created_at DESC"
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            return [
+                LessonLearned(
+                    id=row["id"],
+                    issue_id=row["issue_id"],
+                    lesson=row["lesson"],
+                    category=row["category"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+                for row in rows
+            ]
+
+    # Tag methods
+
+    def create_tag(self, name: str, color: Optional[str] = None) -> Tag:
+        """Create a new tag.
+
+        Args:
+            name: Tag name.
+            color: Hex color (optional).
+
+        Returns:
+            Created Tag object.
+        """
+        tag = Tag(name=name, color=color)
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "INSERT INTO tags (name, color, created_at) VALUES (?, ?, ?)",
+                    (tag.name, tag.color, tag.created_at.isoformat()),
+                )
+                tag.id = cursor.lastrowid
+                
+                # Log audit (global)
+                self._log_audit(
+                    conn,
+                    0,
+                    "TAG_CREATE",
+                    None,
+                    None,
+                    json.dumps(tag.to_dict()),
+                )
+            except Exception as e:
+                if "UNIQUE constraint failed" in str(e):
+                    raise ValueError(f"Tag '{name}' already exists") from e
+                raise
+
+        return tag
+
+    def list_tags(self) -> List[Tag]:
+        """List all tags.
+
+        Returns:
+            List of Tag objects.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM tags ORDER BY name ASC")
+            rows = cursor.fetchall()
+            return [
+                Tag(
+                    id=row["id"],
+                    name=row["name"],
+                    color=row["color"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+                for row in rows
+            ]
+
+    def add_issue_tag(self, issue_id: int, tag_name: str) -> bool:
+        """Add a tag to an issue. Creates the tag if it doesn't exist.
+
+        Args:
+            issue_id: Issue ID.
+            tag_name: Tag name.
+
+        Returns:
+            True if tag was added, False if already present.
+        """
+        # Ensure tag exists
+        try:
+            self.create_tag(tag_name)
+        except ValueError:
+            pass  # Tag already exists, which is fine
+
+        # Get tag ID
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
+            tag_row = cursor.fetchone()
+            if not tag_row:
+                raise ValueError(f"Tag {tag_name} not found")
+            tag_id = tag_row["id"]
+
+            try:
+                cursor.execute(
+                    "INSERT INTO issue_tags (issue_id, tag_id, created_at) VALUES (?, ?, ?)",
+                    (issue_id, tag_id, datetime.now().isoformat()),
+                )
+                
+                # Log audit
+                self._log_audit(
+                    conn,
+                    issue_id,
+                    "TAG_ADD",
+                    "tag",
+                    None,
+                    tag_name,
+                )
+                return True
+            except Exception as e:
+                if "UNIQUE constraint failed" in str(e):
+                    return False
+                raise
+
+    def remove_issue_tag(self, issue_id: int, tag_name: str) -> bool:
+        """Remove a tag from an issue.
+
+        Args:
+            issue_id: Issue ID.
+            tag_name: Tag name.
+
+        Returns:
+            True if removed.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                DELETE FROM issue_tags
+                WHERE issue_id = ? AND tag_id IN (SELECT id FROM tags WHERE name = ?)
+            """,
+                (issue_id, tag_name),
+            )
+            
+            if cursor.rowcount > 0:
+                # Log audit
+                self._log_audit(
+                    conn,
+                    issue_id,
+                    "TAG_REMOVE",
+                    "tag",
+                    tag_name,
+                    None,
+                )
+                return True
+            return False
+
+    def get_issue_tags(self, issue_id: int) -> List[Tag]:
+        """Get tags for an issue.
+
+        Args:
+            issue_id: Issue ID.
+
+        Returns:
+            List of Tag objects.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT t.* FROM tags t
+                JOIN issue_tags it ON t.id = it.tag_id
+                WHERE it.issue_id = ?
+                ORDER BY t.name ASC
+            """,
+                (issue_id,),
+            )
+            rows = cursor.fetchall()
+            return [
+                Tag(
+                    id=row["id"],
+                    name=row["name"],
+                    color=row["color"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+                for row in rows
+            ]
+
+    # Issue Relation methods
+
+    def link_issues(self, source_id: int, target_id: int, relation_type: str) -> IssueRelation:
+        """Link two issues.
+
+        Args:
+            source_id: Source issue ID.
+            target_id: Target issue ID.
+            relation_type: Type of relation (e.g., "relates_to", "duplicates").
+
+        Returns:
+            Created IssueRelation object.
+        """
+        if source_id == target_id:
+            raise ValueError("Cannot link issue to itself")
+
+        relation = IssueRelation(
+            source_issue_id=source_id,
+            target_issue_id=target_id,
+            relation_type=relation_type,
+        )
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO issue_relations
+                    (source_issue_id, target_issue_id, relation_type, created_at)
+                    VALUES (?, ?, ?, ?)
+                """,
+                    (
+                        relation.source_issue_id,
+                        relation.target_issue_id,
+                        relation.relation_type,
+                        relation.created_at.isoformat(),
+                    ),
+                )
+                relation.id = cursor.lastrowid
+                
+                # Log audit on both issues
+                self._log_audit(
+                    conn,
+                    source_id,
+                    "LINK_ADD",
+                    "relation",
+                    None,
+                    f"{relation_type} -> #{target_id}",
+                )
+                self._log_audit(
+                    conn,
+                    target_id,
+                    "LINK_ADD",
+                    "relation",
+                    None,
+                    f"#{source_id} -> {relation_type}",
+                )
+            except Exception as e:
+                if "UNIQUE constraint failed" in str(e):
+                    raise ValueError(f"Relation already exists") from e
+                raise
+
+        return relation
+
+    def unlink_issues(self, source_id: int, target_id: int, relation_type: Optional[str] = None) -> bool:
+        """Remove link between issues.
+
+        Args:
+            source_id: Source issue ID.
+            target_id: Target issue ID.
+            relation_type: Optional type to filter.
+
+        Returns:
+            True if removed.
+        """
+        query = "DELETE FROM issue_relations WHERE source_issue_id = ? AND target_issue_id = ?"
+        params = [source_id, target_id]
+
+        if relation_type:
+            query += " AND relation_type = ?"
+            params.append(relation_type)
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            
+            if cursor.rowcount > 0:
+                # Log audit on both
+                self._log_audit(
+                    conn,
+                    source_id,
+                    "LINK_REMOVE",
+                    "relation",
+                    f"#{target_id}",
+                    None,
+                )
+                self._log_audit(
+                    conn,
+                    target_id,
+                    "LINK_REMOVE",
+                    "relation",
+                    f"#{source_id}",
+                    None,
+                )
+                return True
+            return False
+
+    def get_issue_relations(self, issue_id: int) -> Dict[str, List[dict[str, Any]]]:
+        """Get all relations for an issue.
+
+        Args:
+            issue_id: Issue ID.
+
+        Returns:
+            Dictionary with 'source' and 'target' relations.
+        """
+        result = {"source": [], "target": []}
+        
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get relations where issue is source
+            cursor.execute(
+                """
+                SELECT r.*, i.title, i.status
+                FROM issue_relations r
+                JOIN issues i ON r.target_issue_id = i.id
+                WHERE r.source_issue_id = ?
+            """,
+                (issue_id,),
+            )
+            rows = cursor.fetchall()
+            for row in rows:
+                result["source"].append({
+                    "id": row["id"],
+                    "target_id": row["target_issue_id"],
+                    "target_title": row["title"],
+                    "target_status": row["status"],
+                    "type": row["relation_type"],
+                    "created_at": row["created_at"],
+                })
+
+            # Get relations where issue is target
+            cursor.execute(
+                """
+                SELECT r.*, i.title, i.status
+                FROM issue_relations r
+                JOIN issues i ON r.source_issue_id = i.id
+                WHERE r.target_issue_id = ?
+            """,
+                (issue_id,),
+            )
+            rows = cursor.fetchall()
+            for row in rows:
+                result["target"].append({
+                    "id": row["id"],
+                    "source_id": row["source_issue_id"],
+                    "source_title": row["title"],
+                    "source_status": row["status"],
+                    "type": row["relation_type"],
+                    "created_at": row["created_at"],
+                })
+                
+        return result

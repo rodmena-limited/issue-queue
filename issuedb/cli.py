@@ -66,6 +66,13 @@ class CLI:
             f"Status: {issue.status.value}",
             f"Priority: {issue.priority.value}",
         ]
+        
+        if issue.due_date:
+            lines.append(f"Due Date: {issue.due_date.strftime('%Y-%m-%d')}")
+            
+        if issue.tags:
+            tag_names = [t.name for t in issue.tags]
+            lines.append(f"Tags: {', '.join(tag_names)}")
 
         if issue.description:
             lines.append(f"Description: {issue.description}")
@@ -116,6 +123,7 @@ class CLI:
         description: Optional[str] = None,
         priority: str = "medium",
         status: str = "open",
+        due_date: Optional[str] = None,
         as_json: bool = False,
         force: bool = False,
         check_duplicates: bool = False,
@@ -127,6 +135,7 @@ class CLI:
             description: Optional description.
             priority: Priority level.
             status: Initial status.
+            due_date: Optional due date (YYYY-MM-DD).
             as_json: Output as JSON.
             force: Create issue even if similar issues found (with check_duplicates).
             check_duplicates: Enable duplicate checking (opt-in, disabled by default).
@@ -135,12 +144,23 @@ class CLI:
             Formatted output.
         """
         from issuedb.similarity import find_similar_issues
+        from datetime import datetime
+
+        due_date_obj = None
+        if due_date:
+            try:
+                due_date_obj = datetime.fromisoformat(due_date)
+            except ValueError:
+                if as_json:
+                    return json.dumps({"error": "Invalid date format"}, indent=2)
+                return "Error: Invalid date format (use YYYY-MM-DD)"
 
         issue = Issue(
             title=title,
             description=description,
             priority=Priority.from_string(priority),
             status=Status.from_string(status),
+            due_date=due_date_obj,
         )
 
         # Check for duplicates only if explicitly enabled
@@ -189,6 +209,8 @@ class CLI:
         status: Optional[str] = None,
         priority: Optional[str] = None,
         limit: Optional[int] = None,
+        due_date: Optional[str] = None,
+        tag: Optional[str] = None,
         as_json: bool = False,
     ) -> str:
         """List issues with filters.
@@ -197,13 +219,15 @@ class CLI:
             status: Filter by status.
             priority: Filter by priority.
             limit: Maximum number of issues.
+            due_date: Filter by due date.
+            tag: Filter by tag.
             as_json: Output as JSON.
 
         Returns:
             Formatted output.
         """
         issues = self.repo.list_issues(
-            status=status, priority=priority, limit=limit
+            status=status, priority=priority, limit=limit, due_date=due_date, tag=tag
         )
         return self.format_output(issues, as_json)
 
@@ -231,7 +255,7 @@ class CLI:
         Args:
             issue_id: Issue ID.
             as_json: Output as JSON.
-            **updates: Fields to update.
+            **updates: Fields to update (including due_date).
 
         Returns:
             Formatted output.
@@ -239,6 +263,19 @@ class CLI:
         Raises:
             ValueError: If issue not found.
         """
+        # Validate due_date if present
+        if "due_date" in updates and updates["due_date"]:
+            try:
+                # Just check format, value is passed as string to repo which handles conversion
+                # Actually repo update_issue expects string for due_date based on my update?
+                # Let's check repo.update_issue again.
+                # My update to repo.update_issue handles string conversion. 
+                # "elif field == "due_date": if value: try: datetime.fromisoformat(value) ..."
+                # So we just pass the string.
+                pass
+            except ValueError:
+                 pass
+
         issue = self.repo.update_issue(issue_id, **updates)
         if not issue:
             raise ValueError(f"Issue {issue_id} not found")
@@ -1024,6 +1061,132 @@ class CLI:
         return "\n".join(lines)
 
 
+
+
+        return "\n".join(lines)
+
+    # Memory CLI methods
+
+    def memory_add(self, key: str, value: str, category: str = "general", as_json: bool = False) -> str:
+        """Add memory item."""
+        try:
+            memory = self.repo.add_memory(key, value, category)
+            if as_json:
+                return json.dumps(memory.to_dict(), indent=2)
+            return f"Memory added: {key} ({category})"
+        except ValueError as e:
+            return json.dumps({"error": str(e)}) if as_json else str(e)
+
+    def memory_list(self, category: Optional[str] = None, search: Optional[str] = None, as_json: bool = False) -> str:
+        """List memory items."""
+        memories = self.repo.list_memory(category, search)
+        if as_json:
+            return json.dumps([m.to_dict() for m in memories], indent=2)
+        
+        if not memories:
+            return "No memory items found."
+            
+        lines = []
+        for m in memories:
+            lines.append(f"[{m.category}] {m.key}: {m.value}")
+        return "\n".join(lines)
+
+    def memory_update(self, key: str, value: Optional[str] = None, category: Optional[str] = None, as_json: bool = False) -> str:
+        """Update memory item."""
+        memory = self.repo.update_memory(key, value, category)
+        if not memory:
+            msg = f"Memory '{key}' not found"
+            return json.dumps({"error": msg}) if as_json else msg
+            
+        if as_json:
+            return json.dumps(memory.to_dict(), indent=2)
+        return f"Memory updated: {key}"
+
+    def memory_delete(self, key: str, as_json: bool = False) -> str:
+        """Delete memory item."""
+        if self.repo.delete_memory(key):
+            msg = f"Memory '{key}' deleted"
+            return json.dumps({"message": msg}) if as_json else msg
+        msg = f"Memory '{key}' not found"
+        return json.dumps({"error": msg}) if as_json else msg
+
+    # Lesson CLI methods
+
+    def lesson_add(self, lesson: str, issue_id: Optional[int] = None, category: str = "general", as_json: bool = False) -> str:
+        """Add lesson learned."""
+        try:
+            ll = self.repo.add_lesson(lesson, issue_id, category)
+            if as_json:
+                return json.dumps(ll.to_dict(), indent=2)
+            return f"Lesson added: {ll.id}"
+        except ValueError as e:
+            return json.dumps({"error": str(e)}) if as_json else str(e)
+
+    def lesson_list(self, issue_id: Optional[int] = None, category: Optional[str] = None, as_json: bool = False) -> str:
+        """List lessons."""
+        lessons = self.repo.list_lessons(issue_id, category)
+        if as_json:
+            return json.dumps([l.to_dict() for l in lessons], indent=2)
+            
+        if not lessons:
+            return "No lessons found."
+            
+        lines = []
+        for l in lessons:
+            prefix = f"[Issue #{l.issue_id}] " if l.issue_id else ""
+            lines.append(f"{prefix}[{l.category}] {l.lesson}")
+        return "\n".join(lines)
+
+    # Tag CLI methods
+
+    def tag_issue(self, issue_id: int, tags: list[str], as_json: bool = False) -> str:
+        """Add tags to issue."""
+        added = []
+        for tag in tags:
+            if self.repo.add_issue_tag(issue_id, tag):
+                added.append(tag)
+        
+        if as_json:
+            return json.dumps({"added": added}, indent=2)
+        return f"Added tags to issue #{issue_id}: {', '.join(added)}"
+
+    def untag_issue(self, issue_id: int, tags: list[str], as_json: bool = False) -> str:
+        """Remove tags from issue."""
+        removed = []
+        for tag in tags:
+            if self.repo.remove_issue_tag(issue_id, tag):
+                removed.append(tag)
+                
+        if as_json:
+            return json.dumps({"removed": removed}, indent=2)
+        return f"Removed tags from issue #{issue_id}: {', '.join(removed)}"
+
+    def tag_list(self, as_json: bool = False) -> str:
+        """List all available tags."""
+        tags = self.repo.list_tags()
+        if as_json:
+            return json.dumps([t.to_dict() for t in tags], indent=2)
+        return ", ".join([t.name for t in tags])
+
+    # Link CLI methods
+
+    def link_issues(self, source: int, target: int, type: str, as_json: bool = False) -> str:
+        """Link issues."""
+        try:
+            rel = self.repo.link_issues(source, target, type)
+            if as_json:
+                return json.dumps(rel.to_dict(), indent=2)
+            return f"Linked #{source} to #{target} ({type})"
+        except ValueError as e:
+            return json.dumps({"error": str(e)}) if as_json else str(e)
+            
+    def unlink_issues(self, source: int, target: int, type: Optional[str] = None, as_json: bool = False) -> str:
+        """Unlink issues."""
+        if self.repo.unlink_issues(source, target, type):
+            msg = f"Unlinked #{source} and #{target}"
+            return json.dumps({"message": msg}) if as_json else msg
+        msg = "Link not found"
+        return json.dumps({"error": msg}) if as_json else msg
 
 
     def workspace_status(self, as_json: bool = False) -> str:
@@ -1965,12 +2128,15 @@ def main() -> None:
         default="open",
         help="Initial status",
     )
+    create_parser.add_argument("--due-date", help="Due date (YYYY-MM-DD)")
 
     # List command
     list_parser = subparsers.add_parser("list", help="List issues")
     list_parser.add_argument("-s", "--status", help="Filter by status (open, in-progress, closed)")
     list_parser.add_argument("--priority", help="Filter by priority (low, medium, high, critical)")
     list_parser.add_argument("-l", "--limit", type=int, help="Maximum number of issues")
+    list_parser.add_argument("--due-date", help="Filter by due date")
+    list_parser.add_argument("--tag", help="Filter by tag")
 
     # Get command
     get_parser = subparsers.add_parser("get", help="Get issue details")
@@ -1992,6 +2158,69 @@ def main() -> None:
         choices=["open", "in-progress", "closed"],
         help="New status",
     )
+    update_parser.add_argument("--due-date", help="New due date")
+
+    # Memory commands
+    memory_parser = subparsers.add_parser("memory", help="Manage memory")
+    memory_subparsers = memory_parser.add_subparsers(dest="memory_command", help="Memory commands")
+    
+    mem_add = memory_subparsers.add_parser("add", help="Add memory item")
+    mem_add.add_argument("key", help="Memory key")
+    mem_add.add_argument("value", help="Memory value")
+    mem_add.add_argument("-c", "--category", default="general", help="Category")
+
+    mem_list = memory_subparsers.add_parser("list", help="List memory items")
+    mem_list.add_argument("-c", "--category", help="Filter by category")
+    mem_list.add_argument("-q", "--search", help="Search term")
+
+    mem_update = memory_subparsers.add_parser("update", help="Update memory item")
+    mem_update.add_argument("key", help="Memory key")
+    mem_update.add_argument("-v", "--value", help="New value")
+    mem_update.add_argument("-c", "--category", help="New category")
+
+    mem_del = memory_subparsers.add_parser("delete", help="Delete memory item")
+    mem_del.add_argument("key", help="Memory key")
+
+    # Lesson commands
+    lesson_parser = subparsers.add_parser("lesson", help="Manage lessons learned")
+    lesson_subparsers = lesson_parser.add_subparsers(dest="lesson_command", help="Lesson commands")
+
+    les_add = lesson_subparsers.add_parser("add", help="Add lesson")
+    les_add.add_argument("lesson", help="Lesson text")
+    les_add.add_argument("-i", "--issue-id", type=int, help="Related issue ID")
+    les_add.add_argument("-c", "--category", default="general", help="Category")
+
+    les_list = lesson_subparsers.add_parser("list", help="List lessons")
+    les_list.add_argument("-i", "--issue-id", type=int, help="Filter by issue ID")
+    les_list.add_argument("-c", "--category", help="Filter by category")
+
+    # Tag commands
+    tag_parser = subparsers.add_parser("tag", help="Manage tags")
+    tag_subparsers = tag_parser.add_subparsers(dest="tag_command", help="Tag commands")
+
+    tag_list = tag_subparsers.add_parser("list", help="List tags")
+
+    tag_add = tag_subparsers.add_parser("add", help="Add tags to issue")
+    tag_add.add_argument("issue_id", type=int, help="Issue ID")
+    tag_add.add_argument("tags", nargs="+", help="Tags to add")
+
+    tag_remove = tag_subparsers.add_parser("remove", help="Remove tags from issue")
+    tag_remove.add_argument("issue_id", type=int, help="Issue ID")
+    tag_remove.add_argument("tags", nargs="+", help="Tags to remove")
+
+    # Link commands
+    link_parser = subparsers.add_parser("link", help="Manage issue links")
+    link_subparsers = link_parser.add_subparsers(dest="link_command", help="Link commands")
+
+    link_add = link_subparsers.add_parser("add", help="Link issues")
+    link_add.add_argument("source", type=int, help="Source Issue ID")
+    link_add.add_argument("target", type=int, help="Target Issue ID")
+    link_add.add_argument("type", help="Relation type (e.g. related, duplicates)")
+
+    link_remove = link_subparsers.add_parser("remove", help="Unlink issues")
+    link_remove.add_argument("source", type=int, help="Source Issue ID")
+    link_remove.add_argument("target", type=int, help="Target Issue ID")
+    link_remove.add_argument("--type", help="Specific relation type")
 
     # Bulk-update command
     bulk_update_parser = subparsers.add_parser(
@@ -2307,6 +2536,7 @@ def main() -> None:
                 description=args.description,
                 priority=args.priority,
                 status=args.status,
+                due_date=args.due_date,
                 as_json=args.json,
             )
             print(result)
@@ -2316,6 +2546,8 @@ def main() -> None:
                 status=args.status,
                 priority=args.priority,
                 limit=args.limit,
+                due_date=args.due_date,
+                tag=args.tag,
                 as_json=args.json,
             )
             print(result)
@@ -2334,6 +2566,8 @@ def main() -> None:
                 updates["priority"] = args.priority
             if args.status:
                 updates["status"] = args.status
+            if args.due_date:
+                updates["due_date"] = args.due_date
 
             if not updates:
                 print("Error: No updates specified", file=sys.stderr)
@@ -2341,6 +2575,48 @@ def main() -> None:
 
             result = cli.update_issue(args.id, as_json=args.json, **updates)
             print(result)
+
+        elif args.command == "memory":
+            if not args.memory_command:
+                parser.parse_args(["memory", "--help"])
+            
+            if args.memory_command == "add":
+                print(cli.memory_add(args.key, args.value, args.category, args.json))
+            elif args.memory_command == "list":
+                print(cli.memory_list(args.category, args.search, args.json))
+            elif args.memory_command == "update":
+                print(cli.memory_update(args.key, args.value, args.category, args.json))
+            elif args.memory_command == "delete":
+                print(cli.memory_delete(args.key, args.json))
+
+        elif args.command == "lesson":
+            if not args.lesson_command:
+                parser.parse_args(["lesson", "--help"])
+            
+            if args.lesson_command == "add":
+                print(cli.lesson_add(args.lesson, args.issue_id, args.category, args.json))
+            elif args.lesson_command == "list":
+                print(cli.lesson_list(args.issue_id, args.category, args.json))
+
+        elif args.command == "tag":
+            if not args.tag_command:
+                parser.parse_args(["tag", "--help"])
+            
+            if args.tag_command == "list":
+                print(cli.tag_list(args.json))
+            elif args.tag_command == "add":
+                print(cli.tag_issue(args.issue_id, args.tags, args.json))
+            elif args.tag_command == "remove":
+                print(cli.untag_issue(args.issue_id, args.tags, args.json))
+
+        elif args.command == "link":
+            if not args.link_command:
+                parser.parse_args(["link", "--help"])
+            
+            if args.link_command == "add":
+                print(cli.link_issues(args.source, args.target, args.type, args.json))
+            elif args.link_command == "remove":
+                print(cli.unlink_issues(args.source, args.target, args.type, args.json))
 
         elif args.command == "bulk-update":
             if not args.status and not args.priority:
@@ -2512,7 +2788,6 @@ def main() -> None:
         elif args.command == "web":
             from issuedb.web import run_server
 
-            print(f"Starting IssueDB Web UI on http://{args.host}:{args.port}")
             run_server(host=args.host, port=args.port, debug=args.debug)
 
     except Exception as e:

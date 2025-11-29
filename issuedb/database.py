@@ -267,6 +267,79 @@ class Database:
                 ON issue_links(reference)
             """)
 
+            # --- New Features ---
+
+            # Create memory table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT UNIQUE NOT NULL,
+                    value TEXT NOT NULL,
+                    category TEXT DEFAULT 'general',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_memory_key
+                ON memory(key)
+            """)
+
+            # Create lessons_learned table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS lessons_learned (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    issue_id INTEGER,
+                    lesson TEXT NOT NULL,
+                    category TEXT DEFAULT 'general',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE SET NULL
+                )
+            """)
+
+            # Create tags table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    color TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Create issue_tags table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS issue_tags (
+                    issue_id INTEGER NOT NULL,
+                    tag_id INTEGER NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE,
+                    FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE,
+                    PRIMARY KEY (issue_id, tag_id)
+                )
+            """)
+
+            # Create issue_relations table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS issue_relations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_issue_id INTEGER NOT NULL,
+                    target_issue_id INTEGER NOT NULL,
+                    relation_type TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (source_issue_id) REFERENCES issues (id) ON DELETE CASCADE,
+                    FOREIGN KEY (target_issue_id) REFERENCES issues (id) ON DELETE CASCADE,
+                    UNIQUE(source_issue_id, target_issue_id, relation_type)
+                )
+            """)
+
+            # Add due_date column to issues table if it doesn't exist
+            cursor.execute("PRAGMA table_info(issues)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "due_date" not in columns:
+                cursor.execute("ALTER TABLE issues ADD COLUMN due_date TIMESTAMP")
+
             # Initialize built-in templates if they don't exist
             self._initialize_builtin_templates(cursor)
 

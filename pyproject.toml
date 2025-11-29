@@ -37,7 +37,7 @@ classifiers = [
 issuedb-cli = "issuedb.cli:main"
 
 [project.optional-dependencies]
-web = ["flask>=2.0"]
+web = ["flask>=2.0", "waitress>=3.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/rodmena-limited/issue-queue"
