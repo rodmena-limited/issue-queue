@@ -204,6 +204,170 @@ class CodeReference:
 
 
 @dataclass
+class Tag:
+    """Represents a tag."""
+
+    id: Optional[int] = field(default=None)
+    name: str = field(default="")
+    color: Optional[str] = field(default=None)
+    created_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert tag to dictionary."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "color": self.color,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+@dataclass
+class Issue:
+    """Represents an issue in the tracking system."""
+
+    id: Optional[int] = field(default=None)
+    title: str = field(default="")
+    description: Optional[str] = field(default=None)
+    priority: Priority = field(default=Priority.MEDIUM)
+    status: Status = field(default=Status.OPEN)
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+    estimated_hours: Optional[float] = field(default=None)
+    due_date: Optional[datetime] = field(default=None)
+    tags: list[Tag] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert issue to dictionary for JSON serialization."""
+        result: dict[str, Any] = {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "priority": self.priority.value,
+            "status": self.status.value,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "tags": [tag.to_dict() for tag in self.tags],
+        }
+        if self.estimated_hours is not None:
+            result["estimated_hours"] = self.estimated_hours
+        if self.due_date:
+            result["due_date"] = self.due_date.isoformat()
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Issue":
+        """Create Issue from dictionary."""
+        issue = cls()
+        issue.id = data.get("id")
+        issue.title = data.get("title", "")
+        issue.description = data.get("description")
+
+        if "priority" in data:
+            issue.priority = Priority.from_string(data["priority"])
+
+        if "status" in data:
+            issue.status = Status.from_string(data["status"])
+
+        if "created_at" in data and data["created_at"]:
+            if isinstance(data["created_at"], str):
+                issue.created_at = datetime.fromisoformat(data["created_at"])
+            else:
+                issue.created_at = data["created_at"]
+
+        if "updated_at" in data and data["updated_at"]:
+            if isinstance(data["updated_at"], str):
+                issue.updated_at = datetime.fromisoformat(data["updated_at"])
+            else:
+                issue.updated_at = data["updated_at"]
+
+        if "estimated_hours" in data:
+            issue.estimated_hours = data.get("estimated_hours")
+
+        if "due_date" in data and data["due_date"]:
+            if isinstance(data["due_date"], str):
+                issue.due_date = datetime.fromisoformat(data["due_date"])
+            else:
+                issue.due_date = data["due_date"]
+        
+        if "tags" in data and isinstance(data["tags"], list):
+            issue.tags = []
+            for tag_data in data["tags"]:
+                tag = Tag(
+                    id=tag_data.get("id"),
+                    name=tag_data.get("name", ""),
+                    color=tag_data.get("color")
+                )
+                issue.tags.append(tag)
+
+        return issue
+
+
+@dataclass
+class Memory:
+    """Represents a memory item."""
+
+    id: Optional[int] = field(default=None)
+    key: str = field(default="")
+    value: str = field(default="")
+    category: str = field(default="general")
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert memory to dictionary."""
+        return {
+            "id": self.id,
+            "key": self.key,
+            "value": self.value,
+            "category": self.category,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+@dataclass
+class LessonLearned:
+    """Represents a lesson learned."""
+
+    id: Optional[int] = field(default=None)
+    issue_id: Optional[int] = field(default=None)
+    lesson: str = field(default="")
+    category: str = field(default="general")
+    created_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert lesson to dictionary."""
+        return {
+            "id": self.id,
+            "issue_id": self.issue_id,
+            "lesson": self.lesson,
+            "category": self.category,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+@dataclass
+class IssueRelation:
+    """Represents a relationship between issues."""
+    
+    id: Optional[int] = field(default=None)
+    source_issue_id: int = field(default=0)
+    target_issue_id: int = field(default=0)
+    relation_type: str = field(default="")
+    created_at: datetime = field(default_factory=datetime.now)
+    
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "source_issue_id": self.source_issue_id,
+            "target_issue_id": self.target_issue_id,
+            "relation_type": self.relation_type,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+@dataclass
 class IssueTemplate:
     """Represents a template for creating issues with predefined settings."""
 

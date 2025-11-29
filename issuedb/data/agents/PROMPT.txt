@@ -19,7 +19,7 @@ You are an AI agent using issuedb-cli for issue tracking. Your responses MUST be
 ## COMMAND REFERENCE
 
 ### Issue Creation
-issuedb-cli create -t "TITLE" [-d "DESCRIPTION"] [--priority PRIORITY] [--status STATUS]
+issuedb-cli create -t "TITLE" [-d "DESCRIPTION"] [--priority PRIORITY] [--status STATUS] [--due-date YYYY-MM-DD]
 - Required: -t/--title
 - Priorities: low, medium, high, critical (default: medium)
 - Status: open, in-progress, closed (default: open)
@@ -27,10 +27,12 @@ issuedb-cli create -t "TITLE" [-d "DESCRIPTION"] [--priority PRIORITY] [--status
 - Use --force to create even if duplicates found
 
 ### Issue Listing
-issuedb-cli list [-s STATUS] [--priority PRIORITY] [-l LIMIT]
+issuedb-cli list [-s STATUS] [--priority PRIORITY] [-l LIMIT] [--due-date YYYY-MM-DD] [--tag TAG]
 issuedb-cli --json list [-s STATUS] [--priority PRIORITY] [-l LIMIT]
 - Filter by status: -s/--status (open, in-progress, closed)
 - Filter by priority: --priority (low, medium, high, critical)
+- Filter by due date: --due-date YYYY-MM-DD
+- Filter by tag: --tag TAG
 - Limit results: -l/--limit NUMBER
 
 ### Get Issue Details
@@ -38,7 +40,7 @@ issuedb-cli get ID
 issuedb-cli --json get ID
 
 ### Update Issue
-issuedb-cli update ID [-t "NEW_TITLE"] [-d "NEW_DESCRIPTION"] [-s STATUS] [--priority PRIORITY]
+issuedb-cli update ID [-t "NEW_TITLE"] [-d "NEW_DESCRIPTION"] [-s STATUS] [--priority PRIORITY] [--due-date YYYY-MM-DD]
 - All fields are optional, only specified fields are updated
 
 ### Delete Issue
@@ -66,6 +68,57 @@ issuedb-cli search -k "KEYWORD" [-l LIMIT]
 issuedb-cli --json search -k "KEYWORD" [-l LIMIT]
 - Searches in title and description
 - Case-insensitive
+
+## MEMORY MANAGEMENT (New)
+Store persistent information for agents.
+
+### Add Memory
+issuedb-cli memory add KEY VALUE [-c CATEGORY]
+- Example: issuedb-cli memory add "coding_style" "Use functional patterns"
+
+### List Memory
+issuedb-cli memory list [-c CATEGORY] [-q SEARCH]
+issuedb-cli --json memory list
+
+### Update Memory
+issuedb-cli memory update KEY [-v VALUE] [-c CATEGORY]
+
+### Delete Memory
+issuedb-cli memory delete KEY
+
+## LESSONS LEARNED (New)
+Store lessons from resolved issues.
+
+### Add Lesson
+issuedb-cli lesson add "LESSON TEXT" [-i ISSUE_ID] [-c CATEGORY]
+- Example: issuedb-cli lesson add "Always sanitize inputs" -i 5 -c security
+
+### List Lessons
+issuedb-cli lesson list [-i ISSUE_ID] [-c CATEGORY]
+issuedb-cli --json lesson list
+
+## TAGGING (New)
+
+### Add Tags to Issue
+issuedb-cli tag add ISSUE_ID TAG1 [TAG2 ...]
+- Example: issuedb-cli tag add 5 bug frontend
+
+### Remove Tags from Issue
+issuedb-cli tag remove ISSUE_ID TAG1 [TAG2 ...]
+
+### List All Tags
+issuedb-cli tag list
+issuedb-cli --json tag list
+
+## ISSUE LINKS (New)
+
+### Link Issues
+issuedb-cli link add SOURCE_ID TARGET_ID TYPE
+- Example: issuedb-cli link add 5 3 duplicates
+- Example: issuedb-cli link add 5 8 related
+
+### Unlink Issues
+issuedb-cli link remove SOURCE_ID TARGET_ID [TYPE]
 
 ## COMMENTS
 

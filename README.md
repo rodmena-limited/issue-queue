@@ -39,6 +39,11 @@ That's it!
 - **Duplicate Detection**: Find similar issues before creating duplicates
 - **Issue Templates**: Create issues from predefined templates (bug, feature, task)
 - **Issue Context**: Get comprehensive context for LLM agents
+- **Memory Management**: Store persistent information/context for agents (tools, configs)
+- **Lessons Learned**: Record and retrieve lessons from resolved issues
+- **Tagging**: Tag issues for flexible categorization and filtering
+- **Due Dates**: Set and track due dates for issues
+- **Issue Linking**: Link related issues (duplicates, related, etc.)
 
 ### Web Interface
 - **Web UI**: Clean, premium web interface for issue management
@@ -183,7 +188,8 @@ issuedb-cli create \
   --title "Implement OAuth2" \
   --description "Add Google and GitHub OAuth providers" \
   --priority high \
-  --status open
+  --status open \
+  --due-date 2025-12-31
 ```
 
 ### Listing Issues
@@ -194,10 +200,12 @@ List all issues in current directory:
 issuedb-cli list
 ```
 
-Filter by status and priority:
+Filter by status, priority, due date, or tag:
 
 ```bash
 issuedb-cli list --status open --priority high
+issuedb-cli list --due-date 2025-12-31
+issuedb-cli list --tag bug
 ```
 
 Limit results:
@@ -228,7 +236,8 @@ Update multiple fields:
 issuedb-cli update 42 \
   --title "Updated title" \
   --priority critical \
-  --status in-progress
+  --status in-progress \
+  --due-date 2025-12-31
 ```
 
 ### Bulk Updates
@@ -251,11 +260,9 @@ Create multiple issues at once:
 
 ```bash
 # From stdin
-echo '[
-  {"title": "Issue 1", "priority": "high", "description": "First issue"},
-  {"title": "Issue 2", "priority": "medium"},
-  {"title": "Issue 3"}
-]' | issuedb-cli --json bulk-create
+echo \
+  '[\n  {"title": "Issue 1", "priority": "high", "description": "First issue"},\n  {"title": "Issue 2", "priority": "medium"},\n  {"title": "Issue 3"}\n]' \
+| issuedb-cli --json bulk-create
 
 # From file
 issuedb-cli --json bulk-create -f issues.json
@@ -268,11 +275,9 @@ Update multiple specific issues:
 
 ```bash
 # Update different fields on different issues
-echo '[
-  {"id": 1, "status": "closed", "description": "Completed"},
-  {"id": 2, "priority": "high", "title": "Updated title"},
-  {"id": 3, "status": "in-progress"}
-]' | issuedb-cli --json bulk-update-json
+echo \
+  '[\n  {"id": 1, "status": "closed", "description": "Completed"},\n  {"id": 2, "priority": "high", "title": "Updated title"},\n  {"id": 3, "status": "in-progress"}\n]' \
+| issuedb-cli --json bulk-update-json
 ```
 
 Close multiple issues by ID:
@@ -291,6 +296,57 @@ Delete an issue (with audit trail preserved):
 
 ```bash
 issuedb-cli delete 42
+```
+
+### Memory Management
+
+Store persistent information for agents:
+
+```bash
+# Add memory
+issuedb-cli memory add "project_style" "Use functional patterns"
+
+# List memory
+issuedb-cli memory list
+```
+
+### Lessons Learned
+
+Record and retrieve lessons:
+
+```bash
+# Add lesson
+issuedb-cli lesson add "Always validate inputs" -c security
+
+# List lessons
+issuedb-cli lesson list
+```
+
+### Tagging
+
+Manage issue tags:
+
+```bash
+# Add tag
+issuedb-cli tag add 42 bug frontend
+
+# Remove tag
+issuedb-cli tag remove 42 bug
+
+# List all tags
+issuedb-cli tag list
+```
+
+### Issue Linking
+
+Link related issues:
+
+```bash
+# Link issues
+issuedb-cli link add 42 43 related
+
+# Unlink issues
+issuedb-cli link remove 42 43
 ```
 
 ### Comments
@@ -646,6 +702,12 @@ issuedb-cli get-next --json | jq '.id'
 
 **Templates:**
 - `templates` - List available issue templates
+
+**New Features:**
+- `memory` - Manage persistent memory for agents
+- `lesson` - Manage lessons learned
+- `tag` - Manage issue tags
+- `link` - Manage issue links
 
 **Bulk Operations:**
 - `bulk-update` - Bulk update by filter
@@ -1053,11 +1115,14 @@ For issues, questions, or suggestions, please open an issue on GitHub.
 - [x] Duplicate detection (similarity search)
 - [x] LLM agent context command
 - [x] Bulk pattern operations
+- [x] Web UI (optional)
+- [x] Tags/labels support
+- [x] Due dates
+- [x] Memory (Agent Context)
+- [x] Lessons Learned
+- [x] Linked Issues (General)
 
 ### Planned
 - [ ] Export/import functionality
-- [ ] Tags/labels support
-- [ ] Due dates
-- [x] Web UI (optional)
 - [ ] Backup and restore utilities
 - [ ] Git hooks integration

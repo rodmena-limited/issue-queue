@@ -1057,6 +1057,8 @@ BASE_TEMPLATE = """
                 <nav class="nav">
                     <a href="/" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
                     <a href="/issues" class="{{ 'active' if active_page == 'issues' else '' }}">Issues</a>
+                    <a href="/memory" class="{{ 'active' if active_page == 'memory' else '' }}">Memory</a>
+                    <a href="/lessons" class="{{ 'active' if active_page == 'lessons' else '' }}">Lessons</a>
                     <a href="/audit" class="{{ 'active' if active_page == 'audit' else '' }}">Audit Log</a>
                     <a href="/issues/new" class="{{ 'active' if active_page == 'new' else '' }}">New Issue</a>
                 </nav>
@@ -1258,6 +1260,162 @@ DASHBOARD_TEMPLATE = (
 {% endblock %}""")
 )
 
+MEMORY_TEMPLATE = (
+    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Memory - IssueDB{% endblock %}")
+    .replace("{% block content %}{% endblock %}", """{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Memory</h1>
+        <p class="page-subtitle">Persistent context for AI agents</p>
+    </div>
+</div>
+
+<div class="issue-detail-body">
+    <div>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Stored Items</h3>
+            </div>
+            {% if memories %}
+            <table class="issue-table">
+                <thead>
+                    <tr>
+                        <th style="width: 150px;">Category</th>
+                        <th style="width: 200px;">Key</th>
+                        <th>Value</th>
+                        <th style="width: 100px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in memories %}
+                    <tr>
+                        <td><span class="badge badge-low">{{ item.category }}</span></td>
+                        <td style="font-family: monospace;">{{ item.key }}</td>
+                        <td style="white-space: pre-wrap;">{{ item.value }}</td>
+                        <td>
+                            <form action="/memory/delete/{{ item.key }}" method="post" onsubmit="return confirm('Delete this item?')">
+                                <button type="submit" class="btn btn-danger btn-sm" style="padding: 2px 8px; font-size: 11px;">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-state-icon">&gt;_</div>
+                <div class="empty-state-title">No memory items</div>
+                <p>Add persistent information for agents here</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="card">
+            <div class="sidebar-section">
+                <div class="sidebar-label">Add Memory</div>
+                <form action="/memory/add" method="post">
+                    <div class="form-group">
+                        <label class="form-label">Key *</label>
+                        <input type="text" name="key" class="form-control" required placeholder="e.g., project_style">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Category</label>
+                        <input type="text" name="category" class="form-control" value="general" placeholder="general">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Value *</label>
+                        <textarea name="value" class="form-control" required placeholder="Value content..." style="min-height: 100px;"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" style="width: 100%;">Add Item</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}""")
+)
+
+LESSONS_TEMPLATE = (
+    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Lessons Learned - IssueDB{% endblock %}")
+    .replace("{% block content %}{% endblock %}", """{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Lessons Learned</h1>
+        <p class="page-subtitle">Knowledge base from resolved issues</p>
+    </div>
+</div>
+
+<div class="issue-detail-body">
+    <div>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Lessons</h3>
+            </div>
+            {% if lessons %}
+            <table class="issue-table">
+                <thead>
+                    <tr>
+                        <th style="width: 120px;">Category</th>
+                        <th>Lesson</th>
+                        <th style="width: 80px;">Issue</th>
+                        <th style="width: 150px;">Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in lessons %}
+                    <tr>
+                        <td><span class="badge badge-medium">{{ item.category }}</span></td>
+                        <td style="white-space: pre-wrap;">{{ item.lesson }}</td>
+                        <td>
+                            {% if item.issue_id %}
+                            <a href="/issues/{{ item.issue_id }}">#{{ item.issue_id }}</a>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td class="issue-meta">{{ item.created_at.strftime('%Y-%m-%d') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-state-icon">&gt;_</div>
+                <div class="empty-state-title">No lessons yet</div>
+                <p>Record lessons learned from resolved issues</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="card">
+            <div class="sidebar-section">
+                <div class="sidebar-label">Add Lesson</div>
+                <form action="/lessons/add" method="post">
+                    <div class="form-group">
+                        <label class="form-label">Lesson *</label>
+                        <textarea name="lesson" class="form-control" required placeholder="What did we learn?" style="min-height: 100px;"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Category</label>
+                        <input type="text" name="category" class="form-control" value="general">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Related Issue ID</label>
+                        <input type="number" name="issue_id" class="form-control" placeholder="Optional">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" style="width: 100%;">Add Lesson</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}""")
+)
+
 ISSUES_LIST_TEMPLATE = (
     BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Issues - IssueDB{% endblock %}")
     .replace("{% block content %}{% endblock %}", """{% block content %}
@@ -1313,6 +1471,7 @@ ISSUES_LIST_TEMPLATE = (
                 <th style="width: 110px;">Status</th>
                 <th style="width: 100px;">Priority</th>
                 <th style="width: 150px;">Created</th>
+                <th style="width: 120px;">Due Date</th>
                 <th style="width: 120px;">Actions</th>
             </tr>
         </thead>
@@ -1329,6 +1488,7 @@ ISSUES_LIST_TEMPLATE = (
                 <td><span class="badge badge-{{ issue.status.value | replace('-', '-') }}">{{ issue.status.value }}</span></td>
                 <td><span class="badge badge-{{ issue.priority.value }}">{{ issue.priority.value }}</span></td>
                 <td class="issue-meta">{{ issue.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td class="issue-meta">{{ issue.due_date.strftime('%Y-%m-%d') if issue.due_date else '-' }}</td>
                 <td>
                     <div class="quick-actions">
                         <a href="/issues/{{ issue.id }}/edit" class="quick-action">Edit</a>
@@ -1377,6 +1537,10 @@ ISSUE_DETAIL_TEMPLATE = (
         <span>Created {{ issue.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
         <span>&middot;</span>
         <span>Updated {{ issue.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
+        {% if issue.due_date %}
+        <span>&middot;</span>
+        <span>Due {{ issue.due_date.strftime('%Y-%m-%d') }}</span>
+        {% endif %}
     </div>
 </div>
 
@@ -1506,6 +1670,9 @@ ISSUE_DETAIL_TEMPLATE = (
 
             <!-- Dependencies (async loaded) -->
             <div id="dependencies-section"></div>
+
+            <!-- Linked Issues (async loaded) -->
+            <div id="links-section"></div>
 
             <!-- Code References (async loaded) -->
             <div id="coderefs-section"></div>
@@ -1652,6 +1819,82 @@ ISSUE_DETAIL_TEMPLATE = (
         })
         .catch(function() {});
 
+    // Load linked issues
+    fetch(baseUrl + '/links')
+        .then(function(r) { return r.json(); })
+        .then(function(links) {
+            var section = document.getElementById('links-section');
+            var html = '';
+            
+            // Combine source and target links
+            var allLinks = [];
+            if (links.source) {
+                for (var i = 0; i < links.source.length; i++) {
+                    var l = links.source[i];
+                    allLinks.push({
+                        id: l.target_id,
+                        title: l.target_title,
+                        status: l.target_status,
+                        type: l.type,
+                        direction: 'out'
+                    });
+                }
+            }
+            if (links.target) {
+                for (var i = 0; i < links.target.length; i++) {
+                    var l = links.target[i];
+                    allLinks.push({
+                        id: l.source_id,
+                        title: l.source_title,
+                        status: l.source_status,
+                        type: l.type,
+                        direction: 'in'
+                    });
+                }
+            }
+            
+            if (allLinks.length > 0) {
+                html += '<div class="sidebar-section"><div class="sidebar-label">Linked Issues</div>';
+                for (var i = 0; i < allLinks.length; i++) {
+                    var link = allLinks[i];
+                    var icon = link.direction === 'out' ? '&#x2192;' : '&#x2190;';
+                    html += '<div class="blocker-item" style="flex-wrap: wrap;">';
+                    html += '<span style="color: var(--accent-cyan); margin-right: 6px;">' + icon + '</span>';
+                    html += '<span class="badge badge-low" style="margin-right: 6px; font-size: 9px;">' + escapeHtml(link.type) + '</span>';
+                    html += '<a href="/issues/' + link.id + '" style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#' + link.id + ' ' + truncate(link.title, 20) + '</a>';
+                    
+                    // Delete button
+                    html += '<button onclick="deleteLink(' + issueId + ', ' + link.id + ', \'' + escapeHtml(link.type) + '\')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 14px;">&times;</button>';
+                    
+                    html += '</div>';
+                }
+                html += '</div>';
+            }
+            
+            // Add Link Form
+            html += '<div class="sidebar-section">';
+            html += '<div class="sidebar-label">Add Link</div>';
+            html += '<div style="display: flex; gap: 6px; flex-direction: column;">';
+            html += '<input type="number" id="link-target-id" class="form-control" placeholder="Issue ID" style="padding: 6px 10px; font-size: 12px;">';
+            html += '<input type="text" id="link-type" class="form-control" placeholder="Type (e.g. related)" style="padding: 6px 10px; font-size: 12px;">';
+            html += '<button onclick="addLink(' + issueId + ')" class="btn btn-sm" style="width: 100%;">Link Issue</button>';
+            html += '</div></div>';
+            
+            section.innerHTML = html;
+        })
+        .catch(function() {
+             // Even on error, show the form so user can try to link
+            var section = document.getElementById('links-section');
+            var html = '<div class="sidebar-section">';
+            html += '<div class="sidebar-label">Add Link</div>';
+            html += '<div style="display: flex; gap: 6px; flex-direction: column;">';
+            html += '<input type="number" id="link-target-id" class="form-control" placeholder="Issue ID" style="padding: 6px 10px; font-size: 12px;">';
+            html += '<input type="text" id="link-type" class="form-control" placeholder="Type (e.g. related)" style="padding: 6px 10px; font-size: 12px;">';
+            html += '<button onclick="addLink(' + issueId + ')" class="btn btn-sm" style="width: 100%;">Link Issue</button>';
+            html += '</div></div>';
+            section.innerHTML = html;
+        });
+
     // Load code references
     fetch(baseUrl + '/refs')
         .then(function(r) { return r.json(); })
@@ -1768,6 +2011,60 @@ ISSUE_DETAIL_TEMPLATE = (
             document.getElementById('context-content').innerHTML = '<p style="color: var(--accent-red);">Failed to load context</p>';
         });
 })();
+
+window.addLink = function(sourceId) {
+    var targetId = document.getElementById('link-target-id').value;
+    var type = document.getElementById('link-type').value;
+    
+    if (!targetId || !type) {
+        alert('Please provide Issue ID and Relation Type');
+        return;
+    }
+    
+    fetch('/api/links', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            source: sourceId,
+            target: parseInt(targetId),
+            type: type
+        })
+    })
+    .then(function(response) {
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            response.json().then(function(data) {
+                alert('Error: ' + (data.error || 'Failed to add link'));
+            });
+        }
+    });
+};
+
+window.deleteLink = function(sourceId, targetId, type) {
+    if (!confirm('Are you sure you want to unlink these issues?')) return;
+    
+    fetch('/api/links', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            source: sourceId,
+            target: targetId,
+            type: type
+        })
+    })
+    .then(function(response) {
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            alert('Failed to delete link');
+        }
+    });
+};
 </script>
 {% endblock %}""")
 )
@@ -1825,6 +2122,12 @@ ISSUE_FORM_TEMPLATE = (
                         <option value="closed" {{ 'selected' if issue and issue.status.value == 'closed' }}>Closed</option>
                     </select>
                 </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="due_date">Due Date</label>
+                <input type="date" id="due_date" name="due_date" class="form-control"
+                       value="{{ issue.due_date.strftime('%Y-%m-%d') if issue and issue.due_date else '' }}">
             </div>
 
             <div style="display: flex; gap: 12px; margin-top: 8px;">
@@ -2012,6 +2315,77 @@ def audit_log_page() -> str:
     )
 
 
+@app.route("/memory")
+def memory_page() -> str:
+    """Memory management page."""
+    repo = get_repo()
+    memories = repo.list_memory()
+    return render_template_string(
+        MEMORY_TEMPLATE,
+        active_page="memory",
+        memories=memories,
+    )
+
+
+@app.route("/lessons")
+def lessons_page() -> str:
+    """Lessons learned page."""
+    repo = get_repo()
+    lessons = repo.list_lessons()
+    return render_template_string(
+        LESSONS_TEMPLATE,
+        active_page="lessons",
+        lessons=lessons,
+    )
+
+
+@app.route("/memory/add", methods=["POST"])
+def memory_add() -> Any:
+    """Form handler for adding memory."""
+    repo = get_repo()
+    
+    try:
+        key = request.form.get("key")
+        value = request.form.get("value")
+        category = request.form.get("category", "general")
+        
+        if not key or not value:
+            return "Key and value required", 400
+            
+        repo.add_memory(key=key, value=value, category=category)
+        return redirect(url_for("memory_page"))
+    except Exception as e:
+        return f"Error: {str(e)}", 400
+
+
+@app.route("/memory/delete/<key>", methods=["POST"])
+def memory_delete(key: str) -> Any:
+    """Form handler for deleting memory."""
+    repo = get_repo()
+    repo.delete_memory(key)
+    return redirect(url_for("memory_page"))
+
+
+@app.route("/lessons/add", methods=["POST"])
+def lessons_add() -> Any:
+    """Form handler for adding lessons."""
+    repo = get_repo()
+    
+    try:
+        lesson = request.form.get("lesson")
+        category = request.form.get("category", "general")
+        issue_id_str = request.form.get("issue_id")
+        issue_id = int(issue_id_str) if issue_id_str else None
+        
+        if not lesson:
+            return "Lesson text required", 400
+            
+        repo.add_lesson(lesson=lesson, category=category, issue_id=issue_id)
+        return redirect(url_for("lessons_page"))
+    except Exception as e:
+        return f"Error: {str(e)}", 400
+
+
 # =============================================================================
 # API Routes
 # =============================================================================
@@ -2050,6 +2424,13 @@ def api_create_issue() -> Any:
         priority=Priority.from_string(data.get("priority", "medium")),
         status=Status.from_string(data.get("status", "open")),
     )
+    
+    if data.get("due_date"):
+        try:
+            from datetime import datetime
+            issue.due_date = datetime.fromisoformat(data["due_date"])
+        except ValueError:
+            pass # Ignore invalid date for now or handle error
 
     created = repo.create_issue(issue)
 
@@ -2097,6 +2478,8 @@ def api_update_issue(issue_id: int) -> Any:
         updates["priority"] = data["priority"]
     if "status" in data and data["status"]:
         updates["status"] = data["status"]
+    if "due_date" in data:
+        updates["due_date"] = data["due_date"]
 
     if not updates:
         if request.is_json:
@@ -2354,6 +2737,14 @@ def api_get_dependencies(issue_id: int) -> Any:
     })
 
 
+@app.route("/api/issues/<int:issue_id>/links", methods=["GET"])
+def api_get_issue_links(issue_id: int) -> Any:
+    """API: Get links for an issue."""
+    repo = get_repo()
+    links = repo.get_issue_relations(issue_id)
+    return jsonify(links)
+
+
 @app.route("/api/issues/<int:issue_id>/refs", methods=["GET"])
 def api_get_code_refs(issue_id: int) -> Any:
     """API: Get code references for an issue."""
@@ -2499,19 +2890,165 @@ def api_get_context(issue_id: int) -> Any:
     return jsonify(context)
 
 
+@app.route("/api/memory", methods=["GET", "POST"])
+def api_memory_list_create() -> Any:
+    """API: List or create memory items."""
+    repo = get_repo()
+
+    if request.method == "POST":
+        data = request.get_json()
+        try:
+            memory = repo.add_memory(
+                key=data["key"],
+                value=data["value"],
+                category=data.get("category", "general"),
+            )
+            return jsonify(memory.to_dict()), 201
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except KeyError as e:
+            return jsonify({"error": f"Missing field: {str(e)}"}), 400
+    else:
+        category = request.args.get("category")
+        search = request.args.get("search")
+        memories = repo.list_memory(category=category, search=search)
+        return jsonify([m.to_dict() for m in memories])
+
+
+@app.route("/api/memory/<key>", methods=["PUT", "DELETE"])
+def api_memory_update_delete(key: str) -> Any:
+    """API: Update or delete memory item."""
+    repo = get_repo()
+
+    if request.method == "DELETE":
+        if repo.delete_memory(key):
+            return jsonify({"message": "Memory deleted"})
+        return jsonify({"error": "Memory not found"}), 404
+    else:
+        data = request.get_json()
+        memory = repo.update_memory(
+            key=key,
+            value=data.get("value"),
+            category=data.get("category"),
+        )
+        if memory:
+            return jsonify(memory.to_dict())
+        return jsonify({"error": "Memory not found"}), 404
+
+
+@app.route("/api/lessons", methods=["GET", "POST"])
+def api_lessons_list_create() -> Any:
+    """API: List or create lessons learned."""
+    repo = get_repo()
+
+    if request.method == "POST":
+        data = request.get_json()
+        try:
+            ll = repo.add_lesson(
+                lesson=data["lesson"],
+                issue_id=data.get("issue_id"),
+                category=data.get("category", "general"),
+            )
+            return jsonify(ll.to_dict()), 201
+        except KeyError as e:
+            return jsonify({"error": f"Missing field: {str(e)}"}), 400
+    else:
+        issue_id = request.args.get("issue_id", type=int)
+        category = request.args.get("category")
+        lessons = repo.list_lessons(issue_id=issue_id, category=category)
+        return jsonify([l.to_dict() for l in lessons])
+
+
+@app.route("/api/tags", methods=["GET"])
+def api_tags_list() -> Any:
+    """API: List all tags."""
+    repo = get_repo()
+    tags = repo.list_tags()
+    return jsonify([t.to_dict() for t in tags])
+
+
+@app.route("/api/issues/<int:issue_id>/tags", methods=["GET", "POST", "DELETE"])
+def api_issue_tags(issue_id: int) -> Any:
+    """API: Manage issue tags."""
+    repo = get_repo()
+
+    if request.method == "GET":
+        tags = repo.get_issue_tags(issue_id)
+        return jsonify([t.to_dict() for t in tags])
+    
+    elif request.method == "POST":
+        data = request.get_json()
+        tag_name = data.get("tag")
+        if not tag_name:
+            return jsonify({"error": "Tag name required"}), 400
+        
+        if repo.add_issue_tag(issue_id, tag_name):
+            return jsonify({"message": "Tag added"}), 201
+        return jsonify({"message": "Tag already exists"}), 200
+        
+    elif request.method == "DELETE":
+        tag_name = request.args.get("tag")
+        if not tag_name:
+            return jsonify({"error": "Tag name required"}), 400
+            
+        if repo.remove_issue_tag(issue_id, tag_name):
+            return jsonify({"message": "Tag removed"})
+        return jsonify({"error": "Tag not found on issue"}), 404
+
+
+@app.route("/api/links", methods=["POST", "DELETE"])
+def api_links() -> Any:
+    """API: Manage issue links."""
+    repo = get_repo()
+
+    data = request.get_json()
+    source = data.get("source")
+    target = data.get("target")
+    type = data.get("type")
+
+    if not source or not target:
+        return jsonify({"error": "Source and target required"}), 400
+
+    if request.method == "POST":
+        if not type:
+            return jsonify({"error": "Type required"}), 400
+        try:
+            rel = repo.link_issues(source, target, type)
+            return jsonify(rel.to_dict()), 201
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+            
+    elif request.method == "DELETE":
+        if repo.unlink_issues(source, target, type):
+            return jsonify({"message": "Unlinked"})
+        return jsonify({"error": "Link not found"}), 404
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 7760,
     debug: bool = False,
 ) -> None:
-    """Run the Flask development server.
+    """Run the web server.
 
     Args:
         host: Host to bind to.
         port: Port to bind to.
-        debug: Enable debug mode.
+        debug: Enable debug mode (uses Flask dev server).
     """
-    app.run(host=host, port=port, debug=debug)
+    if debug:
+        print(f"Starting IssueDB Web UI on http://{host}:{port} (DEBUG mode with Flask)")
+        app.run(host=host, port=port, debug=True)
+    else:
+        try:
+            from waitress import serve
+            print(f"Starting IssueDB Web UI on http://{host}:{port} (Production mode with Waitress)")
+            serve(app, host=host, port=port)
+        except ImportError:
+            print("Warning: 'waitress' not found. Falling back to Flask development server.")
+            print("Install with: pip install issuedb[web]")
+            print(f"Starting IssueDB Web UI on http://{host}:{port} (Development mode with Flask)")
+            app.run(host=host, port=port, debug=False)
 
 
 if __name__ == "__main__":
