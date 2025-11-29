@@ -182,16 +182,21 @@ class CLI:
                 if as_json:
                     warnings = []
                     for similar_issue, similarity in similar_issues[:3]:  # Show top 3
-                        warnings.append({
-                            "id": similar_issue.id,
-                            "title": similar_issue.title,
-                            "similarity": round(similarity * 100, 1)
-                        })
-                    return json.dumps({
-                        "error": "Similar issues found",
-                        "message": "Use --force to create anyway",
-                        "similar_issues": warnings
-                    }, indent=2)
+                        warnings.append(
+                            {
+                                "id": similar_issue.id,
+                                "title": similar_issue.title,
+                                "similarity": round(similarity * 100, 1),
+                            }
+                        )
+                    return json.dumps(
+                        {
+                            "error": "Similar issues found",
+                            "message": "Use --force to create anyway",
+                            "similar_issues": warnings,
+                        },
+                        indent=2,
+                    )
                 else:
                     lines = ["Warning: Similar issues found:"]
                     for similar_issue, similarity in similar_issues[:3]:  # Show top 3
@@ -266,7 +271,9 @@ class CLI:
         """
         # Validate due_date if present
         if "due_date" in updates and updates["due_date"]:
-            try:
+            import contextlib
+
+            with contextlib.suppress(ValueError):
                 # Just check format, value is passed as string to repo which handles conversion
                 # Actually repo update_issue expects string for due_date based on my update?
                 # Let's check repo.update_issue again.
@@ -274,8 +281,6 @@ class CLI:
                 # "elif field == "due_date": if value: try: datetime.fromisoformat(value) ..."
                 # So we just pass the string.
                 pass
-            except ValueError:
-                 pass
 
         issue = self.repo.update_issue(issue_id, **updates)
         if not issue:
@@ -337,9 +342,7 @@ class CLI:
         result = {"message": f"Issue {issue_id} deleted successfully"}
         return self.format_output(result, as_json)
 
-    def get_next_issue(
-        self, status: Optional[str] = None, as_json: bool = False
-    ) -> str:
+    def get_next_issue(self, status: Optional[str] = None, as_json: bool = False) -> str:
         """Get next issue to work on.
 
         Args:
@@ -658,7 +661,6 @@ class CLI:
             return self.format_output(result, as_json)
         return self.format_output(issues, as_json)
 
-
     def find_similar_issues(
         self,
         query: str,
@@ -740,16 +742,12 @@ class CLI:
                     dup_dict = issue.to_dict()
                     dup_dict["similarity"] = round(similarity * 100, 1)
                     duplicates_list.append(dup_dict)
-                group_data = {
-                    "primary": group[0][0].to_dict(),
-                    "duplicates": duplicates_list
-                }
+                group_data = {"primary": group[0][0].to_dict(), "duplicates": duplicates_list}
                 groups_data.append(group_data)
 
-            return json.dumps({
-                "total_groups": len(duplicate_groups),
-                "groups": groups_data
-            }, indent=2)
+            return json.dumps(
+                {"total_groups": len(duplicate_groups), "groups": groups_data}, indent=2
+            )
         else:
             if not duplicate_groups:
                 return "No potential duplicates found."
@@ -922,16 +920,13 @@ class CLI:
 
         if issue.status == Status.OPEN:
             actions.append(
-                f"Issue is open - start work with: "
-                f"issuedb-cli update {issue.id} -s in-progress"
+                f"Issue is open - start work with: issuedb-cli update {issue.id} -s in-progress"
             )
             if issue.priority == Priority.CRITICAL or issue.priority == Priority.HIGH:
                 actions.append("High priority issue - should be addressed soon")
         elif issue.status == Status.IN_PROGRESS:
             actions.append("Issue is in-progress - consider adding a progress update comment")
-            actions.append(
-                f"When complete, close with: issuedb-cli update {issue.id} -s closed"
-            )
+            actions.append(f"When complete, close with: issuedb-cli update {issue.id} -s closed")
         elif issue.status == Status.CLOSED:
             actions.append("Issue is closed - can be reopened if needed")
 
@@ -996,7 +991,7 @@ class CLI:
         if comments:
             lines.append(f"## Comments ({len(comments)})")
             for comment in comments:
-                timestamp = comment.created_at.strftime('%Y-%m-%d %H:%M')
+                timestamp = comment.created_at.strftime("%Y-%m-%d %H:%M")
                 lines.append(f"[{timestamp}] {comment.text}")
             lines.append("")
         else:
@@ -1012,7 +1007,7 @@ class CLI:
         if audit_logs:
             lines.append(f"## Recent Activity (Last {len(audit_logs)} changes)")
             for log in audit_logs:
-                timestamp = log.timestamp.strftime('%Y-%m-%d %H:%M')
+                timestamp = log.timestamp.strftime("%Y-%m-%d %H:%M")
                 if log.action in ["CREATE", "BULK_CREATE"]:
                     lines.append(f"- {timestamp}: Issue created")
                 elif log.action in ["UPDATE", "BULK_UPDATE"]:
@@ -1061,14 +1056,13 @@ class CLI:
 
         return "\n".join(lines)
 
-
-
-
         return "\n".join(lines)
 
     # Memory CLI methods
 
-    def memory_add(self, key: str, value: str, category: str = "general", as_json: bool = False) -> str:
+    def memory_add(
+        self, key: str, value: str, category: str = "general", as_json: bool = False
+    ) -> str:
         """Add memory item."""
         try:
             memory = self.repo.add_memory(key, value, category)
@@ -1078,7 +1072,9 @@ class CLI:
         except ValueError as e:
             return json.dumps({"error": str(e)}) if as_json else str(e)
 
-    def memory_list(self, category: Optional[str] = None, search: Optional[str] = None, as_json: bool = False) -> str:
+    def memory_list(
+        self, category: Optional[str] = None, search: Optional[str] = None, as_json: bool = False
+    ) -> str:
         """List memory items."""
         memories = self.repo.list_memory(category, search)
         if as_json:
@@ -1092,7 +1088,13 @@ class CLI:
             lines.append(f"[{m.category}] {m.key}: {m.value}")
         return "\n".join(lines)
 
-    def memory_update(self, key: str, value: Optional[str] = None, category: Optional[str] = None, as_json: bool = False) -> str:
+    def memory_update(
+        self,
+        key: str,
+        value: Optional[str] = None,
+        category: Optional[str] = None,
+        as_json: bool = False,
+    ) -> str:
         """Update memory item."""
         memory = self.repo.update_memory(key, value, category)
         if not memory:
@@ -1113,7 +1115,13 @@ class CLI:
 
     # Lesson CLI methods
 
-    def lesson_add(self, lesson: str, issue_id: Optional[int] = None, category: str = "general", as_json: bool = False) -> str:
+    def lesson_add(
+        self,
+        lesson: str,
+        issue_id: Optional[int] = None,
+        category: str = "general",
+        as_json: bool = False,
+    ) -> str:
         """Add lesson learned."""
         try:
             ll = self.repo.add_lesson(lesson, issue_id, category)
@@ -1123,19 +1131,21 @@ class CLI:
         except ValueError as e:
             return json.dumps({"error": str(e)}) if as_json else str(e)
 
-    def lesson_list(self, issue_id: Optional[int] = None, category: Optional[str] = None, as_json: bool = False) -> str:
+    def lesson_list(
+        self, issue_id: Optional[int] = None, category: Optional[str] = None, as_json: bool = False
+    ) -> str:
         """List lessons."""
         lessons = self.repo.list_lessons(issue_id, category)
         if as_json:
-            return json.dumps([l.to_dict() for l in lessons], indent=2)
+            return json.dumps([lesson.to_dict() for lesson in lessons], indent=2)
 
         if not lessons:
             return "No lessons found."
 
         lines = []
-        for l in lessons:
-            prefix = f"[Issue #{l.issue_id}] " if l.issue_id else ""
-            lines.append(f"{prefix}[{l.category}] {l.lesson}")
+        for lesson in lessons:
+            prefix = f"[Issue #{lesson.issue_id}] " if lesson.issue_id else ""
+            lines.append(f"{prefix}[{lesson.category}] {lesson.lesson}")
         return "\n".join(lines)
 
     # Tag CLI methods
@@ -1181,14 +1191,15 @@ class CLI:
         except ValueError as e:
             return json.dumps({"error": str(e)}) if as_json else str(e)
 
-    def unlink_issues(self, source: int, target: int, type: Optional[str] = None, as_json: bool = False) -> str:
+    def unlink_issues(
+        self, source: int, target: int, type: Optional[str] = None, as_json: bool = False
+    ) -> str:
         """Unlink issues."""
         if self.repo.unlink_issues(source, target, type):
             msg = f"Unlinked #{source} and #{target}"
             return json.dumps({"message": msg}) if as_json else msg
         msg = "Link not found"
         return json.dumps({"error": msg}) if as_json else msg
-
 
     def workspace_status(self, as_json: bool = False) -> str:
         """Get workspace status.
@@ -1216,8 +1227,7 @@ class CLI:
             if status.get("active_issue"):
                 active = status["active_issue"]
                 lines.append(
-                    f"Active Issue: #{active['id']} - {active['title']} "
-                    f"({active['status']})"
+                    f"Active Issue: #{active['id']} - {active['title']} ({active['status']})"
                 )
                 lines.append(f"Time on Issue: {active['time_spent']}")
             else:
@@ -1254,11 +1264,14 @@ class CLI:
         issue, started_at = self.repo.start_issue(issue_id)
 
         if as_json:
-            return json.dumps({
-                "message": f"Started working on issue {issue_id}",
-                "issue": issue.to_dict(),
-                "started_at": started_at.isoformat(),
-            }, indent=2)
+            return json.dumps(
+                {
+                    "message": f"Started working on issue {issue_id}",
+                    "issue": issue.to_dict(),
+                    "started_at": started_at.isoformat(),
+                },
+                indent=2,
+            )
         else:
             lines = [
                 f"Started working on issue #{issue_id}",
@@ -1291,14 +1304,17 @@ class CLI:
         minutes = int((time_spent.total_seconds() % 3600) // 60)
 
         if as_json:
-            return json.dumps({
-                "message": f"Stopped working on issue {issue.id}",
-                "issue": issue.to_dict(),
-                "started_at": started_at.isoformat(),
-                "stopped_at": stopped_at.isoformat(),
-                "time_spent": f"{hours}h {minutes}m",
-                "time_spent_seconds": int(time_spent.total_seconds()),
-            }, indent=2)
+            return json.dumps(
+                {
+                    "message": f"Stopped working on issue {issue.id}",
+                    "issue": issue.to_dict(),
+                    "started_at": started_at.isoformat(),
+                    "stopped_at": stopped_at.isoformat(),
+                    "time_spent": f"{hours}h {minutes}m",
+                    "time_spent_seconds": int(time_spent.total_seconds()),
+                },
+                indent=2,
+            )
         else:
             lines = [
                 f"Stopped working on issue #{issue.id}",
@@ -1332,12 +1348,15 @@ class CLI:
         minutes = int((time_spent.total_seconds() % 3600) // 60)
 
         if as_json:
-            return json.dumps({
-                "issue": issue.to_dict(),
-                "started_at": started_at.isoformat(),
-                "time_spent": f"{hours}h {minutes}m",
-                "time_spent_seconds": int(time_spent.total_seconds()),
-            }, indent=2)
+            return json.dumps(
+                {
+                    "issue": issue.to_dict(),
+                    "started_at": started_at.isoformat(),
+                    "time_spent": f"{hours}h {minutes}m",
+                    "time_spent_seconds": int(time_spent.total_seconds()),
+                },
+                indent=2,
+            )
         else:
             lines = [
                 f"Active Issue: #{issue.id}",
@@ -1351,9 +1370,7 @@ class CLI:
 
     # Time tracking methods
 
-    def timer_start(
-        self, issue_id: int, note: Optional[str] = None, as_json: bool = False
-    ) -> str:
+    def timer_start(self, issue_id: int, note: Optional[str] = None, as_json: bool = False) -> str:
         """Start a timer for an issue.
 
         Args:
@@ -1374,9 +1391,7 @@ class CLI:
             result["note"] = note
         return self.format_output(result, as_json)
 
-    def timer_stop(
-        self, issue_id: Optional[int] = None, as_json: bool = False
-    ) -> str:
+    def timer_stop(self, issue_id: Optional[int] = None, as_json: bool = False) -> str:
         """Stop a timer for an issue.
 
         Args:
@@ -1424,15 +1439,17 @@ class CLI:
             elapsed = entry.get("elapsed_seconds", 0)
             hours = int(elapsed // 3600)
             minutes = int((elapsed % 3600) // 60)
-            timers.append({
-                "entry_id": entry["id"],
-                "issue_id": entry["issue_id"],
-                "issue_title": entry.get("issue_title", ""),
-                "started_at": entry["started_at"],
-                "elapsed": f"{hours}h {minutes}m",
-                "elapsed_seconds": elapsed,
-                "note": entry.get("note"),
-            })
+            timers.append(
+                {
+                    "entry_id": entry["id"],
+                    "issue_id": entry["issue_id"],
+                    "issue_title": entry.get("issue_title", ""),
+                    "started_at": entry["started_at"],
+                    "elapsed": f"{hours}h {minutes}m",
+                    "elapsed_seconds": elapsed,
+                    "note": entry.get("note"),
+                }
+            )
 
         if as_json:
             return json.dumps({"timers": timers}, indent=2)
@@ -1440,14 +1457,10 @@ class CLI:
             lines = ["Running Timers:"]
             for t in timers:
                 note_str = f" - {t['note']}" if t.get("note") else ""
-                lines.append(
-                    f"  #{t['issue_id']} {t['issue_title']}: {t['elapsed']}{note_str}"
-                )
+                lines.append(f"  #{t['issue_id']} {t['issue_title']}: {t['elapsed']}{note_str}")
             return "\n".join(lines)
 
-    def set_estimate(
-        self, issue_id: int, hours: float, as_json: bool = False
-    ) -> str:
+    def set_estimate(self, issue_id: int, hours: float, as_json: bool = False) -> str:
         """Set time estimate for an issue.
 
         Args:
@@ -1489,26 +1502,31 @@ class CLI:
             total_seconds += duration
             hours = duration // 3600
             minutes = (duration % 3600) // 60
-            formatted.append({
-                "id": entry["id"],
-                "started_at": entry.get("started_at"),  # Already a string from SQLite
-                "ended_at": entry.get("ended_at"),
-                "duration": f"{hours}h {minutes}m",
-                "duration_seconds": duration,
-                "note": entry.get("note"),
-                "running": entry.get("ended_at") is None,
-            })
+            formatted.append(
+                {
+                    "id": entry["id"],
+                    "started_at": entry.get("started_at"),  # Already a string from SQLite
+                    "ended_at": entry.get("ended_at"),
+                    "duration": f"{hours}h {minutes}m",
+                    "duration_seconds": duration,
+                    "note": entry.get("note"),
+                    "running": entry.get("ended_at") is None,
+                }
+            )
 
         total_hours = total_seconds // 3600
         total_minutes = (total_seconds % 3600) // 60
 
         if as_json:
-            return json.dumps({
-                "issue_id": issue_id,
-                "entries": formatted,
-                "total_seconds": total_seconds,
-                "total_formatted": f"{total_hours}h {total_minutes}m",
-            }, indent=2)
+            return json.dumps(
+                {
+                    "issue_id": issue_id,
+                    "entries": formatted,
+                    "total_seconds": total_seconds,
+                    "total_formatted": f"{total_hours}h {total_minutes}m",
+                },
+                indent=2,
+            )
         else:
             lines = [f"Time Log for Issue #{issue_id}:", ""]
             for e in formatted:
@@ -1537,9 +1555,7 @@ class CLI:
         if as_json:
             return json.dumps(report, indent=2)
         else:
-            period_labels = {
-                "all": "All Time", "week": "This Week", "month": "This Month"
-            }
+            period_labels = {"all": "All Time", "week": "This Week", "month": "This Month"}
             period_label = period_labels.get(period, period)
             lines = [f"Time Report ({period_label})", "=" * 30]
 
@@ -1556,24 +1572,20 @@ class CLI:
                     minutes = (seconds % 3600) // 60
                     estimate_str = ""
                     if item.get("estimated_hours"):
-                        est_h = item['estimated_hours']
+                        est_h = item["estimated_hours"]
                         if item.get("over_estimate"):
                             estimate_str = f" (est: {est_h}h) [OVER]"
                         else:
                             estimate_str = f" (est: {est_h}h)"
-                    issue_id = item['issue_id']
-                    title = item['title']
-                    lines.append(
-                        f"  #{issue_id} {title}: {hours}h {minutes}m{estimate_str}"
-                    )
+                    issue_id = item["issue_id"]
+                    title = item["title"]
+                    lines.append(f"  #{issue_id} {title}: {hours}h {minutes}m{estimate_str}")
 
             return "\n".join(lines)
 
     # Dependency management commands
 
-    def block_issue(
-        self, issue_id: int, blocker_id: int, as_json: bool = False
-    ) -> str:
+    def block_issue(self, issue_id: int, blocker_id: int, as_json: bool = False) -> str:
         """Mark an issue as blocked by another issue.
 
         Args:
@@ -1629,7 +1641,7 @@ class CLI:
             else:
                 result = {
                     "message": f"No dependency found between issue {issue_id} "
-                               f"and blocker {blocker_id}",
+                    f"and blocker {blocker_id}",
                     "removed_count": 0,
                 }
         else:
@@ -1720,9 +1732,7 @@ class CLI:
 
             return "\n".join(lines)
 
-    def list_blocked_issues(
-        self, status: Optional[str] = None, as_json: bool = False
-    ) -> str:
+    def list_blocked_issues(self, status: Optional[str] = None, as_json: bool = False) -> str:
         """List all blocked issues.
 
         Args:
@@ -1742,8 +1752,7 @@ class CLI:
                 blockers = self.repo.get_blockers(issue.id)
                 issue_dict = issue.to_dict()
                 issue_dict["blockers"] = [
-                    {"id": b.id, "title": b.title, "status": b.status.value}
-                    for b in blockers
+                    {"id": b.id, "title": b.title, "status": b.status.value} for b in blockers
                 ]
                 result.append(issue_dict)
             return json.dumps(result, indent=2)
@@ -2199,7 +2208,7 @@ def main() -> None:
     tag_parser = subparsers.add_parser("tag", help="Manage tags")
     tag_subparsers = tag_parser.add_subparsers(dest="tag_command", help="Tag commands")
 
-    tag_list = tag_subparsers.add_parser("list", help="List tags")
+    tag_subparsers.add_parser("list", help="List tags")
 
     tag_add = tag_subparsers.add_parser("add", help="Add tags to issue")
     tag_add.add_argument("issue_id", type=int, help="Issue ID")
@@ -2370,7 +2379,6 @@ def main() -> None:
         help="Minimal output (just issue + comments)",
     )
 
-
     # Workspace command
     subparsers.add_parser("workspace", help="Show current workspace status")
 
@@ -2430,7 +2438,8 @@ def main() -> None:
         help="Host to bind to (default: 0.0.0.0)",
     )
     web_parser.add_argument(
-        "-p", "--port",
+        "-p",
+        "--port",
         type=int,
         default=7760,
         help="Port to bind to (default: 7760)",
@@ -2465,16 +2474,13 @@ def main() -> None:
     )
 
     # Dedupe command
-    dedupe_parser = subparsers.add_parser(
-        "dedupe", help="Find potential duplicate issues"
-    )
+    dedupe_parser = subparsers.add_parser("dedupe", help="Find potential duplicate issues")
     dedupe_parser.add_argument(
         "--threshold",
         type=float,
         default=0.7,
         help="Similarity threshold for duplicates (0.0 to 1.0, default: 0.7)",
     )
-
 
     # Handle --prompt flag
     if args.prompt:
@@ -2738,7 +2744,6 @@ def main() -> None:
             )
             print(result)
 
-
         elif args.command == "block":
             result = cli.block_issue(
                 issue_id=args.issue_id,
@@ -2768,7 +2773,6 @@ def main() -> None:
                 as_json=args.json,
             )
             print(result)
-
 
         elif args.command == "workspace":
             result = cli.workspace_status(as_json=args.json)

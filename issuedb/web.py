@@ -1083,9 +1083,11 @@ BASE_TEMPLATE = """
 </html>
 """
 
-DASHBOARD_TEMPLATE = (
-    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Dashboard - IssueDB{% endblock %}")
-    .replace("{% block content %}{% endblock %}", """{% block content %}
+DASHBOARD_TEMPLATE = BASE_TEMPLATE.replace(
+    "{% block title %}IssueDB{% endblock %}", "{% block title %}Dashboard - IssueDB{% endblock %}"
+).replace(
+    "{% block content %}{% endblock %}",
+    """{% block content %}
 <div class="page-header">
     <div>
         <h1 class="page-title">Dashboard</h1>
@@ -1257,12 +1259,14 @@ DASHBOARD_TEMPLATE = (
     </div>
     {% endif %}
 </div>
-{% endblock %}""")
+{% endblock %}""",
 )
 
-MEMORY_TEMPLATE = (
-    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Memory - IssueDB{% endblock %}")
-    .replace("{% block content %}{% endblock %}", """{% block content %}
+MEMORY_TEMPLATE = BASE_TEMPLATE.replace(
+    "{% block title %}IssueDB{% endblock %}", "{% block title %}Memory - IssueDB{% endblock %}"
+).replace(
+    "{% block content %}{% endblock %}",
+    """{% block content %}
 <div class="page-header">
     <div>
         <h1 class="page-title">Memory</h1>
@@ -1334,12 +1338,15 @@ MEMORY_TEMPLATE = (
         </div>
     </div>
 </div>
-{% endblock %}""")
+{% endblock %}""",
 )
 
-LESSONS_TEMPLATE = (
-    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Lessons Learned - IssueDB{% endblock %}")
-    .replace("{% block content %}{% endblock %}", """{% block content %}
+LESSONS_TEMPLATE = BASE_TEMPLATE.replace(
+    "{% block title %}IssueDB{% endblock %}",
+    "{% block title %}Lessons Learned - IssueDB{% endblock %}",
+).replace(
+    "{% block content %}{% endblock %}",
+    """{% block content %}
 <div class="page-header">
     <div>
         <h1 class="page-title">Lessons Learned</h1>
@@ -1413,12 +1420,14 @@ LESSONS_TEMPLATE = (
         </div>
     </div>
 </div>
-{% endblock %}""")
+{% endblock %}""",
 )
 
-ISSUES_LIST_TEMPLATE = (
-    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Issues - IssueDB{% endblock %}")
-    .replace("{% block content %}{% endblock %}", """{% block content %}
+ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
+    "{% block title %}IssueDB{% endblock %}", "{% block title %}Issues - IssueDB{% endblock %}"
+).replace(
+    "{% block content %}{% endblock %}",
+    """{% block content %}
 <div class="page-header">
     <div>
         <h1 class="page-title">Issues</h1>
@@ -1513,12 +1522,17 @@ ISSUES_LIST_TEMPLATE = (
     </div>
     {% endif %}
 </div>
-{% endblock %}""")
+{% endblock %}""",
 )
 
 ISSUE_DETAIL_TEMPLATE = (
-    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}#{{ issue.id }} {{ issue.title }} - IssueDB{% endblock %}")
-    .replace("{% block content %}{% endblock %}", """{% block content %}
+    BASE_TEMPLATE.replace(
+        "{% block title %}IssueDB{% endblock %}",
+        "{% block title %}#{{ issue.id }} {{ issue.title }} - IssueDB{% endblock %}",
+    )
+    .replace(
+        "{% block content %}{% endblock %}",
+        """{% block content %}
 {% if message %}
 <div class="alert alert-success">{{ message }}</div>
 {% endif %}
@@ -1691,8 +1705,11 @@ ISSUE_DETAIL_TEMPLATE = (
         </div>
     </div>
 </div>
-{% endblock %}""")
-    .replace("{% block scripts %}{% endblock %}", """{% block scripts %}
+{% endblock %}""",
+    )
+    .replace(
+        "{% block scripts %}{% endblock %}",
+        """{% block scripts %}
 <script>
 (function() {
     var issueId = {{ issue.id }};
@@ -2066,12 +2083,16 @@ window.deleteLink = function(sourceId, targetId, type) {
     });
 };
 </script>
-{% endblock %}""")
+{% endblock %}""",
+    )
 )
 
-ISSUE_FORM_TEMPLATE = (
-    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}{{ 'Edit' if issue else 'New' }} Issue - IssueDB{% endblock %}")
-    .replace("{% block content %}{% endblock %}", """{% block content %}
+ISSUE_FORM_TEMPLATE = BASE_TEMPLATE.replace(
+    "{% block title %}IssueDB{% endblock %}",
+    "{% block title %}{{ 'Edit' if issue else 'New' }} Issue - IssueDB{% endblock %}",
+).replace(
+    "{% block content %}{% endblock %}",
+    """{% block content %}
 <div class="page-header">
     <div>
         <h1 class="page-title">{{ 'Edit Issue #' ~ issue.id if issue else 'New Issue' }}</h1>
@@ -2146,12 +2167,14 @@ ISSUE_FORM_TEMPLATE = (
         </form>
     </div>
 </div>
-{% endblock %}""")
+{% endblock %}""",
 )
 
-AUDIT_LOG_TEMPLATE = (
-    BASE_TEMPLATE.replace("{% block title %}IssueDB{% endblock %}", "{% block title %}Audit Log - IssueDB{% endblock %}")
-    .replace("{% block content %}{% endblock %}", """{% block content %}
+AUDIT_LOG_TEMPLATE = BASE_TEMPLATE.replace(
+    "{% block title %}IssueDB{% endblock %}", "{% block title %}Audit Log - IssueDB{% endblock %}"
+).replace(
+    "{% block content %}{% endblock %}",
+    """{% block content %}
 <div class="page-header">
     <div>
         <h1 class="page-title">Audit Log</h1>
@@ -2196,7 +2219,7 @@ AUDIT_LOG_TEMPLATE = (
     </div>
     {% endif %}
 </div>
-{% endblock %}""")
+{% endblock %}""",
 )
 
 
@@ -2437,9 +2460,10 @@ def api_create_issue() -> Any:
     if data.get("due_date"):
         try:
             from datetime import datetime
+
             issue.due_date = datetime.fromisoformat(data["due_date"])
         except ValueError:
-            pass # Ignore invalid date for now or handle error
+            pass  # Ignore invalid date for now or handle error
 
     created = repo.create_issue(issue)
 
@@ -2449,11 +2473,12 @@ def api_create_issue() -> Any:
         for part in related_ids_str.split(","):
             try:
                 target_id = int(part.strip())
-                if target_id:
-                    try:
+                # Check if we need to link to another issue
+                if created.id and target_id:
+                    import contextlib
+
+                    with contextlib.suppress(ValueError):
                         repo.link_issues(created.id, target_id, "related")
-                    except ValueError:
-                        pass
             except ValueError:
                 pass
 
@@ -2523,10 +2548,10 @@ def api_update_issue(issue_id: int) -> Any:
             try:
                 target_id = int(part.strip())
                 if target_id:
-                    try:
+                    import contextlib
+
+                    with contextlib.suppress(ValueError):
                         repo.link_issues(issue_id, target_id, "related")
-                    except ValueError:
-                        pass
             except ValueError:
                 pass
 
@@ -2563,7 +2588,9 @@ def api_add_comment(issue_id: int) -> Any:
     if not text:
         if request.is_json:
             return jsonify({"error": "Comment text is required"}), 400
-        return redirect(url_for("issue_detail", issue_id=issue_id, error="Comment text is required"))
+        return redirect(
+            url_for("issue_detail", issue_id=issue_id, error="Comment text is required")
+        )
 
     try:
         comment = repo.add_comment(issue_id, text)
@@ -2610,11 +2637,15 @@ def api_start_issue(issue_id: int) -> Any:
     try:
         issue, started_at = repo.start_issue(issue_id)
         if request.is_json:
-            return jsonify({
-                "issue": issue.to_dict(),
-                "started_at": started_at.isoformat(),
-            })
-        return redirect(url_for("issue_detail", issue_id=issue_id, message="Started working on issue"))
+            return jsonify(
+                {
+                    "issue": issue.to_dict(),
+                    "started_at": started_at.isoformat(),
+                }
+            )
+        return redirect(
+            url_for("issue_detail", issue_id=issue_id, message="Started working on issue")
+        )
     except ValueError as e:
         if request.is_json:
             return jsonify({"error": str(e)}), 400
@@ -2633,11 +2664,13 @@ def api_stop_issue() -> Any:
     if result:
         issue, started_at, stopped_at = result
         if request.is_json:
-            return jsonify({
-                "issue": issue.to_dict(),
-                "started_at": started_at.isoformat(),
-                "stopped_at": stopped_at.isoformat(),
-            })
+            return jsonify(
+                {
+                    "issue": issue.to_dict(),
+                    "started_at": started_at.isoformat(),
+                    "stopped_at": stopped_at.isoformat(),
+                }
+            )
         return redirect(url_for("dashboard"))
     else:
         if request.is_json:
@@ -2663,10 +2696,9 @@ def api_similar_issues(issue_id: int) -> Any:
 
     similar_results = find_similar_issues(issue_text, other_issues, threshold=threshold)
 
-    return jsonify([
-        {"issue": i.to_dict(), "score": round(score, 3)}
-        for i, score in similar_results[:limit]
-    ])
+    return jsonify(
+        [{"issue": i.to_dict(), "score": round(score, 3)} for i, score in similar_results[:limit]]
+    )
 
 
 @app.route("/api/issues/<int:issue_id>/audit", methods=["GET"])
@@ -2675,18 +2707,20 @@ def api_issue_audit(issue_id: int) -> Any:
     repo = get_repo()
     logs = repo.get_audit_logs(issue_id)
 
-    return jsonify([
-        {
-            "id": log.id,
-            "issue_id": log.issue_id,
-            "action": log.action,
-            "field_name": log.field_name,
-            "old_value": log.old_value,
-            "new_value": log.new_value,
-            "timestamp": log.timestamp.isoformat(),
-        }
-        for log in logs
-    ])
+    return jsonify(
+        [
+            {
+                "id": log.id,
+                "issue_id": log.issue_id,
+                "action": log.action,
+                "field_name": log.field_name,
+                "old_value": log.old_value,
+                "new_value": log.new_value,
+                "timestamp": log.timestamp.isoformat(),
+            }
+            for log in logs
+        ]
+    )
 
 
 @app.route("/api/summary", methods=["GET"])
@@ -2714,18 +2748,20 @@ def api_audit_logs() -> Any:
     issue_id = request.args.get("issue_id", type=int)
     logs = repo.get_audit_logs(issue_id=issue_id)
 
-    return jsonify([
-        {
-            "id": log.id,
-            "issue_id": log.issue_id,
-            "action": log.action,
-            "field_name": log.field_name,
-            "old_value": log.old_value,
-            "new_value": log.new_value,
-            "timestamp": log.timestamp.isoformat(),
-        }
-        for log in logs
-    ])
+    return jsonify(
+        [
+            {
+                "id": log.id,
+                "issue_id": log.issue_id,
+                "action": log.action,
+                "field_name": log.field_name,
+                "old_value": log.old_value,
+                "new_value": log.new_value,
+                "timestamp": log.timestamp.isoformat(),
+            }
+            for log in logs
+        ]
+    )
 
 
 @app.route("/api/issues/<int:issue_id>/comments", methods=["GET"])
@@ -2755,11 +2791,15 @@ def api_get_time_entries(issue_id: int) -> Any:
         result.append(e)
     total_hours = total_seconds // 3600
     total_minutes = (total_seconds % 3600) // 60
-    return jsonify({
-        "entries": result,
-        "total_formatted": f"{total_hours}h {total_minutes}m" if total_hours else f"{total_minutes}m",
-        "total_seconds": total_seconds,
-    })
+    return jsonify(
+        {
+            "entries": result,
+            "total_formatted": f"{total_hours}h {total_minutes}m"
+            if total_hours
+            else f"{total_minutes}m",
+            "total_seconds": total_seconds,
+        }
+    )
 
 
 @app.route("/api/issues/<int:issue_id>/dependencies", methods=["GET"])
@@ -2768,10 +2808,12 @@ def api_get_dependencies(issue_id: int) -> Any:
     repo = get_repo()
     blockers = repo.get_blockers(issue_id)
     blocking = repo.get_blocking(issue_id)
-    return jsonify({
-        "blockers": [i.to_dict() for i in blockers],
-        "blocking": [i.to_dict() for i in blocking],
-    })
+    return jsonify(
+        {
+            "blockers": [i.to_dict() for i in blockers],
+            "blocking": [i.to_dict() for i in blocking],
+        }
+    )
 
 
 @app.route("/api/issues/<int:issue_id>/links", methods=["GET"])
@@ -2787,15 +2829,17 @@ def api_get_code_refs(issue_id: int) -> Any:
     """API: Get code references for an issue."""
     repo = get_repo()
     refs = repo.get_code_references(issue_id)
-    return jsonify([
-        {
-            "id": r.id,
-            "file_path": r.file_path,
-            "start_line": r.start_line,
-            "end_line": r.end_line,
-        }
-        for r in refs
-    ])
+    return jsonify(
+        [
+            {
+                "id": r.id,
+                "file_path": r.file_path,
+                "start_line": r.start_line,
+                "end_line": r.end_line,
+            }
+            for r in refs
+        ]
+    )
 
 
 @app.route("/api/issues/<int:issue_id>/context", methods=["GET"])
@@ -2846,10 +2890,12 @@ def api_get_context(issue_id: int) -> Any:
                     for line in log_result.stdout.strip().split("\n")[:5]:
                         if line:
                             parts = line.split(" ", 1)
-                            commits.append({
-                                "hash": parts[0],
-                                "message": parts[1] if len(parts) > 1 else "",
-                            })
+                            commits.append(
+                                {
+                                    "hash": parts[0],
+                                    "message": parts[1] if len(parts) > 1 else "",
+                                }
+                            )
             except (subprocess.TimeoutExpired, subprocess.SubprocessError):
                 pass
 
@@ -2867,47 +2913,60 @@ def api_get_context(issue_id: int) -> Any:
     # Generate suggested actions
     actions = []
     if issue.status.value == "open":
-        actions.append({
-            "type": "start",
-            "text": "Start working on this issue",
-            "priority": "high" if issue.priority.value in ["critical", "high"] else "normal",
-        })
+        actions.append(
+            {
+                "type": "start",
+                "text": "Start working on this issue",
+                "priority": "high" if issue.priority.value in ["critical", "high"] else "normal",
+            }
+        )
     elif issue.status.value == "in-progress":
-        actions.append({
-            "type": "progress",
-            "text": "Add a progress update comment",
-            "priority": "normal",
-        })
-        actions.append({
-            "type": "close",
-            "text": "Close issue when complete",
-            "priority": "normal",
-        })
+        actions.append(
+            {
+                "type": "progress",
+                "text": "Add a progress update comment",
+                "priority": "normal",
+            }
+        )
+        actions.append(
+            {
+                "type": "close",
+                "text": "Close issue when complete",
+                "priority": "normal",
+            }
+        )
     elif issue.status.value == "closed":
-        actions.append({
-            "type": "reopen",
-            "text": "Reopen if issue persists",
-            "priority": "low",
-        })
+        actions.append(
+            {
+                "type": "reopen",
+                "text": "Reopen if issue persists",
+                "priority": "low",
+            }
+        )
 
     # Check comments
     comments = repo.get_comments(issue_id)
     if len(comments) == 0:
-        actions.append({
-            "type": "comment",
-            "text": "Add notes or context",
-            "priority": "normal",
-        })
+        actions.append(
+            {
+                "type": "comment",
+                "text": "Add notes or context",
+                "priority": "normal",
+            }
+        )
 
     # Check blockers
     blockers = repo.get_blockers(issue_id)
     open_blockers = [b for b in blockers if b.status.value != "closed"]
     if open_blockers:
-        actions.insert(0, {
-            "type": "blocked",
-            "text": f"Blocked by {len(open_blockers)} open issue(s)",
-            "priority": "high",
-        })
+        actions.insert(
+            0,
+            {
+                "type": "blocked",
+                "text": f"Blocked by {len(open_blockers)} open issue(s)",
+                "priority": "high",
+            },
+        )
 
     context["suggested_actions"] = actions
 
@@ -2993,7 +3052,7 @@ def api_lessons_list_create() -> Any:
         issue_id = request.args.get("issue_id", type=int)
         category = request.args.get("category")
         lessons = repo.list_lessons(issue_id=issue_id, category=category)
-        return jsonify([l.to_dict() for l in lessons])
+        return jsonify([lesson.to_dict() for lesson in lessons])
 
 
 @app.route("/api/tags", methods=["GET"])
@@ -3078,8 +3137,11 @@ def run_server(
         app.run(host=host, port=port, debug=True)
     else:
         try:
-            from waitress import serve
-            print(f"Starting IssueDB Web UI on http://{host}:{port} (Production mode with Waitress)")
+            from waitress import serve  # type: ignore
+
+            print(
+                f"Starting IssueDB Web UI on http://{host}:{port} (Production mode with Waitress)"
+            )
             serve(app, host=host, port=port)
         except ImportError:
             print("Warning: 'waitress' not found. Falling back to Flask development server.")

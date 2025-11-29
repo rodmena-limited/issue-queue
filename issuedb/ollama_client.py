@@ -219,9 +219,7 @@ def handle_ollama_request(
 
     if not is_available:
         print(f"Error: {error_msg}", file=sys.stderr)
-        print(
-            "\nMake sure Ollama is running. Install and start it with:", file=sys.stderr
-        )
+        print("\nMake sure Ollama is running. Install and start it with:", file=sys.stderr)
         print("  curl https://ollama.ai/install.sh | sh", file=sys.stderr)
         print(f"  ollama serve  # or: ollama run {client.model}", file=sys.stderr)
         return 1

@@ -116,9 +116,7 @@ class TestBulkPatternOperations:
     def test_find_by_pattern_description_glob(self, repo, sample_issues):
         """Test finding issues by glob pattern in description."""
         # Match descriptions containing "SonarQube"
-        matches = repo.find_by_pattern(
-            desc_pattern="*sonarqube*", use_regex=False
-        )
+        matches = repo.find_by_pattern(desc_pattern="*sonarqube*", use_regex=False)
         assert len(matches) == 2
         descriptions = [issue.description for issue in matches]
         assert "First SonarQube issue" in descriptions
@@ -127,9 +125,7 @@ class TestBulkPatternOperations:
     def test_find_by_pattern_description_regex(self, repo, sample_issues):
         """Test finding issues by regex pattern in description."""
         # Match descriptions containing "log in" or "failing"
-        matches = repo.find_by_pattern(
-            desc_pattern="log in|failing", use_regex=True
-        )
+        matches = repo.find_by_pattern(desc_pattern="log in|failing", use_regex=True)
         assert len(matches) == 2
 
     def test_find_by_pattern_title_and_description(self, repo, sample_issues):
@@ -152,9 +148,7 @@ class TestBulkPatternOperations:
 
     def test_find_by_pattern_no_matches(self, repo, sample_issues):
         """Test finding issues with pattern that matches nothing."""
-        matches = repo.find_by_pattern(
-            title_pattern="NonExistent*", use_regex=False
-        )
+        matches = repo.find_by_pattern(title_pattern="NonExistent*", use_regex=False)
         assert len(matches) == 0
 
     def test_find_by_pattern_wildcard(self, repo, sample_issues):
@@ -324,9 +318,7 @@ class TestBulkPatternOperations:
         issue_id = to_delete[0].id
 
         # Delete it
-        deleted = repo.bulk_delete_by_pattern(
-            title_pattern="sonarqube issue 1", use_regex=False
-        )
+        deleted = repo.bulk_delete_by_pattern(title_pattern="sonarqube issue 1", use_regex=False)
         assert len(deleted) == 1
 
         # Check audit log
@@ -449,6 +441,7 @@ class TestBulkPatternCLI:
     def cli(self):
         """Create CLI instance with temporary database."""
         from issuedb.cli import CLI
+
         with tempfile.NamedTemporaryFile(suffix=".db") as f:
             cli_instance = CLI(f.name)
             yield cli_instance

@@ -359,9 +359,9 @@ class Database:
                 "default_priority": "high",
                 "default_status": "open",
                 "required_fields": json.dumps(["description"]),
-                "field_prompts": json.dumps({
-                    "description": "Describe the bug (steps to reproduce, expected vs actual)"
-                }),
+                "field_prompts": json.dumps(
+                    {"description": "Describe the bug (steps to reproduce, expected vs actual)"}
+                ),
             },
             {
                 "name": "feature",
@@ -369,9 +369,9 @@ class Database:
                 "default_priority": "medium",
                 "default_status": "open",
                 "required_fields": json.dumps(["description"]),
-                "field_prompts": json.dumps({
-                    "description": "Describe the feature request and its benefits"
-                }),
+                "field_prompts": json.dumps(
+                    {"description": "Describe the feature request and its benefits"}
+                ),
             },
             {
                 "name": "task",

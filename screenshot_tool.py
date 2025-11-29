@@ -5,6 +5,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import Union
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -16,10 +17,10 @@ def take_screenshot(
     url: str,
     delay: int = 2,
     output_dir: str = "screenshots",
-    click_selector: str | None = None,
-    scroll_y: int | None = None,
+    click_selector: Union[str, None] = None,
+    scroll_y: Union[int, None] = None,
     debug: bool = False,
-    type_text: str | None = None,
+    type_text: Union[str, None] = None,
 ) -> str:
     """Take screenshot of URL with delay and save with epoch timestamp
 
@@ -69,7 +70,7 @@ def take_screenshot(
         if click_selector:
             try:
                 from selenium.webdriver.common.by import By
-                from selenium.webdriver.support import expected_conditions as EC
+                from selenium.webdriver.support import expected_conditions as EC  # noqa: N812
                 from selenium.webdriver.support.ui import WebDriverWait
 
                 print(f"Clicking element: {click_selector}", file=sys.stderr)
@@ -86,7 +87,7 @@ def take_screenshot(
             try:
                 from selenium.webdriver.common.by import By
                 from selenium.webdriver.common.keys import Keys
-                from selenium.webdriver.support import expected_conditions as EC
+                from selenium.webdriver.support import expected_conditions as EC  # noqa: N812
                 from selenium.webdriver.support.ui import WebDriverWait
 
                 # Parse "selector:text" format

@@ -253,9 +253,7 @@ class TestAdvancedSearch:
 
     def test_search_date_range_filtering(self, repo, sample_issues):
         """Test filtering with date range."""
-        results = repo.search_issues_advanced(
-            created_after="14d", created_before="2d"
-        )
+        results = repo.search_issues_advanced(created_after="14d", created_before="2d")
         # Should get issues created between 14 and 2 days ago
         assert len(results) >= 1
 

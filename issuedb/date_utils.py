@@ -37,18 +37,18 @@ def parse_date(date_str: str) -> datetime:
         return (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Handle relative dates (Nd, Nw, Nm)
-    relative_pattern = re.match(r'^(\d+)([dwm])$', date_str)
+    relative_pattern = re.match(r"^(\d+)([dwm])$", date_str)
     if relative_pattern:
         amount = int(relative_pattern.group(1))
         unit = relative_pattern.group(2)
 
-        if unit == 'd':
+        if unit == "d":
             # Days ago
             return now - timedelta(days=amount)
-        elif unit == 'w':
+        elif unit == "w":
             # Weeks ago
             return now - timedelta(weeks=amount)
-        elif unit == 'm':
+        elif unit == "m":
             # Months ago (approximate as 30 days)
             return now - timedelta(days=amount * 30)
 
@@ -77,10 +77,7 @@ def format_date_for_display(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def validate_date_range(
-    start_date: Optional[datetime],
-    end_date: Optional[datetime]
-) -> None:
+def validate_date_range(start_date: Optional[datetime], end_date: Optional[datetime]) -> None:
     """Validate that a date range is logical.
 
     Args:

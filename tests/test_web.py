@@ -84,7 +84,9 @@ class TestIssuesListPage:
         assert response.status_code == 200
         assert b"Test Issue ABC" in response.data
 
-    def test_issues_list_filter_by_status(self, client, temp_db: Path, repo: IssueRepository) -> None:
+    def test_issues_list_filter_by_status(
+        self, client, temp_db: Path, repo: IssueRepository
+    ) -> None:
         """Test filtering issues by status."""
         repo.create_issue(Issue(title="Open Issue", status=Status.OPEN))
         repo.create_issue(Issue(title="Closed Issue", status=Status.CLOSED))
@@ -93,7 +95,9 @@ class TestIssuesListPage:
         assert response.status_code == 200
         assert b"Open Issue" in response.data
 
-    def test_issues_list_filter_by_priority(self, client, temp_db: Path, repo: IssueRepository) -> None:
+    def test_issues_list_filter_by_priority(
+        self, client, temp_db: Path, repo: IssueRepository
+    ) -> None:
         """Test filtering issues by priority."""
         repo.create_issue(Issue(title="Critical Issue", priority=Priority.CRITICAL))
         repo.create_issue(Issue(title="Low Issue", priority=Priority.LOW))
@@ -123,12 +127,13 @@ class TestIssueDetailPage:
         assert response.status_code == 200
         assert b"Detail Test" in response.data
 
-    def test_issue_detail_shows_description(self, client, temp_db: Path, repo: IssueRepository) -> None:
+    def test_issue_detail_shows_description(
+        self, client, temp_db: Path, repo: IssueRepository
+    ) -> None:
         """Test that the issue detail shows description."""
-        issue = repo.create_issue(Issue(
-            title="With Description",
-            description="This is a detailed description"
-        ))
+        issue = repo.create_issue(
+            Issue(title="With Description", description="This is a detailed description")
+        )
 
         response = client.get(f"/issues/{issue.id}?db={temp_db}")
         assert response.status_code == 200

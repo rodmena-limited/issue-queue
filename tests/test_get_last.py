@@ -88,9 +88,7 @@ class TestGetLastFetchedRepository:
         # Create and fetch multiple issues
         issues = []
         for i in range(5):
-            issue = repo.create_issue(
-                Issue(title=f"Issue {i}", priority=Priority.CRITICAL)
-            )
+            issue = repo.create_issue(Issue(title=f"Issue {i}", priority=Priority.CRITICAL))
             issues.append(issue)
             repo.get_next_issue()
             repo.update_issue(issue.id, status="closed")

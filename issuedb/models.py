@@ -54,66 +54,6 @@ class Status(Enum):
 
 
 @dataclass
-class Issue:
-    """Represents an issue in the tracking system."""
-
-    id: Optional[int] = field(default=None)
-    title: str = field(default="")
-    description: Optional[str] = field(default=None)
-    priority: Priority = field(default=Priority.MEDIUM)
-    status: Status = field(default=Status.OPEN)
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
-    estimated_hours: Optional[float] = field(default=None)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert issue to dictionary for JSON serialization."""
-        result: dict[str, Any] = {
-            "id": self.id,
-            "title": self.title,
-            "description": self.description,
-            "priority": self.priority.value,
-            "status": self.status.value,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
-        if self.estimated_hours is not None:
-            result["estimated_hours"] = self.estimated_hours
-        return result
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Issue":
-        """Create Issue from dictionary."""
-        issue = cls()
-        issue.id = data.get("id")
-        issue.title = data.get("title", "")
-        issue.description = data.get("description")
-
-        if "priority" in data:
-            issue.priority = Priority.from_string(data["priority"])
-
-        if "status" in data:
-            issue.status = Status.from_string(data["status"])
-
-        if "created_at" in data and data["created_at"]:
-            if isinstance(data["created_at"], str):
-                issue.created_at = datetime.fromisoformat(data["created_at"])
-            else:
-                issue.created_at = data["created_at"]
-
-        if "updated_at" in data and data["updated_at"]:
-            if isinstance(data["updated_at"], str):
-                issue.updated_at = datetime.fromisoformat(data["updated_at"])
-            else:
-                issue.updated_at = data["updated_at"]
-
-        if "estimated_hours" in data:
-            issue.estimated_hours = data.get("estimated_hours")
-
-        return issue
-
-
-@dataclass
 class Comment:
     """Represents a comment on an issue."""
 
@@ -296,7 +236,7 @@ class Issue:
                 tag = Tag(
                     id=tag_data.get("id"),
                     name=tag_data.get("name", ""),
-                    color=tag_data.get("color")
+                    color=tag_data.get("color"),
                 )
                 issue.tags.append(tag)
 
