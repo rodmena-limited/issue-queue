@@ -10,7 +10,19 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from issuedb.database import get_database
 from issuedb.date_utils import parse_date, validate_date_range
-from issuedb.models import AuditLog, CodeReference, Comment, Issue, IssueTemplate, Priority, Status, Memory, LessonLearned, Tag, IssueRelation
+from issuedb.models import (
+    AuditLog,
+    CodeReference,
+    Comment,
+    Issue,
+    IssueRelation,
+    IssueTemplate,
+    LessonLearned,
+    Memory,
+    Priority,
+    Status,
+    Tag,
+)
 
 
 class IssueRepository:
@@ -366,7 +378,7 @@ class IssueRepository:
         """
         query = "SELECT DISTINCT i.* FROM issues i"
         params: List[Any] = []
-        
+
         joins = []
         wheres = ["1=1"]
 
@@ -385,14 +397,14 @@ class IssueRepository:
             Priority.from_string(priority)  # Validate priority
             wheres.append("i.priority = ?")
             params.append(priority.lower())
-            
+
         if due_date:
             wheres.append("date(i.due_date) = date(?)")
             params.append(due_date)
 
         if joins:
             query += " " + " ".join(joins)
-            
+
         query += " WHERE " + " AND ".join(wheres)
         query += " ORDER BY i.created_at DESC"
 
@@ -1184,13 +1196,13 @@ class IssueRepository:
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
-        
+
         if "estimated_hours" in row.keys() and row["estimated_hours"] is not None:
             issue.estimated_hours = row["estimated_hours"]
-            
+
         if "due_date" in row.keys() and row["due_date"] is not None:
             issue.due_date = datetime.fromisoformat(row["due_date"])
-            
+
         return issue
 
     def parse_file_spec(self, file_spec: str) -> Tuple[str, Optional[int], Optional[int]]:
@@ -2731,7 +2743,7 @@ class IssueRepository:
                     ),
                 )
                 memory.id = cursor.lastrowid
-                
+
                 # Log audit
                 self._log_audit(
                     conn,
@@ -2773,7 +2785,7 @@ class IssueRepository:
             updates.append("value = ?")
             values.append(value)
             audit_entries.append(("value", current_memory.value, value))
-        
+
         if category is not None and category != current_memory.category:
             updates.append("category = ?")
             values.append(category)
@@ -2790,7 +2802,7 @@ class IssueRepository:
             cursor = conn.cursor()
             query = f"UPDATE memory SET {', '.join(updates)} WHERE key = ?"
             cursor.execute(query, values)
-            
+
             # Log audit
             for field, old_val, new_val in audit_entries:
                 self._log_audit(
@@ -2801,7 +2813,7 @@ class IssueRepository:
                     old_val,
                     new_val,
                 )
-                
+
         return self.get_memory(key)
 
     def delete_memory(self, key: str) -> bool:
@@ -2820,7 +2832,7 @@ class IssueRepository:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM memory WHERE key = ?", (key,))
-            
+
             # Log audit
             self._log_audit(
                 conn,
@@ -2830,7 +2842,7 @@ class IssueRepository:
                 json.dumps(memory.to_dict()),
                 None,
             )
-            
+
             return cursor.rowcount > 0
 
     def get_memory(self, key: str) -> Optional[Memory]:
@@ -2846,7 +2858,7 @@ class IssueRepository:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM memory WHERE key = ?", (key,))
             row = cursor.fetchone()
-            
+
             if row:
                 return Memory(
                     id=row["id"],
@@ -2874,18 +2886,18 @@ class IssueRepository:
         if category:
             query += " AND category = ?"
             params.append(category)
-        
+
         if search:
             query += " AND (key LIKE ? OR value LIKE ?)"
             params.extend([f"%{search}%", f"%{search}%"])
-            
+
         query += " ORDER BY key ASC"
 
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            
+
             return [
                 Memory(
                     id=row["id"],
@@ -2934,7 +2946,7 @@ class IssueRepository:
                 ),
             )
             ll.id = cursor.lastrowid
-            
+
             # Log audit
             self._log_audit(
                 conn,
@@ -2972,7 +2984,7 @@ class IssueRepository:
             updates.append("lesson = ?")
             values.append(lesson)
             audit_entries.append(("lesson", current_lesson.lesson, lesson))
-        
+
         if category is not None and category != current_lesson.category:
             updates.append("category = ?")
             values.append(category)
@@ -2987,7 +2999,7 @@ class IssueRepository:
             cursor = conn.cursor()
             query = f"UPDATE lessons_learned SET {', '.join(updates)} WHERE id = ?"
             cursor.execute(query, values)
-            
+
             # Log audit
             for field, old_val, new_val in audit_entries:
                 self._log_audit(
@@ -2998,7 +3010,7 @@ class IssueRepository:
                     old_val,
                     new_val,
                 )
-                
+
         return self.get_lesson(lesson_id)
 
     def delete_lesson(self, lesson_id: int) -> bool:
@@ -3017,7 +3029,7 @@ class IssueRepository:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM lessons_learned WHERE id = ?", (lesson_id,))
-            
+
             # Log audit
             self._log_audit(
                 conn,
@@ -3027,7 +3039,7 @@ class IssueRepository:
                 json.dumps(current_lesson.to_dict()),
                 None,
             )
-            
+
             return cursor.rowcount > 0
 
     def get_lesson(self, lesson_id: int) -> Optional[LessonLearned]:
@@ -3043,7 +3055,7 @@ class IssueRepository:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM lessons_learned WHERE id = ?", (lesson_id,))
             row = cursor.fetchone()
-            
+
             if row:
                 return LessonLearned(
                     id=row["id"],
@@ -3070,18 +3082,18 @@ class IssueRepository:
         if issue_id:
             query += " AND issue_id = ?"
             params.append(issue_id)
-        
+
         if category:
             query += " AND category = ?"
             params.append(category)
-            
+
         query += " ORDER BY created_at DESC"
 
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            
+
             return [
                 LessonLearned(
                     id=row["id"],
@@ -3115,7 +3127,7 @@ class IssueRepository:
                     (tag.name, tag.color, tag.created_at.isoformat()),
                 )
                 tag.id = cursor.lastrowid
-                
+
                 # Log audit (global)
                 self._log_audit(
                     conn,
@@ -3182,7 +3194,7 @@ class IssueRepository:
                     "INSERT INTO issue_tags (issue_id, tag_id, created_at) VALUES (?, ?, ?)",
                     (issue_id, tag_id, datetime.now().isoformat()),
                 )
-                
+
                 # Log audit
                 self._log_audit(
                     conn,
@@ -3217,7 +3229,7 @@ class IssueRepository:
             """,
                 (issue_id, tag_name),
             )
-            
+
             if cursor.rowcount > 0:
                 # Log audit
                 self._log_audit(
@@ -3301,7 +3313,7 @@ class IssueRepository:
                     ),
                 )
                 relation.id = cursor.lastrowid
-                
+
                 # Log audit on both issues
                 self._log_audit(
                     conn,
@@ -3321,7 +3333,7 @@ class IssueRepository:
                 )
             except Exception as e:
                 if "UNIQUE constraint failed" in str(e):
-                    raise ValueError(f"Relation already exists") from e
+                    raise ValueError("Relation already exists") from e
                 raise
 
         return relation
@@ -3347,7 +3359,7 @@ class IssueRepository:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
-            
+
             if cursor.rowcount > 0:
                 # Log audit on both
                 self._log_audit(
@@ -3379,10 +3391,10 @@ class IssueRepository:
             Dictionary with 'source' and 'target' relations.
         """
         result = {"source": [], "target": []}
-        
+
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Get relations where issue is source
             cursor.execute(
                 """
@@ -3424,5 +3436,5 @@ class IssueRepository:
                     "type": row["relation_type"],
                     "created_at": row["created_at"],
                 })
-                
+
         return result

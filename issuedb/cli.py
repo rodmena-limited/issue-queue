@@ -66,10 +66,10 @@ class CLI:
             f"Status: {issue.status.value}",
             f"Priority: {issue.priority.value}",
         ]
-        
+
         if issue.due_date:
             lines.append(f"Due Date: {issue.due_date.strftime('%Y-%m-%d')}")
-            
+
         if issue.tags:
             tag_names = [t.name for t in issue.tags]
             lines.append(f"Tags: {', '.join(tag_names)}")
@@ -143,8 +143,9 @@ class CLI:
         Returns:
             Formatted output.
         """
-        from issuedb.similarity import find_similar_issues
         from datetime import datetime
+
+        from issuedb.similarity import find_similar_issues
 
         due_date_obj = None
         if due_date:
@@ -269,7 +270,7 @@ class CLI:
                 # Just check format, value is passed as string to repo which handles conversion
                 # Actually repo update_issue expects string for due_date based on my update?
                 # Let's check repo.update_issue again.
-                # My update to repo.update_issue handles string conversion. 
+                # My update to repo.update_issue handles string conversion.
                 # "elif field == "due_date": if value: try: datetime.fromisoformat(value) ..."
                 # So we just pass the string.
                 pass
@@ -1082,10 +1083,10 @@ class CLI:
         memories = self.repo.list_memory(category, search)
         if as_json:
             return json.dumps([m.to_dict() for m in memories], indent=2)
-        
+
         if not memories:
             return "No memory items found."
-            
+
         lines = []
         for m in memories:
             lines.append(f"[{m.category}] {m.key}: {m.value}")
@@ -1097,7 +1098,7 @@ class CLI:
         if not memory:
             msg = f"Memory '{key}' not found"
             return json.dumps({"error": msg}) if as_json else msg
-            
+
         if as_json:
             return json.dumps(memory.to_dict(), indent=2)
         return f"Memory updated: {key}"
@@ -1127,10 +1128,10 @@ class CLI:
         lessons = self.repo.list_lessons(issue_id, category)
         if as_json:
             return json.dumps([l.to_dict() for l in lessons], indent=2)
-            
+
         if not lessons:
             return "No lessons found."
-            
+
         lines = []
         for l in lessons:
             prefix = f"[Issue #{l.issue_id}] " if l.issue_id else ""
@@ -1145,7 +1146,7 @@ class CLI:
         for tag in tags:
             if self.repo.add_issue_tag(issue_id, tag):
                 added.append(tag)
-        
+
         if as_json:
             return json.dumps({"added": added}, indent=2)
         return f"Added tags to issue #{issue_id}: {', '.join(added)}"
@@ -1156,7 +1157,7 @@ class CLI:
         for tag in tags:
             if self.repo.remove_issue_tag(issue_id, tag):
                 removed.append(tag)
-                
+
         if as_json:
             return json.dumps({"removed": removed}, indent=2)
         return f"Removed tags from issue #{issue_id}: {', '.join(removed)}"
@@ -1179,7 +1180,7 @@ class CLI:
             return f"Linked #{source} to #{target} ({type})"
         except ValueError as e:
             return json.dumps({"error": str(e)}) if as_json else str(e)
-            
+
     def unlink_issues(self, source: int, target: int, type: Optional[str] = None, as_json: bool = False) -> str:
         """Unlink issues."""
         if self.repo.unlink_issues(source, target, type):
@@ -2163,7 +2164,7 @@ def main() -> None:
     # Memory commands
     memory_parser = subparsers.add_parser("memory", help="Manage memory")
     memory_subparsers = memory_parser.add_subparsers(dest="memory_command", help="Memory commands")
-    
+
     mem_add = memory_subparsers.add_parser("add", help="Add memory item")
     mem_add.add_argument("key", help="Memory key")
     mem_add.add_argument("value", help="Memory value")
@@ -2579,7 +2580,7 @@ def main() -> None:
         elif args.command == "memory":
             if not args.memory_command:
                 parser.parse_args(["memory", "--help"])
-            
+
             if args.memory_command == "add":
                 print(cli.memory_add(args.key, args.value, args.category, args.json))
             elif args.memory_command == "list":
@@ -2592,7 +2593,7 @@ def main() -> None:
         elif args.command == "lesson":
             if not args.lesson_command:
                 parser.parse_args(["lesson", "--help"])
-            
+
             if args.lesson_command == "add":
                 print(cli.lesson_add(args.lesson, args.issue_id, args.category, args.json))
             elif args.lesson_command == "list":
@@ -2601,7 +2602,7 @@ def main() -> None:
         elif args.command == "tag":
             if not args.tag_command:
                 parser.parse_args(["tag", "--help"])
-            
+
             if args.tag_command == "list":
                 print(cli.tag_list(args.json))
             elif args.tag_command == "add":
@@ -2612,7 +2613,7 @@ def main() -> None:
         elif args.command == "link":
             if not args.link_command:
                 parser.parse_args(["link", "--help"])
-            
+
             if args.link_command == "add":
                 print(cli.link_issues(args.source, args.target, args.type, args.json))
             elif args.link_command == "remove":
