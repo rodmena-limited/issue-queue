@@ -2414,7 +2414,7 @@ def add_lesson() -> Response:
     issue_id_str = request.form.get("issue_id")
 
     if not lesson:
-        return redirect(url_for("list_lessons"))
+        return redirect(url_for("lessons_page"))
 
     issue_id = None
     if issue_id_str:
@@ -2422,7 +2422,7 @@ def add_lesson() -> Response:
             issue_id = int(issue_id_str)
 
     repo.add_lesson(lesson=lesson, category=category, issue_id=issue_id)
-    return redirect(url_for("list_lessons"))
+    return redirect(url_for("lessons_page"))
 
 
 @app.route("/lessons/delete/<int:lesson_id>", methods=["POST"])
@@ -2430,7 +2430,7 @@ def delete_lesson(lesson_id: int) -> Response:
     """Delete a lesson learned."""
     repo = get_repo()
     repo.delete_lesson(lesson_id)
-    return redirect(url_for("list_lessons"))
+    return redirect(url_for("lessons_page"))
 
 
 
