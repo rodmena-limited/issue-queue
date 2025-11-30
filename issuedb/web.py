@@ -1,6 +1,8 @@
 """Flask Web UI and API for IssueDB."""
 
 import contextlib
+import os
+from pathlib import Path
 from typing import Any, Union
 
 from flask import Flask, jsonify, redirect, render_template_string, request, url_for
@@ -11,6 +13,24 @@ from issuedb.repository import IssueRepository
 from issuedb.similarity import find_similar_issues
 
 app = Flask(__name__)
+
+
+@app.context_processor
+def inject_project_info() -> dict[str, str]:
+    """Inject project information into templates."""
+    db_path = request.args.get("db")
+    if db_path:
+        try:
+            path = Path(db_path).resolve()
+            if path.is_file():
+                project_name = path.parent.name
+            else:
+                project_name = path.name
+        except Exception:
+            project_name = "unknown"
+    else:
+        project_name = Path.cwd().name
+    return {"project_name": project_name}
 
 
 def get_repo() -> IssueRepository:
@@ -28,9 +48,35 @@ BASE_TEMPLATE = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="author" content="RODMENA LIMITED, https://rodmena.co.uk">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}IssueDB{% endblock %}</title>
     <style>
+        @font-face {
+            font-family: 'JetBrains Mono';
+            src: url('/static/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+            font-weight: 400;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'JetBrains Mono';
+            src: url('/static/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+            font-weight: 700;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'JetBrains Mono';
+            src: url('/static/fonts/JetBrainsMono-Italic.woff2') format('woff2');
+            font-weight: 400;
+            font-style: italic;
+        }
+        @font-face {
+            font-family: 'JetBrains Mono';
+            src: url('/static/fonts/JetBrainsMono-BoldItalic.woff2') format('woff2');
+            font-weight: 700;
+            font-style: italic;
+        }
+
         :root {
             --bg-primary: #0d1117;
             --bg-secondary: #161b22;
@@ -69,7 +115,7 @@ BASE_TEMPLATE = """
         }
 
         body {
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code',
+            font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code',
                          'Droid Sans Mono', 'Source Code Pro', monospace;
             font-size: 14px;
             line-height: 1.6;
@@ -1054,6 +1100,7 @@ BASE_TEMPLATE = """
                 <a href="/" class="logo">
                     <span class="logo-icon">&gt;_</span>
                     <span>IssueDB</span>
+                    <span style="color: var(--text-muted); font-size: 0.8em; font-weight: normal; margin-left: 2px;">/{{ project_name }}</span>
                 </a>
                 <nav class="nav">
                     <a href="/" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
@@ -1085,7 +1132,7 @@ BASE_TEMPLATE = """
 """
 
 DASHBOARD_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}IssueDB{% endblock %}", "{% block title %}Dashboard - IssueDB{% endblock %}"
+    "{% block title %}IssueDB{% endblock %}", "{% block title %}Dashboard [{{ project_name }}] - IssueDB{% endblock %}"
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -1264,7 +1311,7 @@ DASHBOARD_TEMPLATE = BASE_TEMPLATE.replace(
 )
 
 MEMORY_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}IssueDB{% endblock %}", "{% block title %}Memory - IssueDB{% endblock %}"
+    "{% block title %}IssueDB{% endblock %}", "{% block title %}Memory [{{ project_name }}] - IssueDB{% endblock %}"
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -1344,7 +1391,7 @@ MEMORY_TEMPLATE = BASE_TEMPLATE.replace(
 
 LESSONS_TEMPLATE = BASE_TEMPLATE.replace(
     "{% block title %}IssueDB{% endblock %}",
-    "{% block title %}Lessons Learned - IssueDB{% endblock %}",
+    "{% block title %}Lessons Learned [{{ project_name }}] - IssueDB{% endblock %}",
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -1431,7 +1478,7 @@ LESSONS_TEMPLATE = BASE_TEMPLATE.replace(
 )
 
 ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}IssueDB{% endblock %}", "{% block title %}Issues - IssueDB{% endblock %}"
+    "{% block title %}IssueDB{% endblock %}", "{% block title %}Issues [{{ project_name }}] - IssueDB{% endblock %}"
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -2364,6 +2411,15 @@ def memory_page() -> str:
         active_page="memory",
         memories=memories,
     )
+
+
+@app.route("/static/fonts/<path:filename>")
+def serve_fonts(filename: str) -> Response:
+    """Serve font files."""
+    import os
+
+    from flask import send_from_directory
+    return send_from_directory(os.path.join(app.root_path, "static/fonts"), filename)
 
 
 @app.route("/lessons")

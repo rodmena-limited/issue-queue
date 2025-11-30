@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "issuedb"
-version = "2.5.7"
+version = "2.5.8"
 description = "A command-line issue tracking system for software development projects"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -48,7 +48,7 @@ Repository = "https://github.com/rodmena-limited/issue-queue"
 packages = ["issuedb", "issuedb.data", "issuedb.data.agents"]
 
 [tool.setuptools.package-data]
-issuedb = ["py.typed", "data/agents/PROMPT.txt"]
+issuedb = ["py.typed", "data/agents/PROMPT.txt", "static/fonts/*.woff2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
