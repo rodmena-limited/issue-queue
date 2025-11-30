@@ -355,6 +355,66 @@ class IssueRepository:
 
             return cursor.rowcount > 0
 
+    def count_issues(
+        self,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+        due_date: Optional[str] = None,
+        tag: Optional[str] = None,
+        keyword: Optional[str] = None,
+    ) -> int:
+        """Count issues matching optional filters.
+
+        Args:
+            status: Filter by status.
+            priority: Filter by priority.
+            due_date: Filter by due date (exact match).
+            tag: Filter by tag name.
+            keyword: Filter by keyword search in title/description.
+
+        Returns:
+            Count of matching issues.
+        """
+        query = "SELECT COUNT(DISTINCT i.id) as count FROM issues i"
+        params: List[Any] = []
+
+        joins = []
+        wheres = ["1=1"]
+
+        if tag:
+            joins.append("JOIN issue_tags it ON i.id = it.issue_id")
+            joins.append("JOIN tags t ON it.tag_id = t.id")
+            wheres.append("t.name = ?")
+            params.append(tag)
+
+        if status:
+            Status.from_string(status)  # Validate status
+            wheres.append("i.status = ?")
+            params.append(status.lower())
+
+        if priority:
+            Priority.from_string(priority)  # Validate priority
+            wheres.append("i.priority = ?")
+            params.append(priority.lower())
+
+        if due_date:
+            wheres.append("date(i.due_date) = date(?)")
+            params.append(due_date)
+
+        if keyword:
+            wheres.append("(i.title LIKE ? OR i.description LIKE ?)")
+            params.extend([f"%{keyword}%", f"%{keyword}%"])
+
+        if joins:
+            query += " " + " ".join(joins)
+
+        query += " WHERE " + " AND ".join(wheres)
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            return cursor.fetchone()["count"]
+
     def list_issues(
         self,
         status: Optional[str] = None,
@@ -510,12 +570,15 @@ class IssueRepository:
                 return issue
             return None
 
-    def search_issues(self, keyword: str, limit: Optional[int] = None) -> List[Issue]:
+    def search_issues(
+        self, keyword: str, limit: Optional[int] = None, offset: int = 0
+    ) -> List[Issue]:
         """Search issues by keyword in title and description.
 
         Args:
             keyword: Keyword to search for.
             limit: Maximum number of issues to return.
+            offset: Number of issues to skip.
 
         Returns:
             List of matching issues.
@@ -531,6 +594,9 @@ class IssueRepository:
         if limit:
             query += " LIMIT ?"
             params.append(limit)
+            if offset:
+                query += " OFFSET ?"
+                params.append(offset)
 
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -621,7 +687,7 @@ class IssueRepository:
             FROM audit_logs al
             LEFT JOIN issues i ON al.issue_id = i.id
             WHERE al.action = 'FETCH'
-            ORDER BY al.timestamp DESC
+            ORDER BY al.id DESC
         """
 
         with self.db.get_connection() as conn:

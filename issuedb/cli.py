@@ -2491,9 +2491,9 @@ def main() -> None:
         prompt_file = package_dir / "data" / "agents" / "PROMPT.txt"
 
         if prompt_file.exists():
-            print(prompt_file.read_text())
+            print(prompt_file.read_text(), file=sys.stdout, flush=True)
         else:
-            print(f"Error: Prompt file not found at {prompt_file}", file=sys.stderr)
+            print(f"Error: Prompt file not found at {prompt_file}", file=sys.stderr, flush=True)
             sys.exit(1)
         sys.exit(0)
 
@@ -2546,7 +2546,7 @@ def main() -> None:
                 due_date=args.due_date,
                 as_json=args.json,
             )
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "list":
             result = cli.list_issues(
@@ -2557,11 +2557,11 @@ def main() -> None:
                 tag=args.tag,
                 as_json=args.json,
             )
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "get":
             result = cli.get_issue(args.id, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "update":
             updates = {}
@@ -2577,57 +2577,57 @@ def main() -> None:
                 updates["due_date"] = args.due_date
 
             if not updates:
-                print("Error: No updates specified", file=sys.stderr)
+                print("Error: No updates specified", file=sys.stderr, flush=True)
                 sys.exit(1)
 
             result = cli.update_issue(args.id, as_json=args.json, **updates)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "memory":
             if not args.memory_command:
                 parser.parse_args(["memory", "--help"])
 
             if args.memory_command == "add":
-                print(cli.memory_add(args.key, args.value, args.category, args.json))
+                print(cli.memory_add(args.key, args.value, args.category, args.json), file=sys.stdout, flush=True)
             elif args.memory_command == "list":
-                print(cli.memory_list(args.category, args.search, args.json))
+                print(cli.memory_list(args.category, args.search, args.json), file=sys.stdout, flush=True)
             elif args.memory_command == "update":
-                print(cli.memory_update(args.key, args.value, args.category, args.json))
+                print(cli.memory_update(args.key, args.value, args.category, args.json), file=sys.stdout, flush=True)
             elif args.memory_command == "delete":
-                print(cli.memory_delete(args.key, args.json))
+                print(cli.memory_delete(args.key, args.json), file=sys.stdout, flush=True)
 
         elif args.command == "lesson":
             if not args.lesson_command:
                 parser.parse_args(["lesson", "--help"])
 
             if args.lesson_command == "add":
-                print(cli.lesson_add(args.lesson, args.issue_id, args.category, args.json))
+                print(cli.lesson_add(args.lesson, args.issue_id, args.category, args.json), file=sys.stdout, flush=True)
             elif args.lesson_command == "list":
-                print(cli.lesson_list(args.issue_id, args.category, args.json))
+                print(cli.lesson_list(args.issue_id, args.category, args.json), file=sys.stdout, flush=True)
 
         elif args.command == "tag":
             if not args.tag_command:
                 parser.parse_args(["tag", "--help"])
 
             if args.tag_command == "list":
-                print(cli.tag_list(args.json))
+                print(cli.tag_list(args.json), file=sys.stdout, flush=True)
             elif args.tag_command == "add":
-                print(cli.tag_issue(args.issue_id, args.tags, args.json))
+                print(cli.tag_issue(args.issue_id, args.tags, args.json), file=sys.stdout, flush=True)
             elif args.tag_command == "remove":
-                print(cli.untag_issue(args.issue_id, args.tags, args.json))
+                print(cli.untag_issue(args.issue_id, args.tags, args.json), file=sys.stdout, flush=True)
 
         elif args.command == "link":
             if not args.link_command:
                 parser.parse_args(["link", "--help"])
 
             if args.link_command == "add":
-                print(cli.link_issues(args.source, args.target, args.type, args.json))
+                print(cli.link_issues(args.source, args.target, args.type, args.json), file=sys.stdout, flush=True)
             elif args.link_command == "remove":
-                print(cli.unlink_issues(args.source, args.target, args.type, args.json))
+                print(cli.unlink_issues(args.source, args.target, args.type, args.json), file=sys.stdout, flush=True)
 
         elif args.command == "bulk-update":
             if not args.status and not args.priority:
-                print("Error: No updates specified (use -s or --priority)", file=sys.stderr)
+                print("Error: No updates specified (use -s or --priority)", file=sys.stderr, flush=True)
                 sys.exit(1)
 
             result = cli.bulk_update_issues(
@@ -2637,19 +2637,19 @@ def main() -> None:
                 filter_priority=args.filter_priority,
                 as_json=args.json,
             )
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "delete":
             result = cli.delete_issue(args.id, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "get-next":
             result = cli.get_next_issue(status=args.status, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "get-last":
             result = cli.get_last_fetched(limit=args.number, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "search":
             result = cli.search_issues(
@@ -2657,27 +2657,27 @@ def main() -> None:
                 limit=args.limit,
                 as_json=args.json,
             )
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "clear":
             result = cli.clear_all(confirm=args.confirm, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "audit":
             result = cli.get_audit_logs(issue_id=args.issue, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "info":
             result = cli.get_info(as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "summary":
             result = cli.get_summary(as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "report":
             result = cli.get_report(group_by=args.group_by, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "bulk-create":
             # Get JSON input from file, data arg, or stdin
@@ -2692,7 +2692,7 @@ def main() -> None:
                 json_input = sys.stdin.read()
 
             result = cli.bulk_create(json_input, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "bulk-update-json":
             # Get JSON input from file, data arg, or stdin
@@ -2707,7 +2707,7 @@ def main() -> None:
                 json_input = sys.stdin.read()
 
             result = cli.bulk_update_json(json_input, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "bulk-close":
             # Get JSON input from file, data arg, or stdin
@@ -2722,19 +2722,19 @@ def main() -> None:
                 json_input = sys.stdin.read()
 
             result = cli.bulk_close(json_input, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "comment":
             result = cli.add_comment(args.issue_id, args.text, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "list-comments":
             result = cli.list_comments(args.issue_id, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "delete-comment":
             result = cli.delete_comment(args.comment_id, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "context":
             result = cli.get_issue_context(
@@ -2742,7 +2742,7 @@ def main() -> None:
                 as_json=args.json,
                 compact=args.compact,
             )
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "block":
             result = cli.block_issue(
@@ -2750,7 +2750,7 @@ def main() -> None:
                 blocker_id=args.blocker_id,
                 as_json=args.json,
             )
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "unblock":
             result = cli.unblock_issue(
@@ -2758,37 +2758,37 @@ def main() -> None:
                 blocker_id=args.blocker_id,
                 as_json=args.json,
             )
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "deps":
             result = cli.show_dependencies(
                 issue_id=args.issue_id,
                 as_json=args.json,
             )
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "blocked":
             result = cli.list_blocked_issues(
                 status=args.status,
                 as_json=args.json,
             )
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "workspace":
             result = cli.workspace_status(as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "start":
             result = cli.start_issue_workspace(args.issue_id, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "stop":
             result = cli.stop_issue_workspace(close=args.close, as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "active":
             result = cli.get_active_issue_workspace(as_json=args.json)
-            print(result)
+            print(result, file=sys.stdout, flush=True)
 
         elif args.command == "web":
             from issuedb.web import run_server
@@ -2796,7 +2796,7 @@ def main() -> None:
             run_server(host=args.host, port=args.port, debug=args.debug)
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        print(f"Error: {e}", file=sys.stderr, flush=True)
         sys.exit(1)
 
 

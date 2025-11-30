@@ -1,4 +1,4 @@
-"""Flask Web UI and API for IssueDB."""
+"""Flask Web UI and API for .issue.db."""
 
 import contextlib
 import os
@@ -22,10 +22,7 @@ def inject_project_info() -> dict[str, str]:
     if db_path:
         try:
             path = Path(db_path).resolve()
-            if path.is_file():
-                project_name = path.parent.name
-            else:
-                project_name = path.name
+            project_name = path.parent.name if path.is_file() else path.name
         except Exception:
             project_name = "unknown"
     else:
@@ -51,7 +48,7 @@ BASE_TEMPLATE = """
     <meta name="author" content="RODMENA LIMITED, https://rodmena.co.uk">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <title>{% block title %}IssueDB{% endblock %}</title>
+    <title>{% block title %}.issue.db{% endblock %}</title>
     <style>
         @font-face {
             font-family: 'JetBrains Mono';
@@ -1100,7 +1097,7 @@ BASE_TEMPLATE = """
             <div class="header-content">
                 <a href="/" class="logo">
                     <span class="logo-icon">&gt;_</span>
-                    <span>IssueDB</span>
+                    <span>.issue.db</span>
                     <span style="color: var(--text-muted); font-size: 0.8em; font-weight: normal; margin-left: 2px;">/{{ project_name }}</span>
                 </a>
                 <nav class="nav">
@@ -1123,7 +1120,7 @@ BASE_TEMPLATE = """
 
     <footer class="footer">
         <div class="container">
-            IssueDB v2.5.4 &middot; Command-line issue tracking for developers
+            <a href="https://github.com/rodmena-limited/issue-queue" target="_new">.issue.db</a> &middot; Command-line issue tracking for developers;
         </div>
     </footer>
 
@@ -1133,7 +1130,7 @@ BASE_TEMPLATE = """
 """
 
 DASHBOARD_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}IssueDB{% endblock %}", "{% block title %}Dashboard [{{ project_name }}] - IssueDB{% endblock %}"
+    "{% block title %}.issue.db{% endblock %}", "{% block title %}[{{ project_name }}] - .issue.db{% endblock %}"
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -1312,7 +1309,7 @@ DASHBOARD_TEMPLATE = BASE_TEMPLATE.replace(
 )
 
 MEMORY_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}IssueDB{% endblock %}", "{% block title %}Memory [{{ project_name }}] - IssueDB{% endblock %}"
+    "{% block title %}.issue.db{% endblock %}", "{% block title %}Memory [{{ project_name }}] - .issue.db{% endblock %}"
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -1391,8 +1388,8 @@ MEMORY_TEMPLATE = BASE_TEMPLATE.replace(
 )
 
 LESSONS_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}IssueDB{% endblock %}",
-    "{% block title %}Lessons Learned [{{ project_name }}] - IssueDB{% endblock %}",
+    "{% block title %}.issue.db{% endblock %}",
+    "{% block title %}Lessons Learned [{{ project_name }}] - .issue.db{% endblock %}",
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -1479,14 +1476,14 @@ LESSONS_TEMPLATE = BASE_TEMPLATE.replace(
 )
 
 ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}IssueDB{% endblock %}", "{% block title %}Issues [{{ project_name }}] - IssueDB{% endblock %}"
+    "{% block title %}.issue.db{% endblock %}", "{% block title %}Issues [{{ project_name }}] - .issue.db{% endblock %}"
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
 <div class="page-header">
     <div>
         <h1 class="page-title">Issues</h1>
-        <p class="page-subtitle">{{ issues | length }} issue{% if issues | length != 1 %}s{% endif %}{% if status_filter or priority_filter or search_query %} found{% endif %}</p>
+        <p class="page-subtitle">{{ total_issues if total_issues is defined else issues|length }} issue{% if (total_issues if total_issues is defined else issues|length) != 1 %}s{% endif %}{% if status_filter or priority_filter or search_query or tag_filter %} found{% endif %}</p>
     </div>
     <a href="/issues/new" class="btn btn-primary">+ New Issue</a>
 </div>
@@ -1518,10 +1515,10 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
         </div>
         <div class="filter-group" style="flex: 1;">
             <input type="search" name="q" placeholder="Search issues..."
-                   value="{{ search_query | default('') }}" class="search-input">
+                   value="{{ search_query or '' }}" class="search-input">
             <button type="submit" class="btn btn-sm">Search</button>
         </div>
-        {% if status_filter or priority_filter or search_query %}
+        {% if status_filter or priority_filter or search_query or tag_filter %}
         <a href="/issues" class="btn btn-sm btn-ghost">Clear Filters</a>
         {% endif %}
     </form>
@@ -1545,6 +1542,13 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
                 <td><a href="/issues/{{ issue.id }}" class="issue-num">#{{ issue.id }}</a></td>
                 <td class="issue-title">
                     <a href="/issues/{{ issue.id }}">{{ issue.title }}</a>
+                    {% if issue.tags %}
+                    <div style="display: inline-flex; gap: 4px; margin-left: 8px;">
+                        {% for tag in issue.tags %}
+                        <a href="/issues?tag={{ tag.name }}" class="badge" style="font-size: 10px; padding: 2px 6px; {% if tag.color %}background-color: {{ tag.color }}20; color: {{ tag.color }}; border: 1px solid {{ tag.color }}40;{% else %}background-color: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color);{% endif %}">{{ tag.name }}</a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                     {% if issue.description %}
                     <div class="issue-meta">{{ issue.description[:100] }}{% if issue.description|length > 100 %}...{% endif %}</div>
                     {% endif %}
@@ -1569,6 +1573,26 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
             {% endfor %}
         </tbody>
     </table>
+    
+    <!-- Pagination -->
+    {% if total_pages is defined and total_pages > 1 %}
+    <div style="margin-top: 20px; margin-bottom: 20px; display: flex; justify-content: center; align-items: center; gap: 12px;">
+        {% if page > 1 %}
+        <a href="{{ url_for('issues_list', page=page-1, status=status_filter, priority=priority_filter, q=search_query, tag=tag_filter) }}" class="btn btn-sm">Previous</a>
+        {% else %}
+        <span class="btn btn-sm" style="opacity: 0.5; cursor: default;">Previous</span>
+        {% endif %}
+        
+        <span style="font-size: 13px; color: var(--text-secondary);">Page {{ page }} of {{ total_pages }}</span>
+        
+        {% if page < total_pages %}
+        <a href="{{ url_for('issues_list', page=page+1, status=status_filter, priority=priority_filter, q=search_query, tag=tag_filter) }}" class="btn btn-sm">Next</a>
+        {% else %}
+        <span class="btn btn-sm" style="opacity: 0.5; cursor: default;">Next</span>
+        {% endif %}
+    </div>
+    {% endif %}
+    
     {% else %}
     <div class="empty-state">
         <div class="empty-state-icon">&gt;_</div>
@@ -1582,8 +1606,8 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
 
 ISSUE_DETAIL_TEMPLATE = (
     BASE_TEMPLATE.replace(
-        "{% block title %}IssueDB{% endblock %}",
-        "{% block title %}#{{ issue.id }} {{ issue.title }} - IssueDB{% endblock %}",
+        "{% block title %}.issue.db{% endblock %}",
+        "{% block title %}#{{ issue.id }} {{ issue.title }} - .issue.db{% endblock %}",
     )
     .replace(
         "{% block content %}{% endblock %}",
@@ -1603,6 +1627,9 @@ ISSUE_DETAIL_TEMPLATE = (
     <div class="issue-detail-meta">
         <span class="badge badge-{{ issue.status.value | replace('-', '-') }}">{{ issue.status.value }}</span>
         <span class="badge badge-{{ issue.priority.value }}">{{ issue.priority.value }}</span>
+        {% for tag in issue.tags %}
+        <a href="/issues?tag={{ tag.name }}" class="badge" style="{% if tag.color %}background-color: {{ tag.color }}20; color: {{ tag.color }}; border: 1px solid {{ tag.color }}40;{% else %}background-color: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color);{% endif %}">{{ tag.name }}</a>
+        {% endfor %}
         <span>Created {{ issue.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
         <span>&middot;</span>
         <span>Updated {{ issue.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
@@ -2143,8 +2170,8 @@ window.deleteLink = function(sourceId, targetId, type) {
 )
 
 ISSUE_FORM_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}IssueDB{% endblock %}",
-    "{% block title %}{{ 'Edit' if issue else 'New' }} Issue - IssueDB{% endblock %}",
+    "{% block title %}.issue.db{% endblock %}",
+    "{% block title %}{{ 'Edit' if issue else 'New' }} Issue - .issue.db{% endblock %}",
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -2201,9 +2228,12 @@ ISSUE_FORM_TEMPLATE = BASE_TEMPLATE.replace(
             </div>
 
             <div class="form-group">
-                <label class="form-label" for="due_date">Due Date</label>
-                <input type="date" id="due_date" name="due_date" class="form-control"
-                       value="{{ issue.due_date.strftime('%Y-%m-%d') if issue and issue.due_date else '' }}">
+                <label class="form-label">Due Date (YYYY-MM-DD)</label>
+                <input type="date" name="due_date" class="form-control" value="{{ issue.due_date.strftime('%Y-%m-%d') if issue and issue.due_date else '' }}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Tags (comma separated)</label>
+                <input type="text" name="tags" class="form-control" value="{{ issue.tags|map(attribute='name')|join(', ') if issue and issue.tags else '' }}" placeholder="bug, frontend, v1.0">
             </div>
 
             <div class="form-group">
@@ -2226,7 +2256,7 @@ ISSUE_FORM_TEMPLATE = BASE_TEMPLATE.replace(
 )
 
 AUDIT_LOG_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}IssueDB{% endblock %}", "{% block title %}Audit Log - IssueDB{% endblock %}"
+    "{% block title %}.issue.db{% endblock %}", "{% block title %}Audit Log - .issue.db{% endblock %}"
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -2311,23 +2341,46 @@ def dashboard() -> str:
 
 @app.route("/issues")
 def issues_list() -> str:
-    """List all issues with filters."""
+    """Issues list page."""
     repo = get_repo()
-
     status_filter = request.args.get("status")
     priority_filter = request.args.get("priority")
     search_query = request.args.get("q")
-    message = request.args.get("message")
+    tag_filter = request.args.get("tag")
+    due_date_filter = request.args.get("due_date")
+
+    # Pagination
+    page = request.args.get("page", 1, type=int)
+    limit = 20
+    offset = (page - 1) * limit
 
     if search_query:
-        issues = repo.search_issues(search_query)
-        # Apply additional filters to search results
-        if status_filter:
-            issues = [i for i in issues if i.status.value == status_filter]
-        if priority_filter:
-            issues = [i for i in issues if i.priority.value == priority_filter]
+        issues = repo.search_issues(search_query, limit=limit, offset=offset)
     else:
-        issues = repo.list_issues(status=status_filter, priority=priority_filter)
+        issues = repo.list_issues(
+            status=status_filter,
+            priority=priority_filter,
+            due_date=due_date_filter,
+            tag=tag_filter,
+            limit=limit,
+            offset=offset,
+        )
+
+    # Populate tags
+    for issue in issues:
+        if issue.id:
+            issue.tags = repo.get_issue_tags(issue.id)
+
+    total_issues = repo.count_issues(
+        status=status_filter,
+        priority=priority_filter,
+        due_date=due_date_filter,
+        tag=tag_filter,
+        keyword=search_query,
+    )
+
+    import math
+    total_pages = math.ceil(total_issues / limit) if total_issues else 0
 
     return render_template_string(
         ISSUES_LIST_TEMPLATE,
@@ -2336,19 +2389,60 @@ def issues_list() -> str:
         status_filter=status_filter,
         priority_filter=priority_filter,
         search_query=search_query,
-        message=message,
+        tag_filter=tag_filter,
+        page=page,
+        total_pages=total_pages,
+        total_issues=total_issues,
     )
 
 
-@app.route("/issues/new")
-def issue_new() -> str:
-    """New issue form."""
-    return render_template_string(
-        ISSUE_FORM_TEMPLATE,
-        active_page="new",
-        issue=None,
-        error=request.args.get("error"),
-    )
+@app.route("/issues/new", methods=["GET", "POST"])
+def create_issue() -> Union[str, Response]:
+    """Create a new issue."""
+    repo = get_repo()
+
+    if request.method == "POST":
+        title = request.form.get("title")
+        description = request.form.get("description")
+        priority = request.form.get("priority", "medium")
+        status = request.form.get("status", "open")
+        due_date = request.form.get("due_date")
+        tags_str = request.form.get("tags")
+
+        if not title:
+            return render_template_string(
+                ISSUE_FORM_TEMPLATE,
+                title="New Issue",
+                issue=None,
+                error="Title is required",
+            )
+
+        due_date_obj = None
+        if due_date:
+            try:
+                from datetime import datetime
+                due_date_obj = datetime.fromisoformat(due_date)
+            except ValueError:
+                pass
+
+        issue = Issue(
+            title=title,
+            description=description,
+            priority=Priority.from_string(priority),
+            status=Status.from_string(status),
+            due_date=due_date_obj,
+        )
+
+        created = repo.create_issue(issue)
+
+        if tags_str:
+            for tag in tags_str.split(","):
+                if tag_name := tag.strip():
+                    repo.add_issue_tag(created.id, tag_name)
+
+        return redirect(url_for("issue_detail", issue_id=created.id))
+
+    return render_template_string(ISSUE_FORM_TEMPLATE, title="New Issue", issue=None)
 
 
 @app.route("/issues/<int:issue_id>")
@@ -2370,21 +2464,55 @@ def issue_detail(issue_id: int) -> Union[str, Response]:
     )
 
 
-@app.route("/issues/<int:issue_id>/edit")
-def issue_edit(issue_id: int) -> Union[str, Response]:
-    """Edit issue form."""
+@app.route("/issues/<int:issue_id>/edit", methods=["GET", "POST"])
+def edit_issue(issue_id: int) -> Union[str, Response]:
+    """Edit an issue."""
     repo = get_repo()
     issue = repo.get_issue(issue_id)
 
     if not issue:
         return redirect(url_for("issues_list", message="Issue not found"))
 
-    return render_template_string(
-        ISSUE_FORM_TEMPLATE,
-        active_page="issues",
-        issue=issue,
-        error=request.args.get("error"),
-    )
+    if request.method == "POST":
+        title = request.form.get("title")
+        description = request.form.get("description")
+        priority = request.form.get("priority")
+        status = request.form.get("status")
+        due_date = request.form.get("due_date")
+        tags_str = request.form.get("tags")
+
+        if not title:
+            return render_template_string(
+                ISSUE_FORM_TEMPLATE,
+                title="Edit Issue",
+                issue=issue,
+                error="Title is required",
+            )
+
+        repo.update_issue(
+            issue_id,
+            title=title,
+            description=description,
+            priority=priority,
+            status=status,
+            due_date=due_date,
+        )
+
+        # Handle tags
+        current_tags = {t.name for t in repo.get_issue_tags(issue_id)}
+        new_tags = set()
+        if tags_str:
+            new_tags = {t.strip() for t in tags_str.split(",") if t.strip()}
+
+        for tag in new_tags - current_tags:
+            repo.add_issue_tag(issue_id, tag)
+
+        for tag in current_tags - new_tags:
+            repo.remove_issue_tag(issue_id, tag)
+
+        return redirect(url_for("issue_detail", issue_id=issue_id))
+
+    return render_template_string(ISSUE_FORM_TEMPLATE, title="Edit Issue", issue=issue)
 
 
 @app.route("/audit")
@@ -2529,41 +2657,41 @@ def api_create_issue() -> Any:
             return jsonify({"error": "Title is required"}), 400
         return redirect(url_for("issue_new", error="Title is required"))
 
-    issue = Issue(
-        title=title,
-        description=data.get("description"),
-        priority=Priority.from_string(data.get("priority", "medium")),
-        status=Status.from_string(data.get("status", "open")),
-    )
+    description = data.get("description")
+    priority = data.get("priority", "medium")
+    status = data.get("status", "open")
+    due_date = data.get("due_date")
 
-    if data.get("due_date"):
+    due_date_obj = None
+    if due_date:
         try:
             from datetime import datetime
-
-            issue.due_date = datetime.fromisoformat(data["due_date"])
+            due_date_obj = datetime.fromisoformat(due_date)
         except ValueError:
-            pass  # Ignore invalid date for now or handle error
+            pass
+
+    issue = Issue(
+        title=title,
+        description=description,
+        priority=Priority.from_string(priority),
+        status=Status.from_string(status),
+        due_date=due_date_obj,
+    )
 
     created = repo.create_issue(issue)
 
-    # Handle related issues
-    related_ids_str = data.get("related_issues", "")
-    if related_ids_str:
-        for part in related_ids_str.split(","):
-            try:
-                target_id = int(part.strip())
-                # Check if we need to link to another issue
-                if created.id and target_id:
-                    import contextlib
-
-                    with contextlib.suppress(ValueError):
-                        repo.link_issues(created.id, target_id, "related")
-            except ValueError:
-                pass
+    if "tags" in data:
+        tags_str = data["tags"]
+        for tag in tags_str.split(","):
+            if tag_name := tag.strip():
+                repo.add_issue_tag(created.id, tag_name)
 
     if request.is_json:
+        # Refetch to include tags
+        created = repo.get_issue(created.id)
         return jsonify(created.to_dict()), 201
-    return redirect(url_for("issue_detail", issue_id=created.id, message="Issue created"))
+
+    return redirect(url_for("issue_detail", issue_id=created.id))
 
 
 @app.route("/api/issues/<int:issue_id>", methods=["GET"])
@@ -2608,37 +2736,31 @@ def api_update_issue(issue_id: int) -> Any:
     if "due_date" in data:
         updates["due_date"] = data["due_date"]
 
-    if not updates:
+    if not updates and "tags" not in data:
         if request.is_json:
             return jsonify({"error": "No updates provided"}), 400
         return redirect(url_for("issue_detail", issue_id=issue_id, error="No updates provided"))
 
-    updated = repo.update_issue(issue_id, **updates)
+    if updates:
+        repo.update_issue(issue_id, **updates)
 
-    if not updated:
-        if request.is_json:
-            return jsonify({"error": "Issue not found"}), 404
-        return redirect(url_for("issues_list", message="Issue not found"))
+    # Handle tags
+    if "tags" in data:
+        tags_str = data["tags"]
+        current_tags = {t.name for t in repo.get_issue_tags(issue_id)}
+        new_tags = {t.strip() for t in tags_str.split(",") if t.strip()}
 
-    # Handle related issues
-    related_ids_str = data.get("related_issues", "")
-    if related_ids_str:
-        for part in related_ids_str.split(","):
-            try:
-                target_id = int(part.strip())
-                if target_id:
-                    import contextlib
+        for tag in new_tags - current_tags:
+            repo.add_issue_tag(issue_id, tag)
 
-                    with contextlib.suppress(ValueError):
-                        repo.link_issues(issue_id, target_id, "related")
-            except ValueError:
-                pass
+        for tag in current_tags - new_tags:
+            repo.remove_issue_tag(issue_id, tag)
 
     if request.is_json:
-        return jsonify(updated.to_dict())
+        updated = repo.get_issue(issue_id)
+        return jsonify(updated.to_dict()) if updated else (jsonify({"error": "Issue not found"}), 404)
+
     return redirect(url_for("issue_detail", issue_id=issue_id, message="Issue updated"))
-
-
 @app.route("/api/issues/<int:issue_id>", methods=["DELETE"])
 def api_delete_issue(issue_id: int) -> Any:
     """API: Delete an issue."""
@@ -3212,20 +3334,20 @@ def run_server(
         debug: Enable debug mode (uses Flask dev server).
     """
     if debug:
-        print(f"Starting IssueDB Web UI on http://{host}:{port} (DEBUG mode with Flask)")
+        print(f"Starting .issue.db Web UI on http://{host}:{port} (DEBUG mode with Flask)")
         app.run(host=host, port=port, debug=True)
     else:
         try:
             from waitress import serve  # type: ignore
 
             print(
-                f"Starting IssueDB Web UI on http://{host}:{port} (Production mode with Waitress)"
+                f"Starting .issue.db Web UI on http://{host}:{port} (Production mode with Waitress, 3 threads)"
             )
-            serve(app, host=host, port=port)
+            serve(app, host=host, port=port, threads=2)
         except ImportError:
             print("Warning: 'waitress' not found. Falling back to Flask development server.")
             print("Install with: pip install issuedb[web]")
-            print(f"Starting IssueDB Web UI on http://{host}:{port} (Development mode with Flask)")
+            print(f"Starting .issue.db Web UI on http://{host}:{port} (Development mode with Flask)")
             app.run(host=host, port=port, debug=False)
 
 
