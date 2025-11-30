@@ -415,6 +415,11 @@ class Database:
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row  # Enable column access by name
         conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
+        # Performance optimizations
+        conn.execute("PRAGMA journal_mode = TRUNCATE")  # Faster than DELETE, avoids WAL
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        conn.execute("PRAGMA cache_size = -64000")  # 64MB cache
         try:
             yield conn
             conn.commit()

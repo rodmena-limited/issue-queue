@@ -50,6 +50,7 @@ BASE_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="author" content="RODMENA LIMITED, https://rodmena.co.uk">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{% block title %}IssueDB{% endblock %}</title>
     <style>
         @font-face {
@@ -2413,10 +2414,16 @@ def memory_page() -> str:
     )
 
 
+@app.route("/favicon.svg")
+def favicon() -> Response:
+    """Serve favicon."""
+    from flask import send_from_directory
+    return send_from_directory(os.path.join(app.root_path, "static"), "favicon.svg")
+
+
 @app.route("/static/fonts/<path:filename>")
 def serve_fonts(filename: str) -> Response:
     """Serve font files."""
-    import os
 
     from flask import send_from_directory
     return send_from_directory(os.path.join(app.root_path, "static/fonts"), filename)
