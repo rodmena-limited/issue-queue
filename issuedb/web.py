@@ -1,5 +1,6 @@
 """Flask Web UI and API for IssueDB."""
 
+import contextlib
 from typing import Any, Union
 
 from flask import Flask, jsonify, redirect, render_template_string, request, url_for
@@ -1368,6 +1369,7 @@ LESSONS_TEMPLATE = BASE_TEMPLATE.replace(
                         <th>Lesson</th>
                         <th style="width: 80px;">Issue</th>
                         <th style="width: 150px;">Date</th>
+                        <th style="width: 100px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1383,6 +1385,11 @@ LESSONS_TEMPLATE = BASE_TEMPLATE.replace(
                             {% endif %}
                         </td>
                         <td class="issue-meta">{{ item.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td>
+                            <form action="/lessons/delete/{{ item.id }}" method="post" onsubmit="return confirm('Delete this lesson?')">
+                                <button type="submit" class="btn btn-danger btn-sm" style="padding: 2px 8px; font-size: 11px;">Delete</button>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -1842,7 +1849,7 @@ ISSUE_DETAIL_TEMPLATE = (
         .then(function(links) {
             var section = document.getElementById('links-section');
             var html = '';
-            
+
             // Combine source and target links
             var allLinks = [];
             if (links.source) {
@@ -1869,7 +1876,7 @@ ISSUE_DETAIL_TEMPLATE = (
                     });
                 }
             }
-            
+
             if (allLinks.length > 0) {
                 html += '<div class="sidebar-section"><div class="sidebar-label">Linked Issues</div>';
                 for (var i = 0; i < allLinks.length; i++) {
@@ -1879,15 +1886,15 @@ ISSUE_DETAIL_TEMPLATE = (
                     html += '<span style="color: var(--accent-cyan); margin-right: 6px;">' + icon + '</span>';
                     html += '<span class="badge badge-low" style="margin-right: 6px; font-size: 9px;">' + escapeHtml(link.type) + '</span>';
                     html += '<a href="/issues/' + link.id + '" style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#' + link.id + ' ' + truncate(link.title, 20) + '</a>';
-                    
+
                     // Delete button
                     html += '<button onclick="deleteLink(' + issueId + ', ' + link.id + ', \\'' + escapeHtml(link.type) + '\\')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 14px;">&times;</button>';
-                    
+
                     html += '</div>';
                 }
                 html += '</div>';
             }
-            
+
             // Add Link Form
             html += '<div class="sidebar-section">';
             html += '<div class="sidebar-label">Add Link</div>';
@@ -1896,7 +1903,7 @@ ISSUE_DETAIL_TEMPLATE = (
             html += '<input type="text" id="link-type" class="form-control" placeholder="Type (e.g. related)" style="padding: 6px 10px; font-size: 12px;">';
             html += '<button onclick="addLink(' + issueId + ')" class="btn btn-sm" style="width: 100%;">Link Issue</button>';
             html += '</div></div>';
-            
+
             section.innerHTML = html;
         })
         .catch(function() {
@@ -2032,12 +2039,12 @@ ISSUE_DETAIL_TEMPLATE = (
 window.addLink = function(sourceId) {
     var targetId = document.getElementById('link-target-id').value;
     var type = document.getElementById('link-type').value;
-    
+
     if (!targetId || !type) {
         alert('Please provide Issue ID and Relation Type');
         return;
     }
-    
+
     fetch('/api/links', {
         method: 'POST',
         headers: {
@@ -2062,7 +2069,7 @@ window.addLink = function(sourceId) {
 
 window.deleteLink = function(sourceId, targetId, type) {
     if (!confirm('Are you sure you want to unlink these issues?')) return;
-    
+
     fetch('/api/links', {
         method: 'DELETE',
         headers: {
@@ -2399,23 +2406,32 @@ def memory_delete(key: str) -> Any:
 
 
 @app.route("/lessons/add", methods=["POST"])
-def lessons_add() -> Any:
-    """Form handler for adding lessons."""
+def add_lesson() -> Response:
+    """Add a lesson learned."""
     repo = get_repo()
+    lesson = request.form.get("lesson")
+    category = request.form.get("category", "general")
+    issue_id_str = request.form.get("issue_id")
 
-    try:
-        lesson = request.form.get("lesson")
-        category = request.form.get("category", "general")
-        issue_id_str = request.form.get("issue_id")
-        issue_id = int(issue_id_str) if issue_id_str else None
+    if not lesson:
+        return redirect(url_for("list_lessons"))
 
-        if not lesson:
-            return "Lesson text required", 400
+    issue_id = None
+    if issue_id_str:
+        with contextlib.suppress(ValueError):
+            issue_id = int(issue_id_str)
 
-        repo.add_lesson(lesson=lesson, category=category, issue_id=issue_id)
-        return redirect(url_for("lessons_page"))
-    except Exception as e:
-        return f"Error: {str(e)}", 400
+    repo.add_lesson(lesson=lesson, category=category, issue_id=issue_id)
+    return redirect(url_for("list_lessons"))
+
+
+@app.route("/lessons/delete/<int:lesson_id>", methods=["POST"])
+def delete_lesson(lesson_id: int) -> Response:
+    """Delete a lesson learned."""
+    repo = get_repo()
+    repo.delete_lesson(lesson_id)
+    return redirect(url_for("list_lessons"))
+
 
 
 # =============================================================================
