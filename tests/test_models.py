@@ -39,11 +39,26 @@ class TestStatus:
         assert Status.from_string("open") == Status.OPEN
         assert Status.from_string("IN-PROGRESS") == Status.IN_PROGRESS
         assert Status.from_string("Closed") == Status.CLOSED
+        assert Status.from_string("wont-do") == Status.WONT_DO
+        assert Status.from_string("WONT-DO") == Status.WONT_DO
 
     def test_from_string_invalid(self):
         """Test creating Status from invalid string raises ValueError."""
         with pytest.raises(ValueError, match="Invalid status"):
             Status.from_string("invalid")
+
+    def test_wont_do_value(self):
+        """Test that WONT_DO has correct value."""
+        assert Status.WONT_DO.value == "wont-do"
+
+    def test_all_status_values(self):
+        """Test all status enum values exist."""
+        assert len(Status) == 4
+        values = [s.value for s in Status]
+        assert "open" in values
+        assert "in-progress" in values
+        assert "closed" in values
+        assert "wont-do" in values
 
 
 class TestIssue:

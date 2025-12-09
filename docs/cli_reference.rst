@@ -46,7 +46,7 @@ Create a new issue.
 - ``-t, --title`` (required): Issue title
 - ``-d, --description``: Detailed description
 - ``--priority``: Priority level (low, medium, high, critical). Default: medium
-- ``--status``: Initial status (open, in-progress, closed). Default: open
+- ``--status``: Initial status (open, in-progress, closed, wont-do). Default: open
 - ``--due-date``: Due date in YYYY-MM-DD format
 - ``--tag``: Add one or more tags (can be specified multiple times)
 
@@ -74,7 +74,7 @@ List issues with optional filters.
 
 **Arguments:**
 
-- ``-s, --status``: Filter by status (open, in-progress, closed)
+- ``-s, --status``: Filter by status (open, in-progress, closed, wont-do)
 - ``--priority``: Filter by priority (low, medium, high, critical)
 - ``-l, --limit``: Maximum number of issues to return
 - ``--due-date``: Filter by specific due date
@@ -127,7 +127,7 @@ Update an existing issue.
 - ``ID`` (required): Issue ID
 - ``-t, --title``: New title
 - ``-d, --description``: New description
-- ``-s, --status``: New status (open, in-progress, closed)
+- ``-s, --status``: New status (open, in-progress, closed, wont-do)
 - ``--priority``: New priority (low, medium, high, critical)
 - ``--due-date``: New due date (YYYY-MM-DD)
 
@@ -495,7 +495,7 @@ Show aggregate statistics.
 **Output includes:**
 
 - Total issue count
-- Breakdown by status (count and percentage)
+- Breakdown by status (open, in-progress, closed, wont-do - count and percentage)
 - Breakdown by priority (count and percentage)
 
 report

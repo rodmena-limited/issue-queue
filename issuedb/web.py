@@ -97,6 +97,7 @@ BASE_TEMPLATE = """
             --status-open: #3fb950;
             --status-progress: #d29922;
             --status-closed: #8b949e;
+            --status-wontdo: #a371f7;
             --priority-low: #8b949e;
             --priority-medium: #58a6ff;
             --priority-high: #d29922;
@@ -321,18 +322,24 @@ BASE_TEMPLATE = """
         /* Stats Grid */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 16px;
             margin-bottom: 28px;
         }
 
-        @media (max-width: 1000px) {
+        @media (max-width: 1200px) {
+            .stats-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 800px) {
             .stats-grid {
                 grid-template-columns: repeat(2, 1fr);
             }
         }
 
-        @media (max-width: 600px) {
+        @media (max-width: 500px) {
             .stats-grid {
                 grid-template-columns: 1fr;
             }
@@ -442,6 +449,12 @@ BASE_TEMPLATE = """
             background-color: rgba(139, 148, 158, 0.15);
             color: var(--status-closed);
             border: 1px solid rgba(139, 148, 158, 0.4);
+        }
+
+        .badge-wont-do {
+            background-color: rgba(163, 113, 247, 0.15);
+            color: var(--status-wontdo);
+            border: 1px solid rgba(163, 113, 247, 0.4);
         }
 
         .badge-low {
@@ -1175,6 +1188,15 @@ DASHBOARD_TEMPLATE = BASE_TEMPLATE.replace(
             <div class="progress-fill progress-gray" style="width: {{ summary.status_percentages.closed | default(0) }}%"></div>
         </div>
     </div>
+
+    <div class="stat-card">
+        <a href="/issues?status=wont-do" class="stat-card-link"></a>
+        <div class="stat-label">Won't Do</div>
+        <div class="stat-value" style="color: var(--status-wontdo)">{{ summary.by_status.wont_do | default(0) }}</div>
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: {{ summary.status_percentages['wont-do'] | default(0) }}%; background-color: var(--status-wontdo)"></div>
+        </div>
+    </div>
 </div>
 
 <div class="dashboard-grid">
@@ -1501,6 +1523,7 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
                 <option value="open" {{ 'selected' if status_filter == 'open' }}>Open</option>
                 <option value="in-progress" {{ 'selected' if status_filter == 'in-progress' }}>In Progress</option>
                 <option value="closed" {{ 'selected' if status_filter == 'closed' }}>Closed</option>
+                <option value="wont-do" {{ 'selected' if status_filter == 'wont-do' }}>Won't Do</option>
             </select>
         </div>
         <div class="filter-group">
@@ -1560,7 +1583,7 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
                 <td>
                     <div class="quick-actions">
                         <a href="/issues/{{ issue.id }}/edit" class="quick-action">Edit</a>
-                        {% if issue.status.value != 'closed' %}
+                        {% if issue.status.value not in ['closed', 'wont-do'] %}
                         <form action="/api/issues/{{ issue.id }}" method="post" style="display: inline;">
                             <input type="hidden" name="_method" value="PATCH">
                             <input type="hidden" name="status" value="closed">
@@ -1573,7 +1596,7 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
             {% endfor %}
         </tbody>
     </table>
-    
+
     <!-- Pagination -->
     {% if total_pages is defined and total_pages > 1 %}
     <div style="margin-top: 20px; margin-bottom: 20px; display: flex; justify-content: center; align-items: center; gap: 12px;">
@@ -1582,9 +1605,9 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
         {% else %}
         <span class="btn btn-sm" style="opacity: 0.5; cursor: default;">Previous</span>
         {% endif %}
-        
+
         <span style="font-size: 13px; color: var(--text-secondary);">Page {{ page }} of {{ total_pages }}</span>
-        
+
         {% if page < total_pages %}
         <a href="{{ url_for('issues_list', page=page+1, status=status_filter, priority=priority_filter, q=search_query, tag=tag_filter) }}" class="btn btn-sm">Next</a>
         {% else %}
@@ -1592,7 +1615,7 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
         {% endif %}
     </div>
     {% endif %}
-    
+
     {% else %}
     <div class="empty-state">
         <div class="empty-state-icon">&gt;_</div>
@@ -1722,13 +1745,14 @@ ISSUE_DETAIL_TEMPLATE = (
                         <button type="submit" class="quick-action" style="background-color: var(--accent-green); color: #000; border-color: var(--accent-green);">Start</button>
                     </form>
                     {% endif %}
-                    {% if issue.status.value != 'closed' %}
+                    {% if issue.status.value not in ['closed', 'wont-do'] %}
                     <form action="/api/issues/{{ issue.id }}" method="post" style="display: inline;">
                         <input type="hidden" name="_method" value="PATCH">
                         <input type="hidden" name="status" value="closed">
                         <button type="submit" class="quick-action">Close</button>
                     </form>
-                    {% else %}
+                    {% endif %}
+                    {% if issue.status.value in ['closed', 'wont-do'] %}
                     <form action="/api/issues/{{ issue.id }}" method="post" style="display: inline;">
                         <input type="hidden" name="_method" value="PATCH">
                         <input type="hidden" name="status" value="open">
@@ -1747,6 +1771,7 @@ ISSUE_DETAIL_TEMPLATE = (
                         <option value="open" {{ 'selected' if issue.status.value == 'open' }}>Open</option>
                         <option value="in-progress" {{ 'selected' if issue.status.value == 'in-progress' }}>In Progress</option>
                         <option value="closed" {{ 'selected' if issue.status.value == 'closed' }}>Closed</option>
+                        <option value="wont-do" {{ 'selected' if issue.status.value == 'wont-do' }}>Won't Do</option>
                     </select>
                 </form>
             </div>
@@ -2223,6 +2248,7 @@ ISSUE_FORM_TEMPLATE = BASE_TEMPLATE.replace(
                         <option value="open" {{ 'selected' if (not issue) or (issue and issue.status.value == 'open') }}>Open</option>
                         <option value="in-progress" {{ 'selected' if issue and issue.status.value == 'in-progress' }}>In Progress</option>
                         <option value="closed" {{ 'selected' if issue and issue.status.value == 'closed' }}>Closed</option>
+                        <option value="wont-do" {{ 'selected' if issue and issue.status.value == 'wont-do' }}>Won't Do</option>
                     </select>
                 </div>
             </div>
@@ -2434,6 +2460,7 @@ def create_issue() -> Union[str, Response]:
         )
 
         created = repo.create_issue(issue)
+        assert created.id is not None  # ID is always assigned after creation
 
         if tags_str:
             for tag in tags_str.split(","):
@@ -2679,17 +2706,20 @@ def api_create_issue() -> Any:
     )
 
     created = repo.create_issue(issue)
+    assert created.id is not None  # ID is always assigned after creation
+    issue_id = created.id
 
     if "tags" in data:
         tags_str = data["tags"]
         for tag in tags_str.split(","):
             if tag_name := tag.strip():
-                repo.add_issue_tag(created.id, tag_name)
+                repo.add_issue_tag(issue_id, tag_name)
 
     if request.is_json:
         # Refetch to include tags
-        created = repo.get_issue(created.id)
-        return jsonify(created.to_dict()), 201
+        refetched = repo.get_issue(issue_id)
+        assert refetched is not None  # Issue was just created
+        return jsonify(refetched.to_dict()), 201
 
     return redirect(url_for("issue_detail", issue_id=created.id))
 
@@ -3144,6 +3174,14 @@ def api_get_context(issue_id: int) -> Any:
                 "priority": "low",
             }
         )
+    elif issue.status.value == "wont-do":
+        actions.append(
+            {
+                "type": "reopen",
+                "text": "Reopen if decision changes",
+                "priority": "low",
+            }
+        )
 
     # Check comments
     comments = repo.get_comments(issue_id)
@@ -3158,7 +3196,7 @@ def api_get_context(issue_id: int) -> Any:
 
     # Check blockers
     blockers = repo.get_blockers(issue_id)
-    open_blockers = [b for b in blockers if b.status.value != "closed"]
+    open_blockers = [b for b in blockers if b.status.value not in ["closed", "wont-do"]]
     if open_blockers:
         actions.insert(
             0,

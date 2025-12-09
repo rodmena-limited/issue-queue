@@ -413,7 +413,8 @@ class IssueRepository:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
-            return cursor.fetchone()["count"]
+            result = cursor.fetchone()
+            return int(result["count"]) if result else 0
 
     def list_issues(
         self,
@@ -764,7 +765,7 @@ class IssueRepository:
             # Calculate percentages
             status_percentages = {}
             if total_count > 0:
-                for status in ["open", "in-progress", "closed"]:
+                for status in ["open", "in-progress", "closed", "wont-do"]:
                     count = status_counts.get(status, 0)
                     status_percentages[status] = round((count / total_count) * 100, 1)
 
@@ -780,6 +781,7 @@ class IssueRepository:
                     "open": status_counts.get("open", 0),
                     "in_progress": status_counts.get("in-progress", 0),
                     "closed": status_counts.get("closed", 0),
+                    "wont_do": status_counts.get("wont-do", 0),
                 },
                 "by_priority": {
                     "low": priority_counts.get("low", 0),

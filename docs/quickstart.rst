@@ -103,6 +103,19 @@ Or do both in one line:
 
    issuedb-cli update 1 -s closed && issuedb-cli comment 1 -t "Resolved: Updated auth library to v2.0"
 
+Marking Issues as Won't Do
+---------------------------
+
+For issues that you decide not to implement, use the ``wont-do`` status:
+
+.. code-block:: bash
+
+   # Mark as won't do
+   issuedb-cli update 1 --status wont-do
+
+   # Add an explanation comment
+   issuedb-cli comment 1 -t "Won't implement: Out of scope for current project goals"
+
 Searching Issues
 ----------------
 

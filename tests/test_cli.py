@@ -406,3 +406,59 @@ class TestCLI:
         """Test bulk close with empty list."""
         output = cli.bulk_close(json.dumps([]))
         assert "Closed 0 issue(s)" in output
+
+    def test_create_issue_with_wont_do_status(self, cli):
+        """Test creating an issue with wont-do status."""
+        output = cli.create_issue(
+            title="Won't implement feature",
+            status="wont-do",
+        )
+        assert "wont-do" in output
+
+        # Test JSON output
+        json_output = cli.create_issue(
+            title="Another won't do",
+            status="wont-do",
+            as_json=True,
+        )
+        data = json.loads(json_output)
+        assert data["status"] == "wont-do"
+
+    def test_update_issue_to_wont_do(self, cli):
+        """Test updating an issue to wont-do status."""
+        created_output = cli.create_issue("Test Issue")
+        lines = created_output.split("\n")
+        id_line = [line for line in lines if line.startswith("ID:")][0]
+        issue_id = int(id_line.split(":")[1].strip())
+
+        output = cli.update_issue(issue_id, status="wont-do")
+        assert "wont-do" in output
+
+        # Verify via JSON
+        json_output = cli.get_issue(issue_id, as_json=True)
+        data = json.loads(json_output)
+        assert data["status"] == "wont-do"
+
+    def test_list_issues_filter_wont_do(self, cli):
+        """Test filtering issues by wont-do status."""
+        cli.create_issue("Open issue", status="open")
+        cli.create_issue("Won't do issue", status="wont-do")
+
+        # Filter by wont-do
+        json_output = cli.list_issues(status="wont-do", as_json=True)
+        data = json.loads(json_output)
+        assert len(data) == 1
+        assert data[0]["status"] == "wont-do"
+        assert data[0]["title"] == "Won't do issue"
+
+    def test_summary_includes_wont_do(self, cli):
+        """Test that summary includes wont-do status."""
+        cli.create_issue("Open issue", status="open")
+        cli.create_issue("Closed issue", status="closed")
+        cli.create_issue("Won't do issue", status="wont-do")
+
+        json_output = cli.get_summary(as_json=True)
+        data = json.loads(json_output)
+        assert data["total_issues"] == 3
+        # Check that wont-do is included in status breakdown
+        assert "wont-do" in data["by_status"] or "wont_do" in data["by_status"]

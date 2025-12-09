@@ -41,6 +41,7 @@ class Status(Enum):
     OPEN = "open"
     IN_PROGRESS = "in-progress"
     CLOSED = "closed"
+    WONT_DO = "wont-do"
 
     @classmethod
     def from_string(cls, value: str) -> "Status":

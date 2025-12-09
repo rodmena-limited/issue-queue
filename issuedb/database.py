@@ -9,19 +9,18 @@ from typing import Any, Generator, Optional
 
 class DatabaseMeta(type):
     """Singleton metaclass for Database.
-    
+
     Ensures only one Database instance exists, unless a new path is provided.
     """
     _instance: Optional["Database"] = None
 
     def __call__(cls, db_path: Optional[str] = None) -> "Database":
-        # If no instance exists, create one
-        if cls._instance is None:
+        # Create new instance if none exists or if a different path is provided
+        if cls._instance is None or (
+            db_path and str(cls._instance.db_path) != db_path
+        ):
             cls._instance = super().__call__(db_path)
-        # If a path is provided and it's different from the current one, re-initialize
-        elif db_path and str(cls._instance.db_path) != db_path:
-            cls._instance = super().__call__(db_path)
-        
+
         return cls._instance
 
 
@@ -434,15 +433,15 @@ class Database(metaclass=DatabaseMeta):
         conn.row_factory = sqlite3.Row  # Enable column access by name
         conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
         # Performance optimizations
-        conn.execute("PRAGMA journal_mode = TRUNCATE")  # Faster than DELETE, avoids WAL, other options are WAL, DELETE
+        conn.execute("PRAGMA journal_mode = TRUNCATE")  # Faster than DELETE, avoids WAL
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.execute("PRAGMA temp_store = MEMORY")
         conn.execute("PRAGMA cache_size = 10000")  # Approx 10MB cache
         # other performance pragmas:
-        conn.execute("PRAGMA locking_mode = NORMAL") # Default locking mode, other options are EXCLUSIVE or NORMAL
-        conn.execute("PRAGMA mmap_size = 268435456") # 256MB memory map size, can improve performance on large DBs
-        conn.execute("PRAGMA automatic_index = ON") # Let SQLite create automatic indexes when needed
-        conn.execute("PRAGMA optimize") # Run optimization to improve performance
+        conn.execute("PRAGMA locking_mode = NORMAL")  # Default locking mode
+        conn.execute("PRAGMA mmap_size = 268435456")  # 256MB memory map size
+        conn.execute("PRAGMA automatic_index = ON")  # Auto indexes when needed
+        conn.execute("PRAGMA optimize")  # Run optimization
 
 
         try:

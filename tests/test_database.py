@@ -44,9 +44,18 @@ class TestDatabase:
 
     def test_default_path(self):
         """Test that default path is used when not specified."""
-        db = Database()
-        expected_path = Path(".issue.db")
-        assert db.db_path == expected_path
+        # Reset the singleton to test default path behavior
+        # Note: _instance is stored on Database class, not DatabaseMeta
+        old_instance = Database._instance  # type: ignore[attr-defined]
+        Database._instance = None  # type: ignore[attr-defined]
+        try:
+            db = Database()
+            expected_path = Path(".issue.db")
+            assert db.db_path == expected_path
+        finally:
+            # Restore the singleton and cleanup
+            Database._instance = old_instance  # type: ignore[attr-defined]
+            Path(".issue.db").unlink(missing_ok=True)
 
     def test_indexes_created(self, temp_db_path):
         """Test that all required indexes are created."""

@@ -54,7 +54,7 @@ class TestDashboardPage:
         response = client.get(f"/?db={temp_db}")
         assert response.status_code == 200
         assert b"Dashboard" in response.data
-        assert b"IssueDB" in response.data
+        assert b".issue.db" in response.data
 
     def test_dashboard_shows_stats(self, client, temp_db: Path, repo: IssueRepository) -> None:
         """Test that the dashboard shows statistics."""

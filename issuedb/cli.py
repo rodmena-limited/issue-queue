@@ -929,6 +929,8 @@ class CLI:
             actions.append(f"When complete, close with: issuedb-cli update {issue.id} -s closed")
         elif issue.status == Status.CLOSED:
             actions.append("Issue is closed - can be reopened if needed")
+        elif issue.status == Status.WONT_DO:
+            actions.append("Issue marked as won't do - can be reopened if needed")
 
         # Check if there are no comments
         comments_count = len(self.repo.get_comments(issue.id)) if issue.id else 0
@@ -2134,7 +2136,7 @@ def main() -> None:
     )
     create_parser.add_argument(
         "--status",
-        choices=["open", "in-progress", "closed"],
+        choices=["open", "in-progress", "closed", "wont-do"],
         default="open",
         help="Initial status",
     )
@@ -2142,7 +2144,9 @@ def main() -> None:
 
     # List command
     list_parser = subparsers.add_parser("list", help="List issues")
-    list_parser.add_argument("-s", "--status", help="Filter by status (open, in-progress, closed)")
+    list_parser.add_argument(
+        "-s", "--status", help="Filter by status (open, in-progress, closed, wont-do)"
+    )
     list_parser.add_argument("--priority", help="Filter by priority (low, medium, high, critical)")
     list_parser.add_argument("-l", "--limit", type=int, help="Maximum number of issues")
     list_parser.add_argument("--due-date", help="Filter by due date")
@@ -2165,7 +2169,7 @@ def main() -> None:
     update_parser.add_argument(
         "-s",
         "--status",
-        choices=["open", "in-progress", "closed"],
+        choices=["open", "in-progress", "closed", "wont-do"],
         help="New status",
     )
     update_parser.add_argument("--due-date", help="New due date")
@@ -2238,7 +2242,7 @@ def main() -> None:
     )
     bulk_update_parser.add_argument(
         "--filter-status",
-        choices=["open", "in-progress", "closed"],
+        choices=["open", "in-progress", "closed", "wont-do"],
         help="Filter by current status",
     )
     bulk_update_parser.add_argument(
@@ -2249,7 +2253,7 @@ def main() -> None:
     bulk_update_parser.add_argument(
         "-s",
         "--status",
-        choices=["open", "in-progress", "closed"],
+        choices=["open", "in-progress", "closed", "wont-do"],
         help="New status to set",
     )
     bulk_update_parser.add_argument(
@@ -2427,7 +2431,7 @@ def main() -> None:
     # Blocked command
     blocked_parser = subparsers.add_parser("blocked", help="List all blocked issues")
     blocked_parser.add_argument(
-        "-s", "--status", help="Filter by status (open, in-progress, closed)"
+        "-s", "--status", help="Filter by status (open, in-progress, closed, wont-do)"
     )
 
     # Web command
@@ -2588,11 +2592,14 @@ def main() -> None:
                 parser.parse_args(["memory", "--help"])
 
             if args.memory_command == "add":
-                print(cli.memory_add(args.key, args.value, args.category, args.json), file=sys.stdout, flush=True)
+                result = cli.memory_add(args.key, args.value, args.category, args.json)
+                print(result, file=sys.stdout, flush=True)
             elif args.memory_command == "list":
-                print(cli.memory_list(args.category, args.search, args.json), file=sys.stdout, flush=True)
+                result = cli.memory_list(args.category, args.search, args.json)
+                print(result, file=sys.stdout, flush=True)
             elif args.memory_command == "update":
-                print(cli.memory_update(args.key, args.value, args.category, args.json), file=sys.stdout, flush=True)
+                result = cli.memory_update(args.key, args.value, args.category, args.json)
+                print(result, file=sys.stdout, flush=True)
             elif args.memory_command == "delete":
                 print(cli.memory_delete(args.key, args.json), file=sys.stdout, flush=True)
 
@@ -2601,9 +2608,11 @@ def main() -> None:
                 parser.parse_args(["lesson", "--help"])
 
             if args.lesson_command == "add":
-                print(cli.lesson_add(args.lesson, args.issue_id, args.category, args.json), file=sys.stdout, flush=True)
+                result = cli.lesson_add(args.lesson, args.issue_id, args.category, args.json)
+                print(result, file=sys.stdout, flush=True)
             elif args.lesson_command == "list":
-                print(cli.lesson_list(args.issue_id, args.category, args.json), file=sys.stdout, flush=True)
+                result = cli.lesson_list(args.issue_id, args.category, args.json)
+                print(result, file=sys.stdout, flush=True)
 
         elif args.command == "tag":
             if not args.tag_command:
@@ -2612,22 +2621,27 @@ def main() -> None:
             if args.tag_command == "list":
                 print(cli.tag_list(args.json), file=sys.stdout, flush=True)
             elif args.tag_command == "add":
-                print(cli.tag_issue(args.issue_id, args.tags, args.json), file=sys.stdout, flush=True)
+                result = cli.tag_issue(args.issue_id, args.tags, args.json)
+                print(result, file=sys.stdout, flush=True)
             elif args.tag_command == "remove":
-                print(cli.untag_issue(args.issue_id, args.tags, args.json), file=sys.stdout, flush=True)
+                result = cli.untag_issue(args.issue_id, args.tags, args.json)
+                print(result, file=sys.stdout, flush=True)
 
         elif args.command == "link":
             if not args.link_command:
                 parser.parse_args(["link", "--help"])
 
             if args.link_command == "add":
-                print(cli.link_issues(args.source, args.target, args.type, args.json), file=sys.stdout, flush=True)
+                result = cli.link_issues(args.source, args.target, args.type, args.json)
+                print(result, file=sys.stdout, flush=True)
             elif args.link_command == "remove":
-                print(cli.unlink_issues(args.source, args.target, args.type, args.json), file=sys.stdout, flush=True)
+                result = cli.unlink_issues(args.source, args.target, args.type, args.json)
+                print(result, file=sys.stdout, flush=True)
 
         elif args.command == "bulk-update":
             if not args.status and not args.priority:
-                print("Error: No updates specified (use -s or --priority)", file=sys.stderr, flush=True)
+                msg = "Error: No updates specified (use -s or --priority)"
+                print(msg, file=sys.stderr, flush=True)
                 sys.exit(1)
 
             result = cli.bulk_update_issues(

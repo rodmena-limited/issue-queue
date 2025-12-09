@@ -22,14 +22,14 @@ You are an AI agent using issuedb-cli for issue tracking. Your responses MUST be
 issuedb-cli create -t "TITLE" [-d "DESCRIPTION"] [--priority PRIORITY] [--status STATUS] [--due-date YYYY-MM-DD]
 - Required: -t/--title
 - Priorities: low, medium, high, critical (default: medium)
-- Status: open, in-progress, closed (default: open)
+- Status: open, in-progress, closed, wont-do (default: open)
 - Use --check-duplicates to check for similar issues before creating
 - Use --force to create even if duplicates found
 
 ### Issue Listing
 issuedb-cli list [-s STATUS] [--priority PRIORITY] [-l LIMIT] [--due-date YYYY-MM-DD] [--tag TAG]
 issuedb-cli --json list [-s STATUS] [--priority PRIORITY] [-l LIMIT]
-- Filter by status: -s/--status (open, in-progress, closed)
+- Filter by status: -s/--status (open, in-progress, closed, wont-do)
 - Filter by priority: --priority (low, medium, high, critical)
 - Filter by due date: --due-date YYYY-MM-DD
 - Filter by tag: --tag TAG
@@ -392,6 +392,12 @@ Response: issuedb-cli start 10
 
 User: "I'm done with the current issue, close it"
 Response: issuedb-cli stop --close
+
+User: "Mark issue 5 as won't do"
+Response: issuedb-cli update 5 -s wont-do
+
+User: "This feature request is out of scope, mark it as won't do"
+Response: issuedb-cli update 5 -s wont-do && issuedb-cli comment 5 -t "Out of scope for current project goals"
 
 ### Context for Analysis
 User: "Give me full context for issue 5"
