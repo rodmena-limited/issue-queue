@@ -428,21 +428,21 @@ class Database(metaclass=DatabaseMeta):
 
         Note:
             This is a context manager that automatically handles commits and rollbacks.
+            Uses WAL mode for better concurrency and includes timeout to prevent hangs.
         """
-        conn = sqlite3.connect(str(self.db_path))
+        # Set timeout to 30 seconds to prevent indefinite hangs on locked database
+        conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row  # Enable column access by name
         conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
-        # Performance optimizations
-        conn.execute("PRAGMA journal_mode = TRUNCATE")  # Faster than DELETE, avoids WAL
+        # Use WAL mode for better concurrency (allows concurrent reads during writes)
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.execute("PRAGMA temp_store = MEMORY")
         conn.execute("PRAGMA cache_size = 10000")  # Approx 10MB cache
-        # other performance pragmas:
-        conn.execute("PRAGMA locking_mode = NORMAL")  # Default locking mode
+        conn.execute("PRAGMA busy_timeout = 30000")  # 30 second busy timeout
         conn.execute("PRAGMA mmap_size = 268435456")  # 256MB memory map size
         conn.execute("PRAGMA automatic_index = ON")  # Auto indexes when needed
-        conn.execute("PRAGMA optimize")  # Run optimization
-
+        # Note: PRAGMA optimize removed from here - should only run occasionally
 
         try:
             yield conn

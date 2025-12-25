@@ -114,6 +114,35 @@ class IssueRepository:
 
         return issue
 
+    def _get_issue_with_conn(self, conn: Any, issue_id: int) -> Optional[Issue]:
+        """Get an issue by ID using an existing connection.
+
+        Args:
+            conn: Database connection to use.
+            issue_id: ID of the issue to retrieve.
+
+        Returns:
+            Issue if found, None otherwise.
+
+        Note:
+            Internal method to avoid nested connections.
+        """
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM issues WHERE id = ?
+        """,
+            (issue_id,),
+        )
+        row = cursor.fetchone()
+
+        if row:
+            issue = self._row_to_issue(row)
+            # Populate tags using the same connection
+            issue.tags = self._get_issue_tags_with_conn(conn, issue_id)
+            return issue
+        return None
+
     def get_issue(self, issue_id: int) -> Optional[Issue]:
         """Get an issue by ID.
 
@@ -124,21 +153,7 @@ class IssueRepository:
             Issue if found, None otherwise.
         """
         with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT * FROM issues WHERE id = ?
-            """,
-                (issue_id,),
-            )
-            row = cursor.fetchone()
-
-            if row:
-                issue = self._row_to_issue(row)
-                # Populate tags
-                issue.tags = self.get_issue_tags(issue_id)
-                return issue
-            return None
+            return self._get_issue_with_conn(conn, issue_id)
 
     def update_issue(self, issue_id: int, **updates: Any) -> Optional[Issue]:
         """Update an issue.
@@ -153,58 +168,60 @@ class IssueRepository:
         Raises:
             ValueError: If invalid field names or values are provided.
         """
-        # Get current issue for audit logging
-        current_issue = self.get_issue(issue_id)
-        if not current_issue:
-            return None
-
-        # Validate and prepare updates
-        allowed_fields = {"title", "description", "priority", "status", "due_date"}
-        update_fields: List[str] = []
-        update_values: List[Any] = []
-        audit_entries: List[tuple[str, str, str]] = []
-
-        for field, value in updates.items():
-            if field not in allowed_fields:
-                raise ValueError(f"Cannot update field: {field}")
-
-            # Validate and convert enums
-            old_value: Any
-            if field == "priority":
-                value = Priority.from_string(value).value
-                old_value = current_issue.priority.value
-            elif field == "status":
-                value = Status.from_string(value).value
-                old_value = current_issue.status.value
-            elif field == "due_date":
-                # Value should be ISO format string or None
-                if value:
-                    # Validate date format
-                    try:
-                        datetime.fromisoformat(value)
-                    except ValueError:
-                        raise ValueError(f"Invalid date format for {field}: {value}") from None
-                old_value = current_issue.due_date.isoformat() if current_issue.due_date else None
-            else:
-                old_value = getattr(current_issue, field)
-
-            # Only update if value changed
-            if str(old_value) != str(value):
-                update_fields.append(f"{field} = ?")
-                update_values.append(value)
-                audit_entries.append((field, str(old_value), str(value)))
-
-        if not update_fields:
-            return current_issue  # No changes
-
-        # Always update the updated_at timestamp
-        update_fields.append("updated_at = ?")
-        update_values.append(datetime.now().isoformat())
-
-        # Add issue_id for WHERE clause
-        update_values.append(issue_id)
-
+        # Use a single connection for the entire operation to avoid deadlocks
         with self.db.get_connection() as conn:
+            # Get current issue for audit logging
+            current_issue = self._get_issue_with_conn(conn, issue_id)
+            if not current_issue:
+                return None
+
+            # Validate and prepare updates
+            allowed_fields = {"title", "description", "priority", "status", "due_date"}
+            update_fields: List[str] = []
+            update_values: List[Any] = []
+            audit_entries: List[tuple[str, str, str]] = []
+
+            for field, value in updates.items():
+                if field not in allowed_fields:
+                    raise ValueError(f"Cannot update field: {field}")
+
+                # Validate and convert enums
+                old_value: Any
+                if field == "priority":
+                    value = Priority.from_string(value).value
+                    old_value = current_issue.priority.value
+                elif field == "status":
+                    value = Status.from_string(value).value
+                    old_value = current_issue.status.value
+                elif field == "due_date":
+                    # Value should be ISO format string or None
+                    if value:
+                        # Validate date format
+                        try:
+                            datetime.fromisoformat(value)
+                        except ValueError:
+                            raise ValueError(f"Invalid date format for {field}: {value}") from None
+                    due_date = current_issue.due_date
+                    old_value = due_date.isoformat() if due_date else None
+                else:
+                    old_value = getattr(current_issue, field)
+
+                # Only update if value changed
+                if str(old_value) != str(value):
+                    update_fields.append(f"{field} = ?")
+                    update_values.append(value)
+                    audit_entries.append((field, str(old_value), str(value)))
+
+            if not update_fields:
+                return current_issue  # No changes
+
+            # Always update the updated_at timestamp
+            update_fields.append("updated_at = ?")
+            update_values.append(datetime.now().isoformat())
+
+            # Add issue_id for WHERE clause
+            update_values.append(issue_id)
+
             cursor = conn.cursor()
             query = f"UPDATE issues SET {', '.join(update_fields)} WHERE id = ?"
             cursor.execute(query, update_values)
@@ -221,7 +238,8 @@ class IssueRepository:
                     new_val,
                 )
 
-        return self.get_issue(issue_id)
+            # Return updated issue using the same connection
+            return self._get_issue_with_conn(conn, issue_id)
 
     def bulk_update_issues(
         self,
@@ -334,12 +352,13 @@ class IssueRepository:
         Returns:
             True if issue was deleted, False if not found.
         """
-        # Get issue details for audit log before deletion
-        issue = self.get_issue(issue_id)
-        if not issue:
-            return False
-
+        # Use a single connection for the entire operation to avoid deadlocks
         with self.db.get_connection() as conn:
+            # Get issue details for audit log before deletion
+            issue = self._get_issue_with_conn(conn, issue_id)
+            if not issue:
+                return False
+
             cursor = conn.cursor()
             cursor.execute("DELETE FROM issues WHERE id = ?", (issue_id,))
 
@@ -2459,12 +2478,13 @@ class IssueRepository:
         if hours < 0:
             raise ValueError("Estimated hours must be non-negative")
 
-        # Get current issue for audit logging
-        current_issue = self.get_issue(issue_id)
-        if not current_issue:
-            return None
-
+        # Use a single connection for the entire operation
         with self.db.get_connection() as conn:
+            # Get current issue for audit logging
+            current_issue = self._get_issue_with_conn(conn, issue_id)
+            if not current_issue:
+                return None
+
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -2486,7 +2506,7 @@ class IssueRepository:
                 str(hours),
             )
 
-        return self.get_issue(issue_id)
+            return self._get_issue_with_conn(conn, issue_id)
 
     def get_time_report(
         self, period: str = "all", issue_id: Optional[int] = None
@@ -3318,6 +3338,40 @@ class IssueRepository:
                 return True
             return False
 
+    def _get_issue_tags_with_conn(self, conn: Any, issue_id: int) -> List[Tag]:
+        """Get tags for an issue using an existing connection.
+
+        Args:
+            conn: Database connection to use.
+            issue_id: Issue ID.
+
+        Returns:
+            List of Tag objects.
+
+        Note:
+            Internal method to avoid nested connections.
+        """
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT t.* FROM tags t
+            JOIN issue_tags it ON t.id = it.tag_id
+            WHERE it.issue_id = ?
+            ORDER BY t.name ASC
+        """,
+            (issue_id,),
+        )
+        rows = cursor.fetchall()
+        return [
+            Tag(
+                id=row["id"],
+                name=row["name"],
+                color=row["color"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            for row in rows
+        ]
+
     def get_issue_tags(self, issue_id: int) -> List[Tag]:
         """Get tags for an issue.
 
@@ -3328,26 +3382,7 @@ class IssueRepository:
             List of Tag objects.
         """
         with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT t.* FROM tags t
-                JOIN issue_tags it ON t.id = it.tag_id
-                WHERE it.issue_id = ?
-                ORDER BY t.name ASC
-            """,
-                (issue_id,),
-            )
-            rows = cursor.fetchall()
-            return [
-                Tag(
-                    id=row["id"],
-                    name=row["name"],
-                    color=row["color"],
-                    created_at=datetime.fromisoformat(row["created_at"]),
-                )
-                for row in rows
-            ]
+            return self._get_issue_tags_with_conn(conn, issue_id)
 
     # Issue Relation methods
 
