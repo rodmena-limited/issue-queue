@@ -3,9 +3,9 @@
 import contextlib
 import os
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Optional, Union
 
-from flask import Flask, jsonify, redirect, render_template_string, request, url_for
+from flask import Flask, g, jsonify, redirect, render_template_string, request, url_for
 from werkzeug.wrappers import Response
 
 from issuedb.models import Issue, Priority, Status
@@ -13,6 +13,9 @@ from issuedb.repository import IssueRepository
 from issuedb.similarity import find_similar_issues
 
 app = Flask(__name__)
+
+# Cache repository instances by db_path
+_repo_cache: dict[str, IssueRepository] = {}
 
 
 @app.context_processor
@@ -31,9 +34,22 @@ def inject_project_info() -> dict[str, str]:
 
 
 def get_repo() -> IssueRepository:
-    """Get repository instance."""
-    db_path = request.args.get("db")
-    return IssueRepository(db_path)
+    """Get cached repository instance for the current db_path."""
+    db_path = request.args.get("db") or ""
+
+    # Use request-scoped cache first (Flask g object)
+    cache_key = f"repo_{db_path}"
+    cached_repo: Optional[IssueRepository] = getattr(g, cache_key, None)
+    if cached_repo is not None:
+        return cached_repo
+
+    # Fall back to global cache
+    if db_path not in _repo_cache:
+        _repo_cache[db_path] = IssueRepository(db_path if db_path else None)
+
+    repo = _repo_cache[db_path]
+    setattr(g, cache_key, repo)
+    return repo
 
 
 # =============================================================================

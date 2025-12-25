@@ -1,8 +1,9 @@
 """Database connection and initialization for IssueDB."""
 
+import contextlib
 import json
 import sqlite3
-from contextlib import contextmanager
+import threading
 from pathlib import Path
 from typing import Any, Generator, Optional
 
@@ -25,7 +26,11 @@ class DatabaseMeta(type):
 
 
 class Database(metaclass=DatabaseMeta):
-    """Manages database connections and initialization."""
+    """Manages database connections and initialization.
+
+    Uses a persistent connection per thread for performance, with WAL mode
+    for better concurrency in multi-threaded environments like web servers.
+    """
 
     def __init__(self, db_path: Optional[str] = None) -> None:
         """Initialize database connection manager.
@@ -42,6 +47,11 @@ class Database(metaclass=DatabaseMeta):
         # Create parent directory if it doesn't exist (for custom paths)
         if self.db_path.parent != Path("."):
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Thread-local storage for connections
+        self._local = threading.local()
+        # Track if WAL mode has been set (only needs to be done once per db file)
+        self._wal_initialized = False
 
         # Initialize database on first use
         self._initialize_database()
@@ -419,7 +429,40 @@ class Database(metaclass=DatabaseMeta):
                 ),
             )
 
-    @contextmanager
+    def _get_thread_connection(self) -> sqlite3.Connection:
+        """Get or create a persistent connection for the current thread.
+
+        Returns:
+            sqlite3.Connection: Thread-local database connection.
+        """
+        conn = getattr(self._local, "connection", None)
+        if conn is None:
+            # Create new connection for this thread
+            # check_same_thread=False is safe because we use thread-local storage
+            conn = sqlite3.connect(
+                str(self.db_path),
+                timeout=30.0,
+                check_same_thread=False,
+            )
+            conn.row_factory = sqlite3.Row
+
+            # Set connection-level pragmas (only once per connection)
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 30000")
+            conn.execute("PRAGMA cache_size = 10000")
+            conn.execute("PRAGMA temp_store = MEMORY")
+
+            # Set WAL mode (persists in database file, but we set it to be sure)
+            if not self._wal_initialized:
+                conn.execute("PRAGMA journal_mode = WAL")
+                conn.execute("PRAGMA synchronous = NORMAL")
+                self._wal_initialized = True
+
+            self._local.connection = conn
+
+        return conn
+
+    @contextlib.contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         """Get a database connection with transaction support.
 
@@ -428,21 +471,9 @@ class Database(metaclass=DatabaseMeta):
 
         Note:
             This is a context manager that automatically handles commits and rollbacks.
-            Uses WAL mode for better concurrency and includes timeout to prevent hangs.
+            Uses a persistent thread-local connection for performance.
         """
-        # Set timeout to 30 seconds to prevent indefinite hangs on locked database
-        conn = sqlite3.connect(str(self.db_path), timeout=30.0)
-        conn.row_factory = sqlite3.Row  # Enable column access by name
-        conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
-        # Use WAL mode for better concurrency (allows concurrent reads during writes)
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA temp_store = MEMORY")
-        conn.execute("PRAGMA cache_size = 10000")  # Approx 10MB cache
-        conn.execute("PRAGMA busy_timeout = 30000")  # 30 second busy timeout
-        conn.execute("PRAGMA mmap_size = 268435456")  # 256MB memory map size
-        conn.execute("PRAGMA automatic_index = ON")  # Auto indexes when needed
-        # Note: PRAGMA optimize removed from here - should only run occasionally
+        conn = self._get_thread_connection()
 
         try:
             yield conn
@@ -450,8 +481,19 @@ class Database(metaclass=DatabaseMeta):
         except Exception:
             conn.rollback()
             raise
-        finally:
-            conn.close()
+        # Note: We don't close the connection - it's reused for the thread
+
+    def close_connection(self) -> None:
+        """Close the thread-local connection if it exists.
+
+        Call this when you're done with database operations in a thread,
+        such as at the end of a web request or when shutting down.
+        """
+        conn = getattr(self._local, "connection", None)
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+            self._local.connection = None
 
     def clear_database(self, confirm: bool = False) -> None:
         """Clear all data from the database.
