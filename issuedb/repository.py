@@ -3384,6 +3384,45 @@ class IssueRepository:
         with self.db.get_connection() as conn:
             return self._get_issue_tags_with_conn(conn, issue_id)
 
+    def get_tags_for_issues(self, issue_ids: List[int]) -> Dict[int, List[Tag]]:
+        """Get tags for multiple issues in a single query.
+
+        Args:
+            issue_ids: List of issue IDs.
+
+        Returns:
+            Dictionary mapping issue_id to list of Tag objects.
+        """
+        if not issue_ids:
+            return {}
+
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ",".join("?" * len(issue_ids))
+            cursor.execute(
+                f"""
+                SELECT it.issue_id, t.id, t.name, t.color, t.created_at
+                FROM tags t
+                JOIN issue_tags it ON t.id = it.tag_id
+                WHERE it.issue_id IN ({placeholders})
+                ORDER BY it.issue_id, t.name ASC
+                """,
+                issue_ids,
+            )
+            rows = cursor.fetchall()
+
+            result: Dict[int, List[Tag]] = {issue_id: [] for issue_id in issue_ids}
+            for row in rows:
+                tag = Tag(
+                    id=row["id"],
+                    name=row["name"],
+                    color=row["color"],
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                )
+                result[row["issue_id"]].append(tag)
+
+            return result
+
     # Issue Relation methods
 
     def link_issues(self, source_id: int, target_id: int, relation_type: str) -> IssueRelation:

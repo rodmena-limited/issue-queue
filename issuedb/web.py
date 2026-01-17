@@ -52,6 +52,20 @@ def get_repo() -> IssueRepository:
     return repo
 
 
+@app.teardown_appcontext
+def cleanup_db_connection(exception: Optional[BaseException] = None) -> None:
+    """Close database connection at end of request.
+
+    Ensures thread-local connections are properly cleaned up,
+    preventing connection leaks in the Waitress thread pool.
+    """
+    for key in list(vars(g).keys()):
+        if key.startswith("repo_"):
+            repo = getattr(g, key, None)
+            if repo is not None:
+                repo.db.close_connection()
+
+
 # =============================================================================
 # HTML Templates
 # =============================================================================
@@ -1159,7 +1173,8 @@ BASE_TEMPLATE = """
 """
 
 DASHBOARD_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}.issue.db{% endblock %}", "{% block title %}[{{ project_name }}] - .issue.db{% endblock %}"
+    "{% block title %}.issue.db{% endblock %}",
+    "{% block title %}[{{ project_name }}] - .issue.db{% endblock %}",
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -1347,7 +1362,8 @@ DASHBOARD_TEMPLATE = BASE_TEMPLATE.replace(
 )
 
 MEMORY_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}.issue.db{% endblock %}", "{% block title %}Memory [{{ project_name }}] - .issue.db{% endblock %}"
+    "{% block title %}.issue.db{% endblock %}",
+    "{% block title %}Memory [{{ project_name }}] - .issue.db{% endblock %}",
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -1514,7 +1530,8 @@ LESSONS_TEMPLATE = BASE_TEMPLATE.replace(
 )
 
 ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}.issue.db{% endblock %}", "{% block title %}Issues [{{ project_name }}] - .issue.db{% endblock %}"
+    "{% block title %}.issue.db{% endblock %}",
+    "{% block title %}Issues [{{ project_name }}] - .issue.db{% endblock %}",
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -2298,7 +2315,8 @@ ISSUE_FORM_TEMPLATE = BASE_TEMPLATE.replace(
 )
 
 AUDIT_LOG_TEMPLATE = BASE_TEMPLATE.replace(
-    "{% block title %}.issue.db{% endblock %}", "{% block title %}Audit Log - .issue.db{% endblock %}"
+    "{% block title %}.issue.db{% endblock %}",
+    "{% block title %}Audit Log - .issue.db{% endblock %}",
 ).replace(
     "{% block content %}{% endblock %}",
     """{% block content %}
@@ -2408,10 +2426,13 @@ def issues_list() -> str:
             offset=offset,
         )
 
-    # Populate tags
-    for issue in issues:
-        if issue.id:
-            issue.tags = repo.get_issue_tags(issue.id)
+    # Populate tags in batch (single query instead of N queries)
+    issue_ids = [issue.id for issue in issues if issue.id]
+    if issue_ids:
+        tags_by_issue = repo.get_tags_for_issues(issue_ids)
+        for issue in issues:
+            if issue.id:
+                issue.tags = tags_by_issue.get(issue.id, [])
 
     total_issues = repo.count_issues(
         status=status_filter,
@@ -2422,6 +2443,7 @@ def issues_list() -> str:
     )
 
     import math
+
     total_pages = math.ceil(total_issues / limit) if total_issues else 0
 
     return render_template_string(
@@ -2463,6 +2485,7 @@ def create_issue() -> Union[str, Response]:
         if due_date:
             try:
                 from datetime import datetime
+
                 due_date_obj = datetime.fromisoformat(due_date)
             except ValueError:
                 pass
@@ -2589,6 +2612,7 @@ def memory_page() -> str:
 def favicon() -> Response:
     """Serve favicon."""
     from flask import send_from_directory
+
     return send_from_directory(os.path.join(app.root_path, "static"), "favicon.svg")
 
 
@@ -2597,6 +2621,7 @@ def serve_fonts(filename: str) -> Response:
     """Serve font files."""
 
     from flask import send_from_directory
+
     return send_from_directory(os.path.join(app.root_path, "static/fonts"), filename)
 
 
@@ -2667,7 +2692,6 @@ def delete_lesson(lesson_id: int) -> Response:
     return redirect(url_for("lessons_page"))
 
 
-
 # =============================================================================
 # API Routes
 # =============================================================================
@@ -2709,6 +2733,7 @@ def api_create_issue() -> Any:
     if due_date:
         try:
             from datetime import datetime
+
             due_date_obj = datetime.fromisoformat(due_date)
         except ValueError:
             pass
@@ -2804,9 +2829,13 @@ def api_update_issue(issue_id: int) -> Any:
 
     if request.is_json:
         updated = repo.get_issue(issue_id)
-        return jsonify(updated.to_dict()) if updated else (jsonify({"error": "Issue not found"}), 404)
+        return (
+            jsonify(updated.to_dict()) if updated else (jsonify({"error": "Issue not found"}), 404)
+        )
 
     return redirect(url_for("issue_detail", issue_id=issue_id, message="Issue updated"))
+
+
 @app.route("/api/issues/<int:issue_id>", methods=["DELETE"])
 def api_delete_issue(issue_id: int) -> Any:
     """API: Delete an issue."""
@@ -3395,13 +3424,15 @@ def run_server(
             from waitress import serve  # type: ignore
 
             print(
-                f"Starting .issue.db Web UI on http://{host}:{port} (Production mode with Waitress, 3 threads)"
+                f"Starting .issue.db Web UI on http://{host}:{port} (Production mode with Waitress, 8 threads)"
             )
-            serve(app, host=host, port=port, threads=2)
+            serve(app, host=host, port=port, threads=8)
         except ImportError:
             print("Warning: 'waitress' not found. Falling back to Flask development server.")
             print("Install with: pip install issuedb[web]")
-            print(f"Starting .issue.db Web UI on http://{host}:{port} (Development mode with Flask)")
+            print(
+                f"Starting .issue.db Web UI on http://{host}:{port} (Development mode with Flask)"
+            )
             app.run(host=host, port=port, debug=False)
 
 

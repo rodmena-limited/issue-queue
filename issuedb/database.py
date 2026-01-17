@@ -13,13 +13,12 @@ class DatabaseMeta(type):
 
     Ensures only one Database instance exists, unless a new path is provided.
     """
+
     _instance: Optional["Database"] = None
 
     def __call__(cls, db_path: Optional[str] = None) -> "Database":
         # Create new instance if none exists or if a different path is provided
-        if cls._instance is None or (
-            db_path and str(cls._instance.db_path) != db_path
-        ):
+        if cls._instance is None or (db_path and str(cls._instance.db_path) != db_path):
             cls._instance = super().__call__(db_path)
 
         return cls._instance
