@@ -44,8 +44,8 @@ Homepage = "https://github.com/rodmena-limited/issue-queue"
 Repository = "https://github.com/rodmena-limited/issue-queue"
 "Bug Tracker" = "https://github.com/rodmena-limited/issue-queue/issues"
 
-[tool.setuptools]
-packages = ["issuedb", "issuedb.data", "issuedb.data.agents"]
+[tool.setuptools.packages.find]
+include = ["issuedb*"]
 
 [tool.setuptools.package-data]
 issuedb = ["py.typed", "data/agents/PROMPT.txt", "static/**/*"]
@@ -85,7 +85,7 @@ ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]  # Allow assert statements in tests
-"issuedb/web.py" = ["E501"]  # HTML templates have long lines
+"issuedb/web/*.py" = ["E501"]  # HTML templates have long lines
 
 [tool.mypy]
 python_version = "3.9"
