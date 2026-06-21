@@ -18,7 +18,7 @@ class Priority(Enum):
     def from_string(cls, value: str) -> "Priority":
         """Create Priority from string value."""
         try:
-            return cls(value.lower())
+            return cls(value.strip().lower())
         except ValueError:
             raise ValueError(
                 f"Invalid priority: {value}. Must be one of: {', '.join([p.value for p in cls])}"
@@ -45,9 +45,14 @@ class Status(Enum):
 
     @classmethod
     def from_string(cls, value: str) -> "Status":
-        """Create Status from string value."""
+        """Create Status from string value.
+
+        Accepts hyphen, underscore, or space separators (e.g. ``in-progress``,
+        ``in_progress`` and ``in progress`` all resolve to ``IN_PROGRESS``).
+        """
+        normalized = value.strip().lower().replace("_", "-").replace(" ", "-")
         try:
-            return cls(value.lower())
+            return cls(normalized)
         except ValueError:
             raise ValueError(
                 f"Invalid status: {value}. Must be one of: {', '.join([s.value for s in cls])}"

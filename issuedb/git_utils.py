@@ -11,6 +11,23 @@ class GitError(Exception):
     pass
 
 
+def _is_safe_ref(ref: str) -> bool:
+    """Return True if a user-supplied git ref/branch is safe to pass to git.
+
+    A value beginning with ``-`` could be interpreted by git as an option/flag
+    (argument injection), so such values are rejected even when a ``--``
+    separator is used (some git subcommands take the ref as the value of a flag
+    such as ``--contains`` where ``--`` does not protect it).
+
+    Args:
+        ref: User-supplied commit hash or branch name.
+
+    Returns:
+        True if the ref is safe to use, False otherwise.
+    """
+    return bool(ref) and not ref.startswith("-")
+
+
 def is_git_repo(path: Optional[str] = None) -> bool:
     """Check if the current directory (or given path) is a git repository.
 
@@ -29,11 +46,14 @@ def is_git_repo(path: Optional[str] = None) -> bool:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
+            timeout=15,
         )
         return result.returncode == 0 and result.stdout.strip() == "true"
-    except FileNotFoundError:
-        # git not installed
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # git not installed, or git did not respond in time
         return False
 
 
@@ -61,9 +81,14 @@ def get_current_branch(path: Optional[str] = None) -> Optional[str]:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
+            timeout=15,
         )
         return result.stdout.strip()
+    except subprocess.TimeoutExpired as e:
+        raise GitError("Timed out getting current branch") from e
     except subprocess.CalledProcessError as e:
         raise GitError(f"Failed to get current branch: {e.stderr}") from e
     except FileNotFoundError as e:
@@ -83,7 +108,11 @@ def get_recent_commits(n: int = 10, path: Optional[str] = None) -> List[dict[str
 
     Raises:
         GitError: If git command fails or not in a git repository.
+        ValueError: If ``n`` is not a positive integer.
     """
+    if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+        raise ValueError("n must be a positive integer")
+
     if not is_git_repo(path):
         raise GitError("Not in a git repository")
 
@@ -102,7 +131,10 @@ def get_recent_commits(n: int = 10, path: Optional[str] = None) -> List[dict[str
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
+            timeout=15,
         )
 
         commits = []
@@ -120,6 +152,8 @@ def get_recent_commits(n: int = 10, path: Optional[str] = None) -> List[dict[str
                     )
 
         return commits
+    except subprocess.TimeoutExpired as e:
+        raise GitError("Timed out getting recent commits") from e
     except subprocess.CalledProcessError as e:
         raise GitError(f"Failed to get recent commits: {e.stderr}") from e
     except FileNotFoundError as e:
@@ -210,8 +244,12 @@ def get_commit_message(commit_hash: str, path: Optional[str] = None) -> Optional
     if not is_git_repo(path):
         raise GitError("Not in a git repository")
 
+    if not _is_safe_ref(commit_hash):
+        # A ref starting with '-' could be parsed as a git option.
+        return None
+
     try:
-        cmd = ["git", "log", "-1", "--pretty=format:%B", commit_hash]
+        cmd = ["git", "log", "-1", "--pretty=format:%B", "--", commit_hash]
         cwd = path or None
 
         result = subprocess.run(
@@ -219,11 +257,14 @@ def get_commit_message(commit_hash: str, path: Optional[str] = None) -> Optional
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
+            timeout=15,
         )
 
         return result.stdout.strip()
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
     except FileNotFoundError as e:
         raise GitError("git command not found") from e
@@ -242,8 +283,12 @@ def validate_commit_hash(commit_hash: str, path: Optional[str] = None) -> bool:
     if not is_git_repo(path):
         return False
 
+    if not _is_safe_ref(commit_hash):
+        # A ref starting with '-' could be parsed as a git option.
+        return False
+
     try:
-        cmd = ["git", "cat-file", "-t", commit_hash]
+        cmd = ["git", "cat-file", "-t", "--", commit_hash]
         cwd = path or None
 
         result = subprocess.run(
@@ -251,11 +296,14 @@ def validate_commit_hash(commit_hash: str, path: Optional[str] = None) -> bool:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
+            timeout=15,
         )
 
         return result.returncode == 0 and result.stdout.strip() == "commit"
-    except FileNotFoundError:
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
 
 
@@ -275,6 +323,11 @@ def get_branches_containing_commit(commit_hash: str, path: Optional[str] = None)
     if not is_git_repo(path):
         raise GitError("Not in a git repository")
 
+    if not _is_safe_ref(commit_hash):
+        # '--contains' takes the hash as its value, so a leading-dash hash
+        # could be parsed as a git option even with a '--' separator.
+        raise GitError(f"Invalid commit hash: {commit_hash!r}")
+
     try:
         cmd = ["git", "branch", "--contains", commit_hash, "--format=%(refname:short)"]
         cwd = path or None
@@ -284,11 +337,16 @@ def get_branches_containing_commit(commit_hash: str, path: Optional[str] = None)
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
+            timeout=15,
         )
 
         branches = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
         return branches
+    except subprocess.TimeoutExpired as e:
+        raise GitError("Timed out getting branches containing commit") from e
     except subprocess.CalledProcessError as e:
         raise GitError(f"Failed to get branches containing commit: {e.stderr}") from e
     except FileNotFoundError as e:

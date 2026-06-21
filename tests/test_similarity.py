@@ -264,6 +264,98 @@ class TestCalculateSimilarity:
         assert similarity1 == similarity2
 
 
+class TestLongTextPerformance:
+    """Regression tests for the long-text performance / containment fixes."""
+
+    def test_calculate_similarity_two_very_long_strings_completes(self):
+        """Two very long strings should return a float in [0, 1] quickly.
+
+        Without the length cap this would run an O(n*m) character DP over
+        ~5000-char inputs, which is pathologically slow when called pairwise.
+        We only assert it completes and returns a sane value.
+        """
+        text1 = "alpha beta gamma delta epsilon zeta eta theta " * 110
+        text2 = "alpha beta gamma delta epsilon zeta eta theta " * 110
+
+        similarity = calculate_similarity(text1, text2)
+
+        assert isinstance(similarity, float)
+        assert 0.0 <= similarity <= 1.0
+        # Identical long texts should be highly similar.
+        assert similarity > 0.9
+
+    def test_calculate_similarity_long_strings_under_5000_chars(self):
+        """Ensure each input genuinely exceeds the cap (well over 5000 chars)."""
+        text1 = "word" + " filler unique alpha bravo charlie delta echo" * 120
+        text2 = "word" + " filler unique foxtrot golf hotel india juliet" * 120
+
+        assert len(text1) >= 5000
+        assert len(text2) >= 5000
+
+        similarity = calculate_similarity(text1, text2)
+
+        assert isinstance(similarity, float)
+        assert 0.0 <= similarity <= 1.0
+
+    def test_find_duplicate_groups_long_descriptions_completes(self):
+        """find_duplicate_groups over long descriptions returns valid floats."""
+        long_desc_a = "performance regression in the report rendering pipeline " * 100
+        long_desc_b = "performance regression in the report rendering pipeline " * 100
+        issues = [
+            Issue(
+                id=1,
+                title="Slow report rendering",
+                description=long_desc_a,
+                priority=Priority.HIGH,
+                status=Status.OPEN,
+            ),
+            Issue(
+                id=2,
+                title="Slow report rendering",
+                description=long_desc_b,
+                priority=Priority.HIGH,
+                status=Status.OPEN,
+            ),
+        ]
+
+        groups = find_duplicate_groups(issues, threshold=0.5)
+
+        # Two near-identical long issues should group together.
+        assert len(groups) == 1
+        for group in groups:
+            for _issue, similarity in group:
+                assert isinstance(similarity, float)
+                assert 0.0 <= similarity <= 1.0
+
+    def test_short_query_substring_of_long_text_scores_meaningfully(self):
+        """A short query contained in a long text must beat unrelated text.
+
+        Validates the containment fix: previously the raw character
+        Levenshtein branch made a short query vs a long description score
+        near 0 even when fully contained.
+        """
+        query = "login authentication failure"
+        long_match = (
+            "When a user attempts to sign in we observe a login "
+            "authentication failure that prevents access to the dashboard "
+            "and shows an error banner for several seconds before retrying "
+        ) * 5
+        long_unrelated = (
+            "The marketing landing page hero image should be replaced with "
+            "an animated gradient and the call to action button needs a new "
+            "color palette for the spring campaign launch next quarter "
+        ) * 5
+
+        match_score = calculate_similarity(query, long_match)
+        unrelated_score = calculate_similarity(query, long_unrelated)
+
+        assert 0.0 <= match_score <= 1.0
+        assert 0.0 <= unrelated_score <= 1.0
+        # Containment should produce a meaningful, clearly higher score.
+        assert match_score > 0.3
+        assert match_score > unrelated_score
+
+
 class TestCombineIssueText:
     """Test combining issue title and description."""
 
