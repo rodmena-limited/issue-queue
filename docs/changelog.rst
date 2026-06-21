@@ -6,6 +6,16 @@ All notable changes to IssueDB are documented here.
 The format is based on `Keep a Changelog <https://keepachangelog.com/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/>`_.
 
+[2.11.0] - 2026-06-21
+---------------------
+
+Changed
+~~~~~~~
+
+- **Internal modularization**: the four largest modules were split into packages
+  (``database/``, ``repository/``, ``cli/``, ``web/``) so no source file exceeds 550
+  lines. This is a pure refactor — the public API, CLI, and web behaviour are unchanged.
+
 [2.10.0] - 2026-06-21
 ---------------------
 
