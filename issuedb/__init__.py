@@ -1,8 +1,8 @@
 """IssueDB - A command-line issue tracking system for software development projects."""
 
-__version__ = "0.1.0"
-__author__ = "Your Name"
-__email__ = "your.email@example.com"
+__version__ = "2.10.0"
+__author__ = "Farshid Ashouri"
+__email__ = "farsheed.ashouri@gmail.com"
 
 from issuedb.models import Issue, Priority, Status
 

@@ -9,6 +9,18 @@ from typing import List, Tuple
 
 from issuedb.models import Issue
 
+# Maximum string length for running the full character-level Levenshtein DP.
+# The DP is O(len1 * len2); above this cap we fall back to token-based
+# (Jaccard) similarity to avoid pathological O(n*m) blowups when many long
+# descriptions are compared pairwise (find_duplicate_groups is O(issues^2)).
+MAX_LEVENSHTEIN_LEN = 200
+
+# When the two strings differ in length by more than this ratio, a raw
+# character Levenshtein score is dominated by the length difference (a short
+# query contained in a long text scores near 0). In that case we prefer
+# token-set / Jaccard similarity, which captures containment far better.
+LENGTH_RATIO_THRESHOLD = 2.0
+
 
 def _normalize_text(text: str) -> str:
     """Normalize text by converting to lowercase and removing punctuation.
@@ -130,11 +142,72 @@ def _jaccard_similarity(s1: str, s2: str) -> float:
     return intersection / union
 
 
+def _overlap_coefficient(s1: str, s2: str) -> float:
+    """Calculate the token overlap (containment) coefficient between two texts.
+
+    Unlike Jaccard, this divides the intersection by the size of the *smaller*
+    token set, so a short text fully contained in a longer one scores high.
+    This is the key signal for the "short query vs long description" case.
+
+    Args:
+        s1: First text.
+        s2: Second text.
+
+    Returns:
+        Overlap coefficient from 0.0 to 1.0.
+    """
+    tokens1 = _tokenize(s1)
+    tokens2 = _tokenize(s2)
+
+    if not tokens1 and not tokens2:
+        return 1.0
+    if not tokens1 or not tokens2:
+        return 0.0
+
+    intersection = len(tokens1 & tokens2)
+    smaller = min(len(tokens1), len(tokens2))
+
+    if smaller == 0:
+        return 0.0
+
+    return intersection / smaller
+
+
+def _token_similarity(s1: str, s2: str) -> float:
+    """Token-based similarity blending Jaccard with overlap (containment).
+
+    Jaccard rewards strings of similar size with high overlap, while the
+    overlap coefficient rewards containment (a short text inside a long one).
+    Blending the two gives a robust score that does not collapse to ~0 when
+    the two strings differ greatly in length.
+
+    Args:
+        s1: First text.
+        s2: Second text.
+
+    Returns:
+        Token similarity score from 0.0 to 1.0.
+    """
+    jaccard = _jaccard_similarity(s1, s2)
+    overlap = _overlap_coefficient(s1, s2)
+
+    # Weighted blend; favor Jaccard but let overlap rescue containment cases.
+    return 0.6 * jaccard + 0.4 * overlap
+
+
 def calculate_similarity(text1: str, text2: str) -> float:
     """Calculate similarity between two texts.
 
     Uses a combination of Levenshtein distance for short texts and
     Jaccard similarity for longer texts to provide robust similarity scoring.
+
+    Pure character-level Levenshtein is only used when BOTH strings are short
+    and of comparable length. When either string is long (exceeds
+    ``MAX_LEVENSHTEIN_LEN``) or the two strings differ greatly in length, the
+    full character DP is skipped and token-based (Jaccard / overlap) similarity
+    is used instead. This keeps the comparison fast (avoids the O(n*m) DP on
+    long inputs) and avoids the "short query vs long description scores ~0"
+    failure mode.
 
     Args:
         text1: First text.
@@ -152,19 +225,34 @@ def calculate_similarity(text1: str, text2: str) -> float:
     if not norm1 or not norm2:
         return 0.0
 
-    # For very short texts (< 20 chars), use Levenshtein
-    if len(norm1) < 20 or len(norm2) < 20:
+    len1 = len(norm1)
+    len2 = len(norm2)
+
+    # If either string is too long, the character DP is too expensive; fall
+    # back entirely to token-based similarity.
+    too_long = len1 > MAX_LEVENSHTEIN_LEN or len2 > MAX_LEVENSHTEIN_LEN
+
+    # Detect a large length mismatch (e.g. short query vs long description).
+    longer = max(len1, len2)
+    shorter = min(len1, len2)
+    length_mismatch = shorter > 0 and (longer / shorter) > LENGTH_RATIO_THRESHOLD
+
+    if too_long or length_mismatch:
+        # Token-based path: robust to length differences and cheap to compute.
+        return _token_similarity(norm1, norm2)
+
+    # Use pure character Levenshtein only when BOTH strings are short and of
+    # comparable length (the original short-text fast path).
+    if len1 < 20 and len2 < 20:
         return _normalized_levenshtein_similarity(norm1, norm2)
 
-    # For longer texts, use Jaccard similarity with word tokens
+    # For longer (but still capped) texts of comparable length, combine
+    # Jaccard with character-level similarity for better accuracy.
     jaccard = _jaccard_similarity(norm1, norm2)
-
-    # Also calculate character-level similarity for short phrases
-    # and combine with Jaccard for better accuracy
     lev = _normalized_levenshtein_similarity(norm1, norm2)
 
     # Weighted combination: favor Jaccard for longer texts
-    # but still consider character-level similarity
+    # but still consider character-level similarity.
     return 0.7 * jaccard + 0.3 * lev
 
 

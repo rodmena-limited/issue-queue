@@ -260,9 +260,10 @@ issuedb-cli --json find-similar "QUERY_TEXT"
 - Threshold: 0.0 to 1.0 (default: 0.6)
 
 ### Find Potential Duplicates
-issuedb-cli find-duplicates [--threshold 0.7]
-issuedb-cli --json find-duplicates
+issuedb-cli dedupe [--threshold 0.7]
+issuedb-cli --json dedupe
 - Scans all issues for potential duplicate groups
+- "find-duplicates" works as an alias for "dedupe"
 
 ## ISSUE TEMPLATES
 

@@ -44,17 +44,17 @@ class TestDatabase:
 
     def test_default_path(self):
         """Test that default path is used when not specified."""
-        # Reset the singleton to test default path behavior
-        # Note: _instance is stored on Database class, not DatabaseMeta
-        old_instance = Database._instance  # type: ignore[attr-defined]
-        Database._instance = None  # type: ignore[attr-defined]
+        # Reset the registry to test default path behavior.
+        # Instances are keyed by resolved absolute path in Database._instances.
+        old_instances = Database._instances  # type: ignore[attr-defined]
+        Database._instances = {}  # type: ignore[attr-defined]
         try:
             db = Database()
             expected_path = Path(".issue.db")
             assert db.db_path == expected_path
         finally:
-            # Restore the singleton and cleanup
-            Database._instance = old_instance  # type: ignore[attr-defined]
+            # Restore the registry and cleanup
+            Database._instances = old_instances  # type: ignore[attr-defined]
             Path(".issue.db").unlink(missing_ok=True)
 
     def test_indexes_created(self, temp_db_path):
@@ -144,6 +144,41 @@ class TestDatabase:
             cursor.execute("SELECT COUNT(*) FROM audit_logs")
             assert cursor.fetchone()[0] == 0
 
+    def test_clear_database_clears_non_issue_tables(self, temp_db_path):
+        """Test that clear_database removes rows from non-issue tables too."""
+        db = Database(temp_db_path)
+
+        # Insert data into tables unrelated to issues.
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO tags (name, color) VALUES (?, ?)",
+                ("urgent", "#ff0000"),
+            )
+            cursor.execute(
+                "INSERT INTO memory (key, value) VALUES (?, ?)",
+                ("project", "issue-queue"),
+            )
+
+        # Sanity check that the rows were inserted.
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM tags")
+            assert cursor.fetchone()[0] == 1
+            cursor.execute("SELECT COUNT(*) FROM memory")
+            assert cursor.fetchone()[0] == 1
+
+        # Clear with confirmation.
+        db.clear_database(confirm=True)
+
+        # Both non-issue tables must now be empty.
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM tags")
+            assert cursor.fetchone()[0] == 0
+            cursor.execute("SELECT COUNT(*) FROM memory")
+            assert cursor.fetchone()[0] == 0
+
     def test_get_database_info(self, temp_db_path):
         """Test getting database information."""
         db = Database(temp_db_path)
@@ -190,3 +225,21 @@ class TestGetDatabase:
                 assert db1 is not db2
                 assert str(db1.db_path) == f1.name
                 assert str(db2.db_path) == f2.name
+
+    def test_default_request_returns_default_instance(self):
+        """Default request must not return a previously-created custom instance."""
+        # Reset the registry so the default instance is created fresh.
+        old_instances = Database._instances  # type: ignore[attr-defined]
+        Database._instances = {}  # type: ignore[attr-defined]
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".db") as f:
+                custom_db = Database(f.name)
+
+                # Requesting the default path must return the default instance,
+                # never the custom one created above.
+                default_db = Database()
+                assert default_db is not custom_db
+                assert default_db.db_path == Path(".issue.db")
+        finally:
+            Database._instances = old_instances  # type: ignore[attr-defined]
+            Path(".issue.db").unlink(missing_ok=True)

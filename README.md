@@ -59,6 +59,10 @@ Start the local web server to manage issues visually.
 issuedb-cli web
 ```
 
+The server binds to `127.0.0.1` (localhost) by default. To expose it on your network,
+pass `--host 0.0.0.0` explicitly. Cross-origin state-changing requests are rejected as a
+CSRF safeguard.
+
 ![Dashboard](docs/screenshots/dashboard.png)
 *Dashboard with statistics and active issue tracking*
 
@@ -98,12 +102,30 @@ issuedb-cli deps 5
 
 # Time Tracking
 issuedb-cli timer-start 1
+issuedb-cli timer-status
 issuedb-cli timer-stop
-issuedb-cli time-report
+issuedb-cli estimate 1 2.5
+issuedb-cli time-log 1
+issuedb-cli time-report --period week
 
 # Code References
 issuedb-cli attach 1 --file "src/main.py:42"
 issuedb-cli refs 1
+issuedb-cli detach 1 --file "src/main.py"
+issuedb-cli affected "src/main.py"
+
+# Similar issues & duplicates
+issuedb-cli find-similar "login button broken"
+issuedb-cli dedupe
+
+# Bulk operations by pattern (glob by default, --regex for regex)
+issuedb-cli bulk-close-pattern --title "legacy *" --dry-run
+issuedb-cli bulk-update-pattern --title "v1 *" -s closed
+issuedb-cli bulk-delete-pattern --title "tmp *" --confirm
+
+# Bulk-update guards against touching every issue: a filter is required,
+# or pass --all to confirm an unfiltered update.
+issuedb-cli bulk-update --filter-status open -s in-progress
 
 # Audit Log
 issuedb-cli audit -i 1

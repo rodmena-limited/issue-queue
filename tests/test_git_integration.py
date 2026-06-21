@@ -1,5 +1,6 @@
 """Tests for git integration features."""
 
+import subprocess
 import tempfile
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +8,8 @@ import pytest
 
 from issuedb.git_repository import GitLinkRepository
 from issuedb.git_utils import (
+    GitError,
+    get_branches_containing_commit,
     get_commit_message,
     get_current_branch,
     get_recent_commits,
@@ -242,6 +245,128 @@ class TestGitUtils:
         mock_run.side_effect = [mock_git_check, mock_cat_file]
 
         assert validate_commit_hash("invalid") is False
+
+    # --- Regression tests: argument-injection hardening ---
+
+    @patch("subprocess.run")
+    def test_get_commit_message_uses_separator_before_ref(self, mock_run):
+        """A normal ref must be passed positionally after a '--' separator."""
+        mock_git_check = MagicMock()
+        mock_git_check.returncode = 0
+        mock_git_check.stdout = "true"
+
+        mock_log = MagicMock()
+        mock_log.returncode = 0
+        mock_log.stdout = "Some commit message"
+
+        mock_run.side_effect = [mock_git_check, mock_log]
+
+        get_commit_message("abc123")
+
+        # The second call is the actual git log; inspect its argv.
+        argv = mock_run.call_args_list[1].args[0]
+        assert "--" in argv, "git log must include a '--' separator"
+        assert argv.index("--") < argv.index("abc123"), "'--' must precede the ref"
+
+    @patch("subprocess.run")
+    def test_get_commit_message_rejects_dash_ref(self, mock_run):
+        """A ref starting with '-' must never reach git as a flag."""
+        mock_git_check = MagicMock()
+        mock_git_check.returncode = 0
+        mock_git_check.stdout = "true"
+        mock_run.return_value = mock_git_check
+
+        result = get_commit_message("--upload-pack=evil")
+
+        # Only the is_git_repo check should have run; no log command executed.
+        assert result is None
+        assert mock_run.call_count == 1
+
+    @patch("subprocess.run")
+    def test_validate_commit_hash_rejects_dash_ref(self, mock_run):
+        """validate_commit_hash must reject a leading-dash ref without running git."""
+        mock_git_check = MagicMock()
+        mock_git_check.returncode = 0
+        mock_git_check.stdout = "true"
+        mock_run.return_value = mock_git_check
+
+        assert validate_commit_hash("-x") is False
+        # Only the is_git_repo check should have run.
+        assert mock_run.call_count == 1
+
+    @patch("subprocess.run")
+    def test_get_branches_containing_commit_rejects_dash_ref(self, mock_run):
+        """get_branches_containing_commit must reject a leading-dash ref.
+
+        '--contains' consumes the hash as its value, so a '--' separator does
+        not protect it; the function must reject the ref outright.
+        """
+        mock_git_check = MagicMock()
+        mock_git_check.returncode = 0
+        mock_git_check.stdout = "true"
+        mock_run.return_value = mock_git_check
+
+        with pytest.raises(GitError):
+            get_branches_containing_commit("--format=evil")
+
+        # Only the is_git_repo check should have run; no branch command executed.
+        assert mock_run.call_count == 1
+
+    # --- Regression tests: timeout handling ---
+
+    @patch("subprocess.run")
+    def test_is_git_repo_timeout_returns_false(self, mock_run):
+        """A timeout in is_git_repo is treated as 'not a git repo'."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=15)
+        assert is_git_repo() is False
+
+    @patch("subprocess.run")
+    def test_get_current_branch_timeout_raises_giterror(self, mock_run):
+        """A timeout while reading the branch surfaces as GitError, not a crash."""
+        mock_git_check = MagicMock()
+        mock_git_check.returncode = 0
+        mock_git_check.stdout = "true"
+        mock_run.side_effect = [
+            mock_git_check,
+            subprocess.TimeoutExpired(cmd="git", timeout=15),
+        ]
+
+        with pytest.raises(GitError):
+            get_current_branch()
+
+    @patch("subprocess.run")
+    def test_get_commit_message_timeout_returns_none(self, mock_run):
+        """A timeout while reading a commit message returns None (its failure mode)."""
+        mock_git_check = MagicMock()
+        mock_git_check.returncode = 0
+        mock_git_check.stdout = "true"
+        mock_run.side_effect = [
+            mock_git_check,
+            subprocess.TimeoutExpired(cmd="git", timeout=15),
+        ]
+
+        assert get_commit_message("abc123") is None
+
+    @patch("subprocess.run")
+    def test_validate_commit_hash_timeout_returns_false(self, mock_run):
+        """A timeout while validating a hash returns False (its failure mode)."""
+        mock_git_check = MagicMock()
+        mock_git_check.returncode = 0
+        mock_git_check.stdout = "true"
+        mock_run.side_effect = [
+            mock_git_check,
+            subprocess.TimeoutExpired(cmd="git", timeout=15),
+        ]
+
+        assert validate_commit_hash("abc123") is False
+
+    # --- Regression test: commit-count validation ---
+
+    def test_get_recent_commits_rejects_non_positive_n(self):
+        """get_recent_commits must reject non-positive counts before calling git."""
+        for bad in (0, -1, -5):
+            with pytest.raises(ValueError):
+                get_recent_commits(n=bad)
 
 
 class TestGitLinkRepository:

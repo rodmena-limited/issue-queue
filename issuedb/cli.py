@@ -102,19 +102,33 @@ class CLI:
 
         return "\n".join(lines)
 
-    def _format_dict(self, data: dict[str, Any]) -> str:
-        """Format a dictionary for display.
+    def _format_dict(self, data: dict[str, Any], indent: int = 0) -> str:
+        """Format a dictionary for display (recursively for nested structures).
 
         Args:
             data: Dictionary to format.
+            indent: Current indentation level (used for nested dicts/lists).
 
         Returns:
             Formatted string.
         """
         lines = []
+        pad = "  " * indent
         for key, value in data.items():
             formatted_key = key.replace("_", " ").title()
-            lines.append(f"{formatted_key}: {value}")
+            if isinstance(value, dict):
+                lines.append(f"{pad}{formatted_key}:")
+                if value:
+                    lines.append(self._format_dict(value, indent + 1))
+            elif isinstance(value, list):
+                lines.append(f"{pad}{formatted_key}:")
+                for item in value:
+                    if isinstance(item, dict):
+                        lines.append(self._format_dict(item, indent + 1))
+                    else:
+                        lines.append(f"{pad}  - {item}")
+            else:
+                lines.append(f"{pad}{formatted_key}: {value}")
         return "\n".join(lines)
 
     def create_issue(
@@ -127,6 +141,7 @@ class CLI:
         as_json: bool = False,
         force: bool = False,
         check_duplicates: bool = False,
+        tags: Optional[list[str]] = None,
     ) -> str:
         """Create a new issue.
 
@@ -139,6 +154,7 @@ class CLI:
             as_json: Output as JSON.
             force: Create issue even if similar issues found (with check_duplicates).
             check_duplicates: Enable duplicate checking (opt-in, disabled by default).
+            tags: Optional list of tag names to attach to the new issue.
 
         Returns:
             Formatted output.
@@ -208,6 +224,17 @@ class CLI:
                     return "\n".join(lines)
 
         created_issue = self.repo.create_issue(issue)
+
+        # Attach any tags, then re-fetch so they appear in the output.
+        if tags and created_issue.id is not None:
+            for tag in tags:
+                tag_name = tag.strip()
+                if tag_name:
+                    self.repo.add_issue_tag(created_issue.id, tag_name)
+            refreshed = self.repo.get_issue(created_issue.id)
+            if refreshed is not None:
+                created_issue = refreshed
+
         return self.format_output(created_issue, as_json)
 
     def list_issues(
@@ -2141,6 +2168,13 @@ def main() -> None:
         help="Initial status",
     )
     create_parser.add_argument("--due-date", help="Due date (YYYY-MM-DD)")
+    create_parser.add_argument(
+        "--tag",
+        action="append",
+        dest="tags",
+        metavar="TAG",
+        help="Tag to attach to the issue (repeatable, e.g. --tag bug --tag v1.0)",
+    )
 
     # List command
     list_parser = subparsers.add_parser("list", help="List issues")
@@ -2260,6 +2294,11 @@ def main() -> None:
         "--priority",
         choices=["low", "medium", "high", "critical"],
         help="New priority to set",
+    )
+    bulk_update_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Required to update ALL issues when no filter is given (safety guard)",
     )
 
     # Delete command
@@ -2438,8 +2477,8 @@ def main() -> None:
     web_parser = subparsers.add_parser("web", help="Start the web UI server")
     web_parser.add_argument(
         "--host",
-        default="0.0.0.0",
-        help="Host to bind to (default: 0.0.0.0)",
+        default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1; use 0.0.0.0 to expose on the network)",
     )
     web_parser.add_argument(
         "-p",
@@ -2454,7 +2493,122 @@ def main() -> None:
         help="Enable debug mode",
     )
 
-    args = parser.parse_args()
+    # Time tracking commands
+    timer_start_parser = subparsers.add_parser("timer-start", help="Start a timer for an issue")
+    timer_start_parser.add_argument("issue_id", type=int, help="Issue ID")
+    timer_start_parser.add_argument("-n", "--note", help="Optional note for this time entry")
+
+    timer_stop_parser = subparsers.add_parser("timer-stop", help="Stop a running timer")
+    timer_stop_parser.add_argument(
+        "issue_id",
+        type=int,
+        nargs="?",
+        help="Issue ID (stops all running timers if omitted)",
+    )
+
+    subparsers.add_parser("timer-status", help="Show running timers")
+
+    estimate_parser = subparsers.add_parser("estimate", help="Set time estimate for an issue")
+    estimate_parser.add_argument("issue_id", type=int, help="Issue ID")
+    estimate_parser.add_argument("hours", type=float, help="Estimated hours")
+
+    time_log_parser = subparsers.add_parser("time-log", help="Show time entries for an issue")
+    time_log_parser.add_argument("issue_id", type=int, help="Issue ID")
+
+    time_report_parser = subparsers.add_parser("time-report", help="Generate a time report")
+    time_report_parser.add_argument(
+        "--period",
+        choices=["all", "week", "month"],
+        default="all",
+        help="Time period (default: all)",
+    )
+    time_report_parser.add_argument(
+        "-i", "--issue", type=int, dest="issue_id", help="Filter by issue ID"
+    )
+
+    # Code reference commands
+    attach_parser = subparsers.add_parser("attach", help="Attach a code reference to an issue")
+    attach_parser.add_argument("issue_id", type=int, help="Issue ID")
+    attach_parser.add_argument(
+        "--file",
+        required=True,
+        dest="file_spec",
+        help="File path with optional line(s), e.g. 'src/main.py:42' or 'src/main.py:10-20'",
+    )
+    attach_parser.add_argument("-n", "--note", help="Optional note about the reference")
+
+    detach_parser = subparsers.add_parser("detach", help="Detach a code reference from an issue")
+    detach_parser.add_argument("issue_id", type=int, help="Issue ID")
+    detach_parser.add_argument(
+        "--file", dest="file_path", help="File path to remove references for"
+    )
+    detach_parser.add_argument(
+        "--reference-id", type=int, dest="reference_id", help="Specific reference ID to remove"
+    )
+
+    refs_parser = subparsers.add_parser("refs", help="List code references for an issue")
+    refs_parser.add_argument("issue_id", type=int, help="Issue ID")
+
+    affected_parser = subparsers.add_parser("affected", help="List issues referencing a file")
+    affected_parser.add_argument("file_path", help="File path to search for")
+
+    # Bulk pattern commands
+    bulk_close_pattern_parser = subparsers.add_parser(
+        "bulk-close-pattern", help="Close issues matching a title/description pattern"
+    )
+    bulk_close_pattern_parser.add_argument(
+        "--title", dest="title_pattern", help="Pattern to match against title"
+    )
+    bulk_close_pattern_parser.add_argument(
+        "--desc", dest="desc_pattern", help="Pattern to match against description"
+    )
+    bulk_close_pattern_parser.add_argument(
+        "--regex", action="store_true", dest="use_regex", help="Use regex (default: glob)"
+    )
+    bulk_close_pattern_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be done without changing anything"
+    )
+
+    bulk_update_pattern_parser = subparsers.add_parser(
+        "bulk-update-pattern", help="Update issues matching a title/description pattern"
+    )
+    bulk_update_pattern_parser.add_argument(
+        "--title", dest="title_pattern", help="Pattern to match against title"
+    )
+    bulk_update_pattern_parser.add_argument(
+        "--desc", dest="desc_pattern", help="Pattern to match against description"
+    )
+    bulk_update_pattern_parser.add_argument(
+        "--regex", action="store_true", dest="use_regex", help="Use regex (default: glob)"
+    )
+    bulk_update_pattern_parser.add_argument(
+        "-s", "--status", dest="new_status", help="New status to set"
+    )
+    bulk_update_pattern_parser.add_argument(
+        "--priority", dest="new_priority", help="New priority to set"
+    )
+    bulk_update_pattern_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be done without changing anything"
+    )
+
+    bulk_delete_pattern_parser = subparsers.add_parser(
+        "bulk-delete-pattern", help="Delete issues matching a title/description pattern"
+    )
+    bulk_delete_pattern_parser.add_argument(
+        "--title", dest="title_pattern", help="Pattern to match against title"
+    )
+    bulk_delete_pattern_parser.add_argument(
+        "--desc", dest="desc_pattern", help="Pattern to match against description"
+    )
+    bulk_delete_pattern_parser.add_argument(
+        "--regex", action="store_true", dest="use_regex", help="Use regex (default: glob)"
+    )
+    bulk_delete_pattern_parser.add_argument(
+        "--confirm", action="store_true", help="Confirm deletion (required unless --dry-run)"
+    )
+    bulk_delete_pattern_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be done without deleting"
+    )
 
     # Find-similar command
     find_similar_parser = subparsers.add_parser(
@@ -2477,14 +2631,18 @@ def main() -> None:
         help="Maximum number of results (default: 10)",
     )
 
-    # Dedupe command
-    dedupe_parser = subparsers.add_parser("dedupe", help="Find potential duplicate issues")
+    # Dedupe command (find-duplicates is kept as an alias for the documented name)
+    dedupe_parser = subparsers.add_parser(
+        "dedupe", aliases=["find-duplicates"], help="Find potential duplicate issues"
+    )
     dedupe_parser.add_argument(
         "--threshold",
         type=float,
         default=0.7,
         help="Similarity threshold for duplicates (0.0 to 1.0, default: 0.7)",
     )
+
+    args = parser.parse_args()
 
     # Handle --prompt flag
     if args.prompt:
@@ -2549,6 +2707,7 @@ def main() -> None:
                 status=args.status,
                 due_date=args.due_date,
                 as_json=args.json,
+                tags=args.tags,
             )
             print(result, file=sys.stdout, flush=True)
 
@@ -2571,13 +2730,15 @@ def main() -> None:
             updates = {}
             if args.title:
                 updates["title"] = args.title
-            if args.description:
+            # description/due_date use "is not None" so an explicit empty string
+            # (e.g. -d "" / --due-date "") clears the field instead of being ignored.
+            if args.description is not None:
                 updates["description"] = args.description
             if args.priority:
                 updates["priority"] = args.priority
             if args.status:
                 updates["status"] = args.status
-            if args.due_date:
+            if args.due_date is not None:
                 updates["due_date"] = args.due_date
 
             if not updates:
@@ -2641,6 +2802,14 @@ def main() -> None:
         elif args.command == "bulk-update":
             if not args.status and not args.priority:
                 msg = "Error: No updates specified (use -s or --priority)"
+                print(msg, file=sys.stderr, flush=True)
+                sys.exit(1)
+
+            if not args.filter_status and not args.filter_priority and not args.all:
+                msg = (
+                    "Error: refusing to update ALL issues without a filter. "
+                    "Use --filter-status/--filter-priority, or pass --all to confirm."
+                )
                 print(msg, file=sys.stderr, flush=True)
                 sys.exit(1)
 
@@ -2804,13 +2973,130 @@ def main() -> None:
             result = cli.get_active_issue_workspace(as_json=args.json)
             print(result, file=sys.stdout, flush=True)
 
+        elif args.command == "timer-start":
+            result = cli.timer_start(args.issue_id, note=args.note, as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "timer-stop":
+            result = cli.timer_stop(args.issue_id, as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "timer-status":
+            result = cli.timer_status(as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "estimate":
+            result = cli.set_estimate(args.issue_id, args.hours, as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "time-log":
+            result = cli.time_log(args.issue_id, as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "time-report":
+            result = cli.time_report(
+                period=args.period, issue_id=args.issue_id, as_json=args.json
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "attach":
+            result = cli.attach_code_reference(
+                args.issue_id, args.file_spec, note=args.note, as_json=args.json
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "detach":
+            result = cli.detach_code_reference(
+                args.issue_id,
+                file_path=args.file_path,
+                reference_id=args.reference_id,
+                as_json=args.json,
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "refs":
+            result = cli.list_code_references(args.issue_id, as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "affected":
+            result = cli.list_affected_issues(args.file_path, as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "bulk-close-pattern":
+            if not args.title_pattern and not args.desc_pattern:
+                print(
+                    "Error: provide --title and/or --desc pattern", file=sys.stderr, flush=True
+                )
+                sys.exit(1)
+            result = cli.bulk_close_pattern(
+                title_pattern=args.title_pattern,
+                desc_pattern=args.desc_pattern,
+                use_regex=args.use_regex,
+                dry_run=args.dry_run,
+                as_json=args.json,
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "bulk-update-pattern":
+            if not args.title_pattern and not args.desc_pattern:
+                print(
+                    "Error: provide --title and/or --desc pattern", file=sys.stderr, flush=True
+                )
+                sys.exit(1)
+            if not args.new_status and not args.new_priority:
+                print(
+                    "Error: provide -s/--status and/or --priority to set",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                sys.exit(1)
+            result = cli.bulk_update_pattern(
+                title_pattern=args.title_pattern,
+                desc_pattern=args.desc_pattern,
+                use_regex=args.use_regex,
+                new_status=args.new_status,
+                new_priority=args.new_priority,
+                dry_run=args.dry_run,
+                as_json=args.json,
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "bulk-delete-pattern":
+            if not args.title_pattern and not args.desc_pattern:
+                print(
+                    "Error: provide --title and/or --desc pattern", file=sys.stderr, flush=True
+                )
+                sys.exit(1)
+            result = cli.bulk_delete_pattern(
+                title_pattern=args.title_pattern,
+                desc_pattern=args.desc_pattern,
+                use_regex=args.use_regex,
+                confirm=args.confirm,
+                dry_run=args.dry_run,
+                as_json=args.json,
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "find-similar":
+            result = cli.find_similar_issues(
+                args.query, threshold=args.threshold, limit=args.limit, as_json=args.json
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command in ("dedupe", "find-duplicates"):
+            result = cli.find_duplicates(threshold=args.threshold, as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
         elif args.command == "web":
             from issuedb.web import run_server
 
             run_server(host=args.host, port=args.port, debug=args.debug)
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr, flush=True)
+        if getattr(args, "json", False):
+            print(json.dumps({"error": str(e)}), file=sys.stderr, flush=True)
+        else:
+            print(f"Error: {e}", file=sys.stderr, flush=True)
         sys.exit(1)
 
 

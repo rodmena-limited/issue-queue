@@ -2,8 +2,10 @@
 
 import contextlib
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional, Union
+from urllib.parse import urlsplit
 
 from flask import Flask, g, jsonify, redirect, render_template_string, request, url_for
 from werkzeug.wrappers import Response
@@ -13,9 +15,101 @@ from issuedb.repository import IssueRepository
 from issuedb.similarity import find_similar_issues
 
 app = Flask(__name__)
+# Set a secret key so the app never runs with an insecure default. A stable key can
+# be provided via the environment; otherwise a random per-process key is used.
+app.secret_key = os.environ.get("ISSUEDB_SECRET_KEY") or os.urandom(32)
 
 # Cache repository instances by db_path
 _repo_cache: dict[str, IssueRepository] = {}
+
+# HTTP methods that may change state and therefore require CSRF protection.
+_STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+# Tag colors are interpolated into inline ``style="..."`` attributes in the
+# templates. Even with Jinja autoescaping (which prevents breaking out of the
+# quoted attribute), a value like ``red;background:url(//evil)`` would still
+# inject arbitrary CSS. Restricting colors to a hex literal removes that vector.
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{3,8}$")
+_DEFAULT_COLOR = "#888888"
+
+
+def _safe_color(value: Optional[str]) -> str:
+    """Return ``value`` only if it is a safe hex color, else a safe default.
+
+    Used both when accepting colors from request input and (as defense in depth)
+    when rendering pre-existing colors, so that no tag color can ever inject CSS
+    into an inline ``style`` attribute.
+    """
+    if value is not None and _HEX_COLOR_RE.match(value):
+        return value
+    return _DEFAULT_COLOR
+
+
+# Expose the sanitizer to templates so colors are validated at render time.
+app.jinja_env.filters["safe_color"] = _safe_color
+
+# Matches the issue id in an issue-detail path such as ``/issues/42`` or
+# ``/issues/42/edit`` (anchored, digits only).
+_ISSUE_PATH_RE = re.compile(r"^/issues/(\d+)(?:/|$)")
+
+
+def _issue_id_from_referer(referer: Optional[str]) -> Optional[int]:
+    """Extract an issue id from a Referer's *path* only, ignoring host/scheme.
+
+    Returns the integer id when the path identifies an issue detail page, else
+    ``None``. Only the path component is inspected, so the result can never be a
+    client-controlled redirect target -- it is solely used to rebuild a
+    server-side ``url_for`` URL.
+    """
+    if not referer:
+        return None
+    match = _ISSUE_PATH_RE.match(urlsplit(referer).path)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+@app.before_request
+def _csrf_protect() -> Optional[Response]:
+    """Reject cross-origin state-changing requests (CSRF mitigation).
+
+    Browsers always send an ``Origin`` header on cross-origin POST/PUT/PATCH/DELETE
+    (and a ``Referer`` on form posts), so comparing the request's origin host against
+    the server's own host blocks browser-driven CSRF. Non-browser API clients that
+    omit both headers are still allowed, preserving programmatic access.
+    """
+    if request.method not in _STATE_CHANGING_METHODS:
+        return None
+
+    target_host = request.host  # host[:port] the request was sent to
+
+    origin = request.headers.get("Origin")
+    if origin:
+        if urlsplit(origin).netloc != target_host:
+            resp = jsonify({"error": "Cross-origin request blocked"})
+            resp.status_code = 403
+            return resp
+        return None
+
+    referer = request.headers.get("Referer")
+    if referer and urlsplit(referer).netloc != target_host:
+        resp = jsonify({"error": "Cross-origin request blocked"})
+        resp.status_code = 403
+        return resp
+
+    return None
+
+
+@app.errorhandler(ValueError)
+def _handle_value_error(error: ValueError) -> Response:
+    """Return invalid user input (e.g. bad status/priority/date) as a clean 400.
+
+    Without this, a ``ValueError`` from ``Priority.from_string``/``Status.from_string``
+    or the repository would surface as an unhandled 500.
+    """
+    resp = jsonify({"error": str(error)})
+    resp.status_code = 400
+    return resp
 
 
 @app.context_processor
@@ -1601,7 +1695,7 @@ ISSUES_LIST_TEMPLATE = BASE_TEMPLATE.replace(
                     {% if issue.tags %}
                     <div style="display: inline-flex; gap: 4px; margin-left: 8px;">
                         {% for tag in issue.tags %}
-                        <a href="/issues?tag={{ tag.name }}" class="badge" style="font-size: 10px; padding: 2px 6px; {% if tag.color %}background-color: {{ tag.color }}20; color: {{ tag.color }}; border: 1px solid {{ tag.color }}40;{% else %}background-color: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color);{% endif %}">{{ tag.name }}</a>
+                        <a href="/issues?tag={{ tag.name }}" class="badge" style="font-size: 10px; padding: 2px 6px; {% if tag.color %}background-color: {{ tag.color | safe_color }}20; color: {{ tag.color | safe_color }}; border: 1px solid {{ tag.color | safe_color }}40;{% else %}background-color: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color);{% endif %}">{{ tag.name }}</a>
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -1684,7 +1778,7 @@ ISSUE_DETAIL_TEMPLATE = (
         <span class="badge badge-{{ issue.status.value | replace('-', '-') }}">{{ issue.status.value }}</span>
         <span class="badge badge-{{ issue.priority.value }}">{{ issue.priority.value }}</span>
         {% for tag in issue.tags %}
-        <a href="/issues?tag={{ tag.name }}" class="badge" style="{% if tag.color %}background-color: {{ tag.color }}20; color: {{ tag.color }}; border: 1px solid {{ tag.color }}40;{% else %}background-color: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color);{% endif %}">{{ tag.name }}</a>
+        <a href="/issues?tag={{ tag.name }}" class="badge" style="{% if tag.color %}background-color: {{ tag.color | safe_color }}20; color: {{ tag.color | safe_color }}; border: 1px solid {{ tag.color | safe_color }}40;{% else %}background-color: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color);{% endif %}">{{ tag.name }}</a>
         {% endfor %}
         <span>Created {{ issue.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
         <span>&middot;</span>
@@ -1866,6 +1960,15 @@ ISSUE_DETAIL_TEMPLATE = (
         return div.innerHTML;
     }
 
+    function escapeAttr(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     // Load comments
     fetch(baseUrl + '/comments')
         .then(function(r) { return r.json(); })
@@ -2020,8 +2123,9 @@ ISSUE_DETAIL_TEMPLATE = (
                     html += '<span class="badge badge-low" style="margin-right: 6px; font-size: 9px;">' + escapeHtml(link.type) + '</span>';
                     html += '<a href="/issues/' + link.id + '" style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#' + link.id + ' ' + truncate(link.title, 20) + '</a>';
 
-                    // Delete button
-                    html += '<button onclick="deleteLink(' + issueId + ', ' + link.id + ', \\'' + escapeHtml(link.type) + '\\')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 14px;">&times;</button>';
+                    // Delete button (link.type is user-controlled: carry it in a safely
+                    // escaped data-attribute and bind the handler instead of inlining it).
+                    html += '<button class="del-link-btn" data-issue-id="' + issueId + '" data-link-id="' + link.id + '" data-link-type="' + escapeAttr(link.type) + '" style="background: none; border: none; color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 14px;">&times;</button>';
 
                     html += '</div>';
                 }
@@ -2038,6 +2142,16 @@ ISSUE_DETAIL_TEMPLATE = (
             html += '</div></div>';
 
             section.innerHTML = html;
+            var delBtns = section.querySelectorAll('.del-link-btn');
+            for (var di = 0; di < delBtns.length; di++) {
+                delBtns[di].addEventListener('click', function() {
+                    deleteLink(
+                        parseInt(this.getAttribute('data-issue-id'), 10),
+                        parseInt(this.getAttribute('data-link-id'), 10),
+                        this.getAttribute('data-link-type')
+                    );
+                });
+            }
         })
         .catch(function() {
              // Even on error, show the form so user can try to link
@@ -2716,7 +2830,7 @@ def api_create_issue() -> Any:
     repo = get_repo()
 
     # Handle form data or JSON
-    data = request.get_json() if request.is_json else request.form.to_dict()
+    data = (request.get_json(silent=True) or {}) if request.is_json else request.form.to_dict()
 
     title = data.get("title", "").strip()
     if not title:
@@ -2790,7 +2904,7 @@ def api_update_issue(issue_id: int) -> Any:
 
     # Handle form data or JSON
     if request.is_json:
-        data = request.get_json()
+        data = (request.get_json(silent=True) or {})
     else:
         data = request.form.to_dict()
         data.pop("_method", None)
@@ -2858,7 +2972,7 @@ def api_add_comment(issue_id: int) -> Any:
     """API: Add comment to an issue."""
     repo = get_repo()
 
-    data = request.get_json() if request.is_json else request.form.to_dict()
+    data = (request.get_json(silent=True) or {}) if request.is_json else request.form.to_dict()
 
     text = data.get("text", "").strip()
     if not text:
@@ -2892,17 +3006,24 @@ def api_delete_comment(comment_id: int) -> Any:
 
     deleted = repo.delete_comment(comment_id)
 
-    # Get referer for redirect
-    referer = request.headers.get("Referer", "/issues")
+    # Build the redirect target on the server. Never honor a client-supplied
+    # location (open-redirect): at most we recover the issue id from a
+    # same-origin Referer path (e.g. ``/issues/<id>``) and rebuild the URL with
+    # ``url_for``; otherwise fall back to the issues list.
+    issue_id = _issue_id_from_referer(request.headers.get("Referer"))
+    if issue_id is not None:
+        target = url_for("issue_detail", issue_id=issue_id)
+    else:
+        target = url_for("issues_list")
 
     if deleted:
         if request.is_json:
             return jsonify({"message": "Comment deleted"})
-        return redirect(referer)
+        return redirect(target)
     else:
         if request.is_json:
             return jsonify({"error": "Comment not found"}), 404
-        return redirect(referer)
+        return redirect(target)
 
 
 @app.route("/api/issues/<int:issue_id>/start", methods=["POST"])
@@ -3276,7 +3397,7 @@ def api_memory_list_create() -> Any:
     repo = get_repo()
 
     if request.method == "POST":
-        data = request.get_json()
+        data = (request.get_json(silent=True) or {})
         try:
             memory = repo.add_memory(
                 key=data["key"],
@@ -3305,7 +3426,7 @@ def api_memory_update_delete(key: str) -> Any:
             return jsonify({"message": "Memory deleted"})
         return jsonify({"error": "Memory not found"}), 404
     else:
-        data = request.get_json()
+        data = (request.get_json(silent=True) or {})
         memory = repo.update_memory(
             key=key,
             value=data.get("value"),
@@ -3322,7 +3443,7 @@ def api_lessons_list_create() -> Any:
     repo = get_repo()
 
     if request.method == "POST":
-        data = request.get_json()
+        data = (request.get_json(silent=True) or {})
         try:
             ll = repo.add_lesson(
                 lesson=data["lesson"],
@@ -3357,7 +3478,7 @@ def api_issue_tags(issue_id: int) -> Any:
         return jsonify([t.to_dict() for t in tags])
 
     elif request.method == "POST":
-        data = request.get_json()
+        data = (request.get_json(silent=True) or {})
         tag_name = data.get("tag")
         if not tag_name:
             return jsonify({"error": "Tag name required"}), 400
@@ -3381,7 +3502,7 @@ def api_links() -> Any:
     """API: Manage issue links."""
     repo = get_repo()
 
-    data = request.get_json()
+    data = (request.get_json(silent=True) or {})
     source = data.get("source")
     target = data.get("target")
     type = data.get("type")
@@ -3405,7 +3526,7 @@ def api_links() -> Any:
 
 
 def run_server(
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 7760,
     debug: bool = False,
 ) -> None:

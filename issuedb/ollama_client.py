@@ -3,11 +3,22 @@
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from typing import Optional, Tuple
 from urllib import request
 from urllib.error import HTTPError, URLError
+
+# Resource-exhaustion guards. The user request is attacker-influenced and the
+# Ollama response is untrusted, so we bound both before they hit memory:
+#   - MAX_REQUEST_CHARS caps how much of user_request is embedded in the prompt
+#     (and therefore POSTed) so a giant input can't inflate the request body.
+#   - MAX_RESPONSE_BYTES caps response.read() so a huge/malicious reply can't
+#     buffer unbounded into memory. 1 MB is far larger than any legit command.
+MAX_REQUEST_CHARS = 8000
+MAX_RESPONSE_BYTES = 1_000_000
+TRUNCATION_MARKER = "… [truncated]"
 
 
 class OllamaClient:
@@ -47,6 +58,10 @@ class OllamaClient:
                 if response.status == 200:
                     return True, None
                 return False, f"Server returned status {response.status}"
+        except HTTPError as e:
+            # urlopen raises HTTPError for non-2xx responses; surface the real
+            # status code instead of masking it as a generic connection error.
+            return False, f"Server returned status {e.code}"
         except URLError as e:
             return False, f"Cannot connect to Ollama server at {self.base_url}: {e.reason}"
         except Exception as e:
@@ -65,6 +80,12 @@ class OllamaClient:
             Tuple of (generated_command, error_message)
         """
         try:
+            # Bound the (attacker-influenced) request before it is embedded in
+            # the prompt and POSTed, so an oversized input can't inflate the
+            # request body. Keep the head and flag that we truncated.
+            if len(user_request) > MAX_REQUEST_CHARS:
+                user_request = user_request[:MAX_REQUEST_CHARS] + TRUNCATION_MARKER
+
             # Construct the full prompt
             full_prompt = f"""{system_prompt}
 
@@ -94,7 +115,10 @@ Generate the issuedb-cli command:"""
                 if response.status != 200:
                     return None, f"Ollama API returned status {response.status}"
 
-                response_data = json.loads(response.read().decode("utf-8"))
+                # Cap the read so a huge/malicious response can't exhaust
+                # memory. Normal responses are tiny and parse unchanged.
+                raw = response.read(MAX_RESPONSE_BYTES)
+                response_data = json.loads(raw.decode("utf-8"))
                 generated_text = response_data.get("response", "").strip()
 
                 if not generated_text:
@@ -171,11 +195,26 @@ Generate the issuedb-cli command:"""
         if dry_run:
             return True, f"Would execute: {command}", None
 
+        # Parse the command into an argv list. Never run model-generated text
+        # through a shell: a payload like "issuedb-cli list; rm -rf ~" would
+        # otherwise execute the injected command.
         try:
-            # Execute command
+            argv = shlex.split(command)
+        except ValueError as e:
+            return False, "", f"Could not parse command: {str(e)}"
+
+        if not argv or argv[0] != "issuedb-cli":
+            return (
+                False,
+                "",
+                "Refusing to execute: command must start with 'issuedb-cli'",
+            )
+
+        try:
+            # Execute command without a shell (shell=False).
             result = subprocess.run(
-                command,
-                shell=True,
+                argv,
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=30,

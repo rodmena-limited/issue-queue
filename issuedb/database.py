@@ -11,17 +11,25 @@ from typing import Any, Generator, Optional
 class DatabaseMeta(type):
     """Singleton metaclass for Database.
 
-    Ensures only one Database instance exists, unless a new path is provided.
+    Maintains a registry of Database instances keyed by the resolved absolute
+    path of the database file. Each distinct path gets its own isolated
+    instance, and a default-path request always returns the default instance.
     """
 
-    _instance: Optional["Database"] = None
+    _instances: dict[str, "Database"] = {}
 
     def __call__(cls, db_path: Optional[str] = None) -> "Database":
-        # Create new instance if none exists or if a different path is provided
-        if cls._instance is None or (db_path and str(cls._instance.db_path) != db_path):
-            cls._instance = super().__call__(db_path)
+        # Compute a registry key from the resolved absolute path so that
+        # equivalent paths (relative vs absolute, symlinks, etc.) map to the
+        # same instance, and distinct paths stay isolated.
+        key = str(Path(db_path).resolve()) if db_path else str(Path(".issue.db").resolve())
 
-        return cls._instance
+        instance = cls._instances.get(key)
+        if instance is None:
+            instance = super().__call__(db_path)
+            cls._instances[key] = instance
+
+        return instance
 
 
 class Database(metaclass=DatabaseMeta):
@@ -49,8 +57,6 @@ class Database(metaclass=DatabaseMeta):
 
         # Thread-local storage for connections
         self._local = threading.local()
-        # Track if WAL mode has been set (only needs to be done once per db file)
-        self._wal_initialized = False
 
         # Initialize database on first use
         self._initialize_database()
@@ -68,8 +74,8 @@ class Database(metaclass=DatabaseMeta):
                     description TEXT,
                     priority TEXT NOT NULL DEFAULT 'medium',
                     status TEXT NOT NULL DEFAULT 'open',
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
+                    updated_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime'))
                 )
             """)
 
@@ -82,7 +88,7 @@ class Database(metaclass=DatabaseMeta):
                     field_name TEXT,
                     old_value TEXT,
                     new_value TEXT,
-                    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    timestamp TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime'))
                 )
             """)
 
@@ -92,7 +98,7 @@ class Database(metaclass=DatabaseMeta):
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     issue_id INTEGER NOT NULL,
                     text TEXT NOT NULL,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE
                 )
             """)
@@ -106,7 +112,7 @@ class Database(metaclass=DatabaseMeta):
                     start_line INTEGER,
                     end_line INTEGER,
                     note TEXT,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE
                 )
             """)
@@ -174,7 +180,7 @@ class Database(metaclass=DatabaseMeta):
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL,
                     query_json TEXT NOT NULL,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime'))
                 )
             """)
 
@@ -190,7 +196,7 @@ class Database(metaclass=DatabaseMeta):
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     blocker_id INTEGER NOT NULL,
                     blocked_id INTEGER NOT NULL,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (blocker_id) REFERENCES issues (id) ON DELETE CASCADE,
                     FOREIGN KEY (blocked_id) REFERENCES issues (id) ON DELETE CASCADE,
                     UNIQUE(blocker_id, blocked_id)
@@ -254,7 +260,7 @@ class Database(metaclass=DatabaseMeta):
                     default_status TEXT,
                     required_fields TEXT,
                     field_prompts TEXT,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime'))
                 )
             """)
 
@@ -271,7 +277,7 @@ class Database(metaclass=DatabaseMeta):
                     issue_id INTEGER NOT NULL,
                     link_type TEXT NOT NULL,
                     reference TEXT NOT NULL,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE,
                     UNIQUE(issue_id, link_type, reference)
                 )
@@ -302,8 +308,8 @@ class Database(metaclass=DatabaseMeta):
                     key TEXT UNIQUE NOT NULL,
                     value TEXT NOT NULL,
                     category TEXT DEFAULT 'general',
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
+                    updated_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime'))
                 )
             """)
 
@@ -319,7 +325,7 @@ class Database(metaclass=DatabaseMeta):
                     issue_id INTEGER,
                     lesson TEXT NOT NULL,
                     category TEXT DEFAULT 'general',
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE SET NULL
                 )
             """)
@@ -330,7 +336,7 @@ class Database(metaclass=DatabaseMeta):
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL,
                     color TEXT,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime'))
                 )
             """)
 
@@ -339,7 +345,7 @@ class Database(metaclass=DatabaseMeta):
                 CREATE TABLE IF NOT EXISTS issue_tags (
                     issue_id INTEGER NOT NULL,
                     tag_id INTEGER NOT NULL,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE,
                     FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE,
                     PRIMARY KEY (issue_id, tag_id)
@@ -353,7 +359,7 @@ class Database(metaclass=DatabaseMeta):
                     source_issue_id INTEGER NOT NULL,
                     target_issue_id INTEGER NOT NULL,
                     relation_type TEXT NOT NULL,
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (source_issue_id) REFERENCES issues (id) ON DELETE CASCADE,
                     FOREIGN KEY (target_issue_id) REFERENCES issues (id) ON DELETE CASCADE,
                     UNIQUE(source_issue_id, target_issue_id, relation_type)
@@ -451,11 +457,12 @@ class Database(metaclass=DatabaseMeta):
             conn.execute("PRAGMA cache_size = 10000")
             conn.execute("PRAGMA temp_store = MEMORY")
 
-            # Set WAL mode (persists in database file, but we set it to be sure)
-            if not self._wal_initialized:
-                conn.execute("PRAGMA journal_mode = WAL")
-                conn.execute("PRAGMA synchronous = NORMAL")
-                self._wal_initialized = True
+            # Set WAL mode and synchronous level on every new connection.
+            # journal_mode=WAL persists in the database file, but synchronous
+            # is a per-connection setting, so it must be applied for each
+            # thread's connection, not just the first one.
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
 
             self._local.connection = conn
 
@@ -506,10 +513,30 @@ class Database(metaclass=DatabaseMeta):
         if not confirm:
             raise ValueError("Must set confirm=True to clear database")
 
+        # Delete from child/dependent tables before parent tables so the
+        # operation is safe even though foreign-key cascade is enabled.
+        tables = [
+            "issue_tags",
+            "issue_links",
+            "issue_dependencies",
+            "issue_relations",
+            "code_references",
+            "time_entries",
+            "comments",
+            "audit_logs",
+            "lessons_learned",
+            "workspace_state",
+            "saved_searches",
+            "issue_templates",
+            "memory",
+            "tags",
+            "issues",
+        ]
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM issues")
-            cursor.execute("DELETE FROM audit_logs")
+            for table in tables:
+                cursor.execute(f"DELETE FROM {table}")
             conn.commit()
 
     def get_database_info(self) -> dict[str, Any]:

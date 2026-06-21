@@ -406,3 +406,99 @@ class TestEdgeCases:
         data = json.loads(response.data)
         # Title should be preserved but won't execute as script
         assert "<script>" in data["title"]
+
+
+class TestTagColorSanitization:
+    """Regression tests: tag colors must never inject CSS into style attributes."""
+
+    MALICIOUS_COLOR = "red;background:url(//evil)"
+
+    def _create_issue_with_colored_tag(self, repo: IssueRepository, color: str) -> int:
+        """Create an issue tagged with a tag whose stored color is ``color``."""
+        issue = repo.create_issue(Issue(title="Tagged Issue"))
+        assert issue.id is not None
+        # Insert a tag with a malicious/raw color directly (simulating pre-existing
+        # or CLI-created bad data) and attach it to the issue.
+        repo.create_tag("danger", color=color)
+        repo.add_issue_tag(issue.id, "danger")
+        return issue.id
+
+    def test_issues_list_does_not_render_raw_color(
+        self, client, temp_db: Path, repo: IssueRepository
+    ) -> None:
+        """The issues list must not emit the raw injected CSS payload."""
+        self._create_issue_with_colored_tag(repo, self.MALICIOUS_COLOR)
+
+        response = client.get(f"/issues?db={temp_db}")
+        assert response.status_code == 200
+        body = response.data.decode()
+        # The injected CSS must not appear; the safe default must be used instead.
+        assert "url(//evil)" not in body
+        assert ";background:" not in body
+        assert "#888888" in body
+
+    def test_issue_detail_does_not_render_raw_color(
+        self, client, temp_db: Path, repo: IssueRepository
+    ) -> None:
+        """The issue detail page must not emit the raw injected CSS payload."""
+        issue_id = self._create_issue_with_colored_tag(repo, self.MALICIOUS_COLOR)
+
+        response = client.get(f"/issues/{issue_id}?db={temp_db}")
+        assert response.status_code == 200
+        body = response.data.decode()
+        assert "url(//evil)" not in body
+        assert ";background:" not in body
+
+    def test_valid_hex_color_preserved(
+        self, client, temp_db: Path, repo: IssueRepository
+    ) -> None:
+        """A legitimate hex color must still render unchanged."""
+        self._create_issue_with_colored_tag(repo, "#ff8800")
+
+        response = client.get(f"/issues?db={temp_db}")
+        assert response.status_code == 200
+        body = response.data.decode()
+        assert "#ff8800" in body
+        assert "#888888" not in body
+
+
+class TestCommentDeleteRedirect:
+    """Regression tests: comment-delete must not honor a crafted Referer."""
+
+    def test_delete_redirect_ignores_crafted_referer(
+        self, client, temp_db: Path, repo: IssueRepository
+    ) -> None:
+        """A same-origin Referer pointing elsewhere must not be the redirect target."""
+        issue = repo.create_issue(Issue(title="Comment Host"))
+        assert issue.id is not None
+        comment = repo.add_comment(issue.id, "to be deleted")
+
+        # Same-origin Referer (so the CSRF hook allows it) but pointing to an
+        # attacker-chosen path. The server must ignore it as a redirect target.
+        response = client.post(
+            f"/api/comments/{comment.id}?db={temp_db}",
+            data={"_method": "DELETE"},
+            headers={"Referer": "http://localhost/evil/landing-page"},
+        )
+        assert response.status_code == 302
+        location = response.headers["Location"]
+        # Must be a server-built path, never the supplied Referer.
+        assert "/evil/landing-page" not in location
+        assert location.startswith("/issues")
+
+    def test_delete_redirect_uses_issue_detail_from_referer_path(
+        self, client, temp_db: Path, repo: IssueRepository
+    ) -> None:
+        """When the Referer path is an issue page, redirect to that issue detail."""
+        issue = repo.create_issue(Issue(title="Comment Host"))
+        assert issue.id is not None
+        comment = repo.add_comment(issue.id, "to be deleted")
+
+        response = client.post(
+            f"/api/comments/{comment.id}?db={temp_db}",
+            data={"_method": "DELETE"},
+            headers={"Referer": f"http://localhost/issues/{issue.id}"},
+        )
+        assert response.status_code == 302
+        location = response.headers["Location"]
+        assert location.startswith(f"/issues/{issue.id}")

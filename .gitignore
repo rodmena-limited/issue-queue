@@ -61,6 +61,13 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# IssueDB runtime database files and artifacts
+.issue.db
+*.db-shm
+*.db-wal
+*.db-journal
+nohup.out
+
 # Flask stuff:
 instance/
 .webassets-cache

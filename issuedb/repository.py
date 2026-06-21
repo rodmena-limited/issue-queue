@@ -194,12 +194,15 @@ class IssueRepository:
                     value = Status.from_string(value).value
                     old_value = current_issue.status.value
                 elif field == "due_date":
-                    # Value should be ISO format string or None
-                    if value:
-                        # Validate date format
+                    # Empty/None clears the due date; otherwise normalise to a canonical
+                    # ISO string so re-setting the same date is a no-op (avoids spurious
+                    # writes and audit-log entries).
+                    if value is None or (isinstance(value, str) and not value.strip()):
+                        value = None
+                    else:
                         try:
-                            datetime.fromisoformat(value)
-                        except ValueError:
+                            value = datetime.fromisoformat(value).isoformat()
+                        except (ValueError, TypeError):
                             raise ValueError(f"Invalid date format for {field}: {value}") from None
                     due_date = current_issue.due_date
                     old_value = due_date.isoformat() if due_date else None
@@ -725,9 +728,10 @@ class IssueRepository:
                 if issue_id in seen_ids:
                     continue
 
-                # If issue still exists, get current state
+                # If issue still exists, get current state (reuse this connection to
+                # avoid a nested get_connection() that would commit mid-iteration).
                 if row["current_id"] is not None:
-                    issue = self.get_issue(issue_id)
+                    issue = self._get_issue_with_conn(conn, issue_id)
                     if issue:
                         issues.append(issue)
                         seen_ids.add(issue_id)
@@ -834,10 +838,18 @@ class IssueRepository:
                 "open": [],
                 "in_progress": [],
                 "closed": [],
+                "wont_do": [],
+            }
+            # Map hyphenated status values to the underscored group keys.
+            status_key_map = {
+                "open": "open",
+                "in-progress": "in_progress",
+                "closed": "closed",
+                "wont-do": "wont_do",
             }
             for issue in issues:
-                key = "in_progress" if issue.status.value == "in-progress" else issue.status.value
-                grouped[key].append(issue)
+                key = status_key_map.get(issue.status.value, issue.status.value)
+                grouped.setdefault(key, []).append(issue)
         else:  # group by priority
             grouped = {
                 "critical": [],
@@ -1281,10 +1293,14 @@ class IssueRepository:
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
 
-        if "estimated_hours" in row and row["estimated_hours"] is not None:
+        # NOTE: use row.keys(), not ``"col" in row`` — sqlite3.Row.__contains__ tests
+        # values, not column names, so the membership form silently never matched and
+        # due_date / estimated_hours were never read back onto the Issue.
+        row_keys = row.keys()
+        if "estimated_hours" in row_keys and row["estimated_hours"] is not None:
             issue.estimated_hours = row["estimated_hours"]
 
-        if "due_date" in row and row["due_date"] is not None:
+        if "due_date" in row_keys and row["due_date"] is not None:
             issue.due_date = datetime.fromisoformat(row["due_date"])
 
         return issue
@@ -1542,27 +1558,20 @@ class IssueRepository:
         Raises:
             ValueError: If either issue doesn't exist or if adding would create a cycle.
         """
-        # Verify both issues exist
-        blocked_issue = self.get_issue(blocked_id)
-        blocker_issue = self.get_issue(blocker_id)
-
-        if not blocked_issue:
-            raise ValueError(f"Blocked issue {blocked_id} not found")
-        if not blocker_issue:
-            raise ValueError(f"Blocker issue {blocker_id} not found")
-
-        # Prevent self-blocking
-        if blocked_id == blocker_id:
-            raise ValueError("Issue cannot block itself")
-
-        # Check for cycles (would blocker_id be blocked by blocked_id?)
-        if self._would_create_cycle(blocked_id, blocker_id):
-            raise ValueError(
-                f"Adding this dependency would create a cycle: "
-                f"issue {blocker_id} is already transitively blocked by issue {blocked_id}"
-            )
-
+        # Do existence checks, the cycle check and the insert in a single
+        # transaction so the operation is atomic. The cycle check runs AFTER the
+        # INSERT (which takes the write lock), so two concurrent reciprocal inserts
+        # cannot both pass it — the second one sees the first's row and rolls back.
         with self.db.get_connection() as conn:
+            if not self._get_issue_with_conn(conn, blocked_id):
+                raise ValueError(f"Blocked issue {blocked_id} not found")
+            if not self._get_issue_with_conn(conn, blocker_id):
+                raise ValueError(f"Blocker issue {blocker_id} not found")
+
+            # Prevent self-blocking
+            if blocked_id == blocker_id:
+                raise ValueError("Issue cannot block itself")
+
             cursor = conn.cursor()
             try:
                 cursor.execute(
@@ -1572,12 +1581,21 @@ class IssueRepository:
                 """,
                     (blocker_id, blocked_id),
                 )
-                return True
             except Exception as e:
                 # Check if it's a unique constraint violation
                 if "UNIQUE constraint failed" in str(e):
                     return False
                 raise
+
+            # Check for cycles (would blocker_id be blocked by blocked_id?). Raising
+            # here makes the surrounding context manager roll the INSERT back.
+            if self._would_create_cycle_with_conn(conn, blocked_id, blocker_id):
+                raise ValueError(
+                    f"Adding this dependency would create a cycle: "
+                    f"issue {blocker_id} is already transitively blocked by issue {blocked_id}"
+                )
+
+            return True
 
     def remove_dependency(self, blocked_id: int, blocker_id: Optional[int] = None) -> int:
         """Remove dependency relationship(s) for an issue.
@@ -1738,8 +1756,19 @@ class IssueRepository:
         Returns:
             True if adding this dependency would create a cycle.
         """
-        # Check if blocker_id is blocked by blocked_id (directly or transitively)
-        visited = set()
+        with self.db.get_connection() as conn:
+            return self._would_create_cycle_with_conn(conn, blocked_id, blocker_id)
+
+    def _would_create_cycle_with_conn(
+        self, conn: Any, blocked_id: int, blocker_id: int
+    ) -> bool:
+        """Connection-scoped cycle check (see :meth:`_would_create_cycle`).
+
+        Walks the blocker chain using the supplied connection so it can run inside
+        an open transaction without spawning nested connections.
+        """
+        cursor = conn.cursor()
+        visited: set[int] = set()
         to_check = [blocker_id]
 
         while to_check:
@@ -1752,11 +1781,15 @@ class IssueRepository:
             if current == blocked_id:
                 return True
 
-            # Add all blockers of current issue to check
-            blockers = self.get_blockers(current)
-            for blocker in blockers:
-                if blocker.id and blocker.id not in visited:
-                    to_check.append(blocker.id)
+            # Add all blockers of the current issue to check
+            cursor.execute(
+                "SELECT blocker_id FROM issue_dependencies WHERE blocked_id = ?",
+                (current,),
+            )
+            for row in cursor.fetchall():
+                bid = row["blocker_id"]
+                if bid is not None and bid not in visited:
+                    to_check.append(bid)
 
         return False
 
@@ -2052,6 +2085,22 @@ class IssueRepository:
 
             return None
 
+    def _set_status_with_conn(
+        self, conn: Any, issue_id: int, new_status: str, current_status: str
+    ) -> None:
+        """Set an issue's status within an existing transaction (with audit logging).
+
+        Used so a workspace change and the issue's status change commit together.
+        """
+        if current_status == new_status:
+            return
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE issues SET status = ?, updated_at = ? WHERE id = ?",
+            (new_status, datetime.now().isoformat(), issue_id),
+        )
+        self._log_audit(conn, issue_id, "UPDATE", "status", current_status, new_status)
+
     def start_issue(self, issue_id: int) -> tuple[Issue, datetime]:
         """Set an issue as the active issue and update its status to in-progress.
 
@@ -2064,14 +2113,15 @@ class IssueRepository:
         Raises:
             ValueError: If issue not found.
         """
-        # Verify issue exists
-        issue = self.get_issue(issue_id)
-        if not issue:
-            raise ValueError(f"Issue {issue_id} not found")
-
         started_at = datetime.now()
 
+        # Do the workspace write and the status change in one transaction so the
+        # issue can never end up "active" without also being marked in-progress.
         with self.db.get_connection() as conn:
+            current = self._get_issue_with_conn(conn, issue_id)
+            if not current:
+                raise ValueError(f"Issue {issue_id} not found")
+
             cursor = conn.cursor()
 
             # Initialize workspace_state if not exists
@@ -2102,10 +2152,10 @@ class IssueRepository:
                 started_at.isoformat(),
             )
 
-        # Auto-update issue status to in-progress
-        updated_issue = self.update_issue(issue_id, status="in-progress")
-        if not updated_issue:
-            raise ValueError(f"Failed to update issue {issue_id}")
+            # Auto-update issue status to in-progress (same transaction)
+            self._set_status_with_conn(conn, issue_id, "in-progress", current.status.value)
+            updated_issue = self._get_issue_with_conn(conn, issue_id)
+            assert updated_issue is not None
 
         return (updated_issue, started_at)
 
@@ -2126,6 +2176,7 @@ class IssueRepository:
         issue, started_at = active
         stopped_at = datetime.now()
 
+        # Clear the workspace and (optionally) close the issue in one transaction.
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
@@ -2149,11 +2200,14 @@ class IssueRepository:
                 stopped_at.isoformat(),
             )
 
-        # Optionally close the issue
-        if close and issue.id:
-            updated_issue = self.update_issue(issue.id, status="closed")
-            if updated_issue:
-                issue = updated_issue
+            # Optionally close the issue (same transaction)
+            if close and issue.id:
+                current = self._get_issue_with_conn(conn, issue.id)
+                if current:
+                    self._set_status_with_conn(conn, issue.id, "closed", current.status.value)
+                    refreshed = self._get_issue_with_conn(conn, issue.id)
+                    if refreshed:
+                        issue = refreshed
 
         return (issue, started_at, stopped_at)
 
@@ -2550,20 +2604,31 @@ class IssueRepository:
                     SUM(te.duration_seconds) as total_seconds,
                     COUNT(te.id) as entry_count
                 FROM issues i
-                LEFT JOIN time_entries te ON i.id = te.issue_id
-                WHERE te.ended_at IS NOT NULL
-                AND te.started_at >= ?
+                LEFT JOIN time_entries te
+                    ON i.id = te.issue_id
+                    AND te.ended_at IS NOT NULL
+                    AND te.started_at >= ?
             """
             params: List[Any] = [start_date.isoformat()]
 
             if issue_id:
-                query += " AND i.id = ?"
+                query += " WHERE i.id = ?"
                 params.append(issue_id)
 
-            query += """
-                GROUP BY i.id
-                ORDER BY total_seconds DESC
-            """
+            query += " GROUP BY i.id"
+
+            # Keeping the time predicates in the JOIN (not WHERE) preserves the LEFT
+            # JOIN semantics, so an issue with an estimate but no logged time this
+            # period is no longer silently dropped. When not filtering to a single
+            # issue, hide issues that have neither tracked time nor an estimate so the
+            # report isn't flooded with untouched issues.
+            if not issue_id:
+                query += (
+                    " HAVING SUM(te.duration_seconds) IS NOT NULL"
+                    " OR i.estimated_hours IS NOT NULL"
+                )
+
+            query += " ORDER BY total_seconds DESC"
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
