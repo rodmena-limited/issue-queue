@@ -273,6 +273,23 @@ class TestMemoryLessonsRelationsCoverage:
         assert repo.unlink_issues(a.id, b.id, "related") is True
 
 
+class TestBlankDateRows:
+    """Empty-string date columns (from older data) must not break listings."""
+
+    def test_empty_due_date_string_does_not_crash_listing(self, repo, tmp_path):
+        issue = _make(repo, "has blank due date")
+        # Simulate legacy/third-party data: due_date stored as '' not NULL.
+        with repo.db.get_connection() as conn:
+            conn.execute("UPDATE issues SET due_date = '' WHERE id = ?", (issue.id,))
+
+        listed = repo.list_issues()
+        assert len(listed) == 1
+        assert listed[0].due_date is None
+        # get_issue and search must survive it too.
+        assert repo.get_issue(issue.id).due_date is None
+        assert len(repo.search_issues("blank")) == 1
+
+
 class TestSimilarityEdgeCases:
     def test_punctuation_only_texts_not_identical(self):
         assert calculate_similarity("???", "!!!") == 0.0
