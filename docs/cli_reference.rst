@@ -21,7 +21,7 @@ These options can be used with any command:
     Use Ollama to convert natural language to commands
 
 ``--ollama-model MODEL``
-    Specify the Ollama model to use (default: from environment or llama3.2)
+    Specify the Ollama model to use (default: from environment or llama3)
 
 ``--ollama-host HOST``
     Ollama server host (default: localhost)

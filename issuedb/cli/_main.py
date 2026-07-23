@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import sys
 
 from issuedb.cli._parser import build_parser
+
+
+def _missing_subcommand(parser: argparse.ArgumentParser, command: str, choices: str) -> None:
+    """Report a missing subcommand as a usage error (stderr, exit code 2)."""
+    print(
+        f"{parser.prog} {command}: error: a subcommand is required ({choices})",
+        file=sys.stderr,
+        flush=True,
+    )
+    sys.exit(2)
 
 
 def main() -> None:
@@ -59,6 +71,7 @@ def main() -> None:
             host=args.ollama_host,
             port=args.ollama_port,
             model=args.ollama_model,
+            dry_run=args.ollama_dry_run,
         )
         sys.exit(exit_code)
 
@@ -80,8 +93,14 @@ def main() -> None:
                 due_date=args.due_date,
                 as_json=args.json,
                 tags=args.tags,
+                check_duplicates=args.check_duplicates,
+                force=args.force,
+                template=args.template,
             )
             print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "templates":
+            print(cli.list_templates(as_json=args.json), file=sys.stdout, flush=True)
 
         elif args.command == "list":
             result = cli.list_issues(
@@ -122,7 +141,7 @@ def main() -> None:
 
         elif args.command == "memory":
             if not args.memory_command:
-                parser.parse_args(["memory", "--help"])
+                _missing_subcommand(parser, "memory", "add/list/update/delete")
 
             if args.memory_command == "add":
                 result = cli.memory_add(args.key, args.value, args.category, args.json)
@@ -138,7 +157,7 @@ def main() -> None:
 
         elif args.command == "lesson":
             if not args.lesson_command:
-                parser.parse_args(["lesson", "--help"])
+                _missing_subcommand(parser, "lesson", "add/list")
 
             if args.lesson_command == "add":
                 result = cli.lesson_add(args.lesson, args.issue_id, args.category, args.json)
@@ -149,7 +168,7 @@ def main() -> None:
 
         elif args.command == "tag":
             if not args.tag_command:
-                parser.parse_args(["tag", "--help"])
+                _missing_subcommand(parser, "tag", "list/add/remove")
 
             if args.tag_command == "list":
                 print(cli.tag_list(args.json), file=sys.stdout, flush=True)
@@ -162,7 +181,7 @@ def main() -> None:
 
         elif args.command == "link":
             if not args.link_command:
-                parser.parse_args(["link", "--help"])
+                _missing_subcommand(parser, "link", "add/remove")
 
             if args.link_command == "add":
                 result = cli.link_issues(args.source, args.target, args.type, args.json)
@@ -459,11 +478,76 @@ def main() -> None:
             result = cli.find_duplicates(threshold=args.threshold, as_json=args.json)
             print(result, file=sys.stdout, flush=True)
 
+        elif args.command == "git-link":
+            from issuedb.git_cli import GitCLI
+
+            git_cli = GitCLI(args.db)
+            if args.commit:
+                result = git_cli.link_commit(args.issue_id, args.commit, as_json=args.json)
+            else:
+                result = git_cli.link_branch(args.issue_id, args.branch, as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "git-unlink":
+            from issuedb.git_cli import GitCLI
+
+            git_cli = GitCLI(args.db)
+            result = git_cli.unlink(
+                args.issue_id,
+                commit_hash=args.commit,
+                branch_name=args.branch,
+                as_json=args.json,
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "git-links":
+            from issuedb.git_cli import GitCLI
+
+            git_cli = GitCLI(args.db)
+            result = git_cli.list_links(args.issue_id, as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "git-linked":
+            from issuedb.git_cli import GitCLI
+
+            git_cli = GitCLI(args.db)
+            result = git_cli.find_linked_issues(
+                commit_hash=args.commit,
+                branch_name=args.branch,
+                as_json=args.json,
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "git-scan":
+            from issuedb.git_cli import GitCLI
+
+            git_cli = GitCLI(args.db)
+            result = git_cli.git_scan(
+                num_commits=args.num_commits,
+                auto_close=args.auto_close,
+                as_json=args.json,
+            )
+            print(result, file=sys.stdout, flush=True)
+
+        elif args.command == "git-status":
+            from issuedb.git_cli import GitCLI
+
+            git_cli = GitCLI(args.db)
+            result = git_cli.git_status(as_json=args.json)
+            print(result, file=sys.stdout, flush=True)
+
         elif args.command == "web":
             from issuedb.web import run_server
 
-            run_server(host=args.host, port=args.port, debug=args.debug)
+            run_server(host=args.host, port=args.port, debug=args.debug, db_path=args.db)
 
+    except BrokenPipeError:
+        # The reader (e.g. `issuedb-cli list | head`) closed the pipe. Point
+        # stdout at devnull so the interpreter's final flush doesn't raise
+        # again, and exit with the conventional SIGPIPE code.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        sys.exit(141)
     except Exception as e:
         if getattr(args, "json", False):
             print(json.dumps({"error": str(e)}), file=sys.stderr, flush=True)

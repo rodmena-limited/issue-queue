@@ -12,19 +12,26 @@ You are an AI agent using issuedb-cli for issue tracking. Your responses MUST be
 
 ## DATABASE MODEL
 - IssueDB uses a per-directory database model
-- Each directory has its own `./issuedb.sqlite` file
+- Each directory has its own `./.issue.db` file (override with --db PATH)
 - Run commands from the project directory you want to manage
 - No project flags needed - your current directory IS the project
+
+## ERROR CONTRACT
+- Success: exit code 0, result on stdout
+- Errors: NON-ZERO exit code, message on stderr ("Error: ..." in text mode,
+  {"error": "..."} with --json)
+- A missing subcommand (e.g. bare `issuedb-cli tag`) exits with code 2
 
 ## COMMAND REFERENCE
 
 ### Issue Creation
-issuedb-cli create -t "TITLE" [-d "DESCRIPTION"] [--priority PRIORITY] [--status STATUS] [--due-date YYYY-MM-DD]
+issuedb-cli create -t "TITLE" [-d "DESCRIPTION"] [--priority PRIORITY] [--status STATUS] [--due-date YYYY-MM-DD] [--tag TAG]... [--template NAME]
 - Required: -t/--title
 - Priorities: low, medium, high, critical (default: medium)
 - Status: open, in-progress, closed, wont-do (default: open)
-- Use --check-duplicates to check for similar issues before creating
-- Use --force to create even if duplicates found
+- --tag is repeatable: --tag bug --tag v1.0
+- Use --check-duplicates to refuse creation when similar issues exist (exits 1)
+- Use --force with --check-duplicates to create anyway
 
 ### Issue Listing
 issuedb-cli list [-s STATUS] [--priority PRIORITY] [-l LIMIT] [--due-date YYYY-MM-DD] [--tag TAG]
@@ -184,13 +191,14 @@ issuedb-cli --json affected --file "FILE_PATH"
 ### Start Timer
 issuedb-cli timer-start ISSUE_ID
 - Starts tracking time on an issue
-- Only one timer can be active at a time
+- At most one running timer per issue (timers on different issues may run in parallel)
 
 ### Stop Timer
 issuedb-cli timer-stop [ISSUE_ID]
 issuedb-cli --json timer-stop [ISSUE_ID]
-- Stops active timer and records time entry
-- ISSUE_ID optional if only one timer is running
+- With ISSUE_ID: stops that issue's timer
+- Without ISSUE_ID: stops ALL running timers
+- Errors (exit 1) if no timer is running
 
 ### Timer Status
 issuedb-cli timer-status
@@ -198,9 +206,9 @@ issuedb-cli --json timer-status
 - Shows currently running timer(s)
 
 ### Set Time Estimate
-issuedb-cli set-estimate ISSUE_ID --hours HOURS
+issuedb-cli estimate ISSUE_ID HOURS
 - Set estimated hours for an issue
-- Example: issuedb-cli set-estimate 5 --hours 4
+- Example: issuedb-cli estimate 5 4
 
 ### View Time Log
 issuedb-cli time-log ISSUE_ID
@@ -223,8 +231,8 @@ issuedb-cli --json workspace
 ### Start Working on Issue
 issuedb-cli start ISSUE_ID
 issuedb-cli --json start ISSUE_ID
-- Marks issue as "active" in workspace
-- Also starts timer automatically
+- Marks issue as "active" in workspace and sets its status to in-progress
+- Does NOT start a timer; use timer-start ISSUE_ID for time tracking
 
 ### Stop Working
 issuedb-cli stop [--close]
@@ -280,11 +288,12 @@ issuedb-cli create --template TEMPLATE_NAME -t "TITLE" [-d "DESCRIPTION"]
 ## BULK OPERATIONS
 
 ### Bulk Update (Filter-based)
-issuedb-cli bulk-update [--filter-status STATUS] [--filter-priority PRIORITY] [-s NEW_STATUS] [--priority NEW_PRIORITY]
+issuedb-cli bulk-update [--filter-status STATUS] [--filter-priority PRIORITY] [-s NEW_STATUS] [--priority NEW_PRIORITY] [--all]
 - Updates all issues matching filters
+- Refuses to touch ALL issues unless a filter is given or --all confirms it
 - Examples:
-  - Close all: issuedb-cli bulk-update -s closed
   - Close all open: issuedb-cli bulk-update --filter-status open -s closed
+  - Close everything: issuedb-cli bulk-update -s closed --all
 
 ### Bulk Create (JSON)
 echo 'JSON_ARRAY' | issuedb-cli --json bulk-create
@@ -335,6 +344,33 @@ issuedb-cli --json info
 ### Audit Logs
 issuedb-cli audit [-i ISSUE_ID]
 issuedb-cli --json audit [-i ISSUE_ID]
+
+## GIT INTEGRATION
+
+### Link Issue to Commit or Branch
+issuedb-cli git-link ISSUE_ID -c COMMIT_HASH
+issuedb-cli git-link ISSUE_ID -b BRANCH_NAME
+
+### Unlink
+issuedb-cli git-unlink ISSUE_ID -c COMMIT_HASH
+issuedb-cli git-unlink ISSUE_ID -b BRANCH_NAME
+
+### Show Git Links for an Issue
+issuedb-cli git-links ISSUE_ID
+issuedb-cli --json git-links ISSUE_ID
+
+### Find Issues Linked to a Commit/Branch
+issuedb-cli git-linked -c COMMIT_HASH
+issuedb-cli git-linked -b BRANCH_NAME
+
+### Scan Commits for Issue References
+issuedb-cli git-scan [-n NUM_COMMITS] [--auto-close]
+- Scans recent commits for "#N" references and links them
+- --auto-close closes issues referenced as "fixes #N" / "closes #N" / "resolves #N"
+
+### Git Repository Status
+issuedb-cli git-status
+issuedb-cli --json git-status
 
 ## ADMINISTRATIVE
 

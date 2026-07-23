@@ -171,9 +171,12 @@ class TestExecuteCommandSecurity:
         assert isinstance(argv, list)
         # shell must never be True.
         assert captured["kwargs"].get("shell") is not True
-        # argv[0] is the executable; the injected payload is just an argument,
+        # The command runs this installation's CLI module (not whatever
+        # issuedb-cli is on PATH); the injected payload is just an argument,
         # never interpreted by a shell.
-        assert argv[0] == "issuedb-cli"
+        import sys as _sys
+
+        assert argv[:3] == [_sys.executable, "-m", "issuedb.cli"]
         assert "rm" in argv  # passed as a literal arg, not a separate command
         assert success is True
 
@@ -224,7 +227,18 @@ class TestExecuteCommandSecurity:
         assert success is True
         assert stdout == "ok"
         argv = captured["args"][0]
-        assert argv == ["issuedb-cli", "create", "-t", "Fix bug", "-p", "Backend"]
+        import sys as _sys
+
+        assert argv == [
+            _sys.executable,
+            "-m",
+            "issuedb.cli",
+            "create",
+            "-t",
+            "Fix bug",
+            "-p",
+            "Backend",
+        ]
         assert captured["kwargs"].get("shell") is not True
 
 

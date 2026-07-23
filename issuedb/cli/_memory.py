@@ -12,14 +12,16 @@ if TYPE_CHECKING:
 def memory_add(
     self: CLI, key: str, value: str, category: str = "general", as_json: bool = False
 ) -> str:
-    """Add memory item."""
-    try:
-        memory = self.repo.add_memory(key, value, category)
-        if as_json:
-            return json.dumps(memory.to_dict(), indent=2)
-        return f"Memory added: {key} ({category})"
-    except ValueError as e:
-        return json.dumps({"error": str(e)}) if as_json else str(e)
+    """Add memory item.
+
+    Raises:
+        ValueError: If the key already exists (propagates to the CLI error
+            handler: message on stderr, exit code 1).
+    """
+    memory = self.repo.add_memory(key, value, category)
+    if as_json:
+        return json.dumps(memory.to_dict(), indent=2)
+    return f"Memory added: {key} ({category})"
 
 
 def memory_list(
@@ -46,11 +48,14 @@ def memory_update(
     category: str | None = None,
     as_json: bool = False,
 ) -> str:
-    """Update memory item."""
+    """Update memory item.
+
+    Raises:
+        ValueError: If the key does not exist.
+    """
     memory = self.repo.update_memory(key, value, category)
     if not memory:
-        msg = f"Memory '{key}' not found"
-        return json.dumps({"error": msg}) if as_json else msg
+        raise ValueError(f"Memory '{key}' not found")
 
     if as_json:
         return json.dumps(memory.to_dict(), indent=2)
@@ -58,9 +63,12 @@ def memory_update(
 
 
 def memory_delete(self: CLI, key: str, as_json: bool = False) -> str:
-    """Delete memory item."""
+    """Delete memory item.
+
+    Raises:
+        ValueError: If the key does not exist.
+    """
     if self.repo.delete_memory(key):
         msg = f"Memory '{key}' deleted"
         return json.dumps({"message": msg}) if as_json else msg
-    msg = f"Memory '{key}' not found"
-    return json.dumps({"error": msg}) if as_json else msg
+    raise ValueError(f"Memory '{key}' not found")

@@ -120,23 +120,23 @@ def _get_git_info(self: CLI, issue_id: int) -> dict[str, Any] | None:
         )
         current_branch = branch_result.stdout.strip() if branch_result.returncode == 0 else None
 
-        # Search for commits mentioning this issue ID
-        # Look for patterns like "#ID", "issue ID", "issue #ID", etc.
-        patterns = [f"#{issue_id}", f"issue {issue_id}", f"issue #{issue_id}"]
+        # Search for commits mentioning this issue ID ("#ID", "issue ID",
+        # "issue #ID"). The trailing non-digit boundary keeps issue 1 from
+        # matching commits about #10..#19x.
+        pattern = f"(#|issue #?){issue_id}([^0-9]|$)"
         recent_commits = []
 
-        for pattern in patterns:
-            commit_result = subprocess.run(
-                ["git", "log", "--all", f"--grep={pattern}", "-i", "--oneline", "-n", "5"],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            if commit_result.returncode == 0 and commit_result.stdout.strip():
-                commits = commit_result.stdout.strip().split("\n")
-                for commit in commits:
-                    if commit and commit not in recent_commits:
-                        recent_commits.append(commit)
+        commit_result = subprocess.run(
+            ["git", "log", "--all", "-E", f"--grep={pattern}", "-i", "--oneline", "-n", "5"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if commit_result.returncode == 0 and commit_result.stdout.strip():
+            commits = commit_result.stdout.strip().split("\n")
+            for commit in commits:
+                if commit and commit not in recent_commits:
+                    recent_commits.append(commit)
 
         git_info = {
             "current_branch": current_branch,

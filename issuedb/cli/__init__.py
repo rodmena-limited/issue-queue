@@ -40,6 +40,7 @@ class CLI:
 
     # Core issue CRUD
     create_issue = _issues.create_issue
+    list_templates = _issues.list_templates
     list_issues = _issues.list_issues
     get_issue = _issues.get_issue
     update_issue = _issues.update_issue

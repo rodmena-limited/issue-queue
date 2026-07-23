@@ -42,15 +42,21 @@ def start_timer(self: IssueRepository, issue_id: int, note: str | None = None) -
         if cursor.fetchone():
             raise ValueError(f"Timer already running for issue {issue_id}")
 
-        # Create new time entry
+        # Create new time entry. The partial unique index on running timers
+        # closes the check-then-insert race against concurrent processes.
         started_at = datetime.now()
-        cursor.execute(
-            """
-            INSERT INTO time_entries (issue_id, started_at, note)
-            VALUES (?, ?, ?)
-        """,
-            (issue_id, started_at.isoformat(), note),
-        )
+        try:
+            cursor.execute(
+                """
+                INSERT INTO time_entries (issue_id, started_at, note)
+                VALUES (?, ?, ?)
+            """,
+                (issue_id, started_at.isoformat(), note),
+            )
+        except Exception as e:
+            if "UNIQUE constraint failed" in str(e):
+                raise ValueError(f"Timer already running for issue {issue_id}") from e
+            raise
 
         entry_id = cursor.lastrowid
 
@@ -127,6 +133,50 @@ def stop_timer(self: IssueRepository, issue_id: int | None = None) -> dict[str, 
             "duration_seconds": duration_seconds,
             "note": row["note"],
         }
+
+
+def stop_all_timers(self: IssueRepository) -> list[dict[str, Any]]:
+    """Stop every running timer.
+
+    Returns:
+        List of completed timer dictionaries (empty if none were running).
+    """
+    with self.db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM time_entries
+            WHERE ended_at IS NULL
+            ORDER BY started_at DESC
+        """
+        )
+        rows = cursor.fetchall()
+
+        stopped = []
+        ended_at = datetime.now()
+        for row in rows:
+            started_at = datetime.fromisoformat(row["started_at"])
+            duration_seconds = int((ended_at - started_at).total_seconds())
+            cursor.execute(
+                """
+                UPDATE time_entries
+                SET ended_at = ?, duration_seconds = ?
+                WHERE id = ? AND ended_at IS NULL
+            """,
+                (ended_at.isoformat(), duration_seconds, row["id"]),
+            )
+            stopped.append(
+                {
+                    "id": row["id"],
+                    "issue_id": row["issue_id"],
+                    "started_at": row["started_at"],
+                    "ended_at": ended_at.isoformat(),
+                    "duration_seconds": duration_seconds,
+                    "note": row["note"],
+                }
+            )
+
+        return stopped
 
 
 def get_running_timers(self: IssueRepository) -> list[dict[str, Any]]:
@@ -340,8 +390,8 @@ def get_time_report(
                 "entry_count": row["entry_count"],
             }
 
-            # Calculate if over/under estimate
-            if estimated_hours:
+            # Calculate if over/under estimate (0 is a valid estimate)
+            if estimated_hours is not None:
                 issue_data["over_estimate"] = hours > estimated_hours
                 issue_data["difference_hours"] = round(hours - estimated_hours, 2)
             else:

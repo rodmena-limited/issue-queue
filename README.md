@@ -4,6 +4,8 @@ A command-line issue tracking system for software development projects. IssueDB 
 
 ## Installation
 
+Requires Python 3.9+.
+
 ```bash
 pip install issuedb
 ```
@@ -103,10 +105,21 @@ issuedb-cli deps 5
 # Time Tracking
 issuedb-cli timer-start 1
 issuedb-cli timer-status
-issuedb-cli timer-stop
+issuedb-cli timer-stop        # no argument: stops ALL running timers
+issuedb-cli timer-stop 1      # stop the timer for issue 1
 issuedb-cli estimate 1 2.5
 issuedb-cli time-log 1
 issuedb-cli time-report --period week
+
+# Templates
+issuedb-cli templates
+issuedb-cli create --template bug -t "Crash on startup" -d "Steps: ..."
+
+# Git integration
+issuedb-cli git-status
+issuedb-cli git-link 1 -c <commit-hash>
+issuedb-cli git-links 1
+issuedb-cli git-scan --auto-close   # link commits mentioning "#N"; close "fixes #N"
 
 # Code References
 issuedb-cli attach 1 --file "src/main.py:42"

@@ -16,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--db",
-        help="Path to database file (default: ~/.issuedb/issuedb.sqlite)",
+        help="Path to database file (default: ./.issue.db in the current directory)",
         default=None,
     )
 
@@ -53,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ollama server port (default: from OLLAMA_PORT env or 11434)",
     )
 
+    parser.add_argument(
+        "--ollama-dry-run",
+        action="store_true",
+        help="With --ollama: show the generated command without executing it",
+    )
     parser.add_argument(
         "--ollama",
         nargs=argparse.REMAINDER,
@@ -95,6 +100,20 @@ def register_core(subparsers: argparse._SubParsersAction[argparse.ArgumentParser
         metavar="TAG",
         help="Tag to attach to the issue (repeatable, e.g. --tag bug --tag v1.0)",
     )
+    create_parser.add_argument(
+        "--template",
+        help="Template to apply (see 'issuedb-cli templates'); sets title prefix and defaults",
+    )
+    create_parser.add_argument(
+        "--check-duplicates",
+        action="store_true",
+        help="Refuse to create when similar issues already exist",
+    )
+    create_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --check-duplicates: create even if similar issues exist",
+    )
 
     # List command
     list_parser = subparsers.add_parser("list", help="List issues")
@@ -105,6 +124,9 @@ def register_core(subparsers: argparse._SubParsersAction[argparse.ArgumentParser
     list_parser.add_argument("-l", "--limit", type=int, help="Maximum number of issues")
     list_parser.add_argument("--due-date", help="Filter by due date")
     list_parser.add_argument("--tag", help="Filter by tag")
+
+    # Templates command
+    subparsers.add_parser("templates", help="List available issue templates")
 
     # Get command
     get_parser = subparsers.add_parser("get", help="Get issue details")

@@ -3,8 +3,10 @@
 import contextlib
 import sqlite3
 import threading
+import time
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator, Optional
+from typing import Any, Optional
 
 from issuedb.database._schema import initialize_schema
 
@@ -18,6 +20,7 @@ class DatabaseMeta(type):
     """
 
     _instances: dict[str, "Database"] = {}
+    _instances_lock = threading.Lock()
 
     def __call__(cls, db_path: Optional[str] = None) -> "Database":
         # Compute a registry key from the resolved absolute path so that
@@ -25,10 +28,15 @@ class DatabaseMeta(type):
         # same instance, and distinct paths stay isolated.
         key = str(Path(db_path).resolve()) if db_path else str(Path(".issue.db").resolve())
 
+        # Double-checked locking: construction runs schema init, which must
+        # not happen twice concurrently in-process.
         instance = cls._instances.get(key)
         if instance is None:
-            instance = super().__call__(db_path)
-            cls._instances[key] = instance
+            with cls._instances_lock:
+                instance = cls._instances.get(key)
+                if instance is None:
+                    instance = super().__call__(db_path)
+                    cls._instances[key] = instance
 
         return instance
 
@@ -46,15 +54,17 @@ class Database(metaclass=DatabaseMeta):
         Args:
             db_path: Optional path to database file. If not provided, uses default.
         """
+        # Resolve to an absolute path immediately: connections are opened
+        # lazily per thread, so a later os.chdir() would otherwise silently
+        # point new threads at a different database file.
         if db_path:
-            self.db_path = Path(db_path)
+            self.db_path = Path(db_path).resolve()
         else:
             # Default path: ./.issue.db in current directory
-            self.db_path = Path(".issue.db")
+            self.db_path = Path(".issue.db").resolve()
 
         # Create parent directory if it doesn't exist (for custom paths)
-        if self.db_path.parent != Path("."):
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Thread-local storage for connections
         self._local = threading.local()
@@ -63,9 +73,27 @@ class Database(metaclass=DatabaseMeta):
         self._initialize_database()
 
     def _initialize_database(self) -> None:
-        """Initialize database schema if it doesn't exist."""
-        with self.get_connection() as conn:
-            initialize_schema(conn)
+        """Initialize database schema if it doesn't exist.
+
+        Retries on "database is locked": when several processes open a fresh
+        database at once, the loser of the journal-mode/DDL race gets
+        SQLITE_BUSY that busy_timeout does not always cover.
+        """
+        last_error: Optional[sqlite3.OperationalError] = None
+        for attempt in range(5):
+            try:
+                with self.get_connection() as conn:
+                    initialize_schema(conn)
+                return
+            except sqlite3.OperationalError as e:
+                if "locked" not in str(e) and "busy" not in str(e):
+                    raise
+                last_error = e
+                # Drop the possibly half-configured connection and back off.
+                self.close_connection()
+                time.sleep(0.05 * (2**attempt))
+        assert last_error is not None
+        raise last_error
 
     def _get_thread_connection(self) -> sqlite3.Connection:
         """Get or create a persistent connection for the current thread.
@@ -82,20 +110,37 @@ class Database(metaclass=DatabaseMeta):
                 timeout=30.0,
                 check_same_thread=False,
             )
-            conn.row_factory = sqlite3.Row
+            try:
+                conn.row_factory = sqlite3.Row
 
-            # Set connection-level pragmas (only once per connection)
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("PRAGMA busy_timeout = 30000")
-            conn.execute("PRAGMA cache_size = 10000")
-            conn.execute("PRAGMA temp_store = MEMORY")
+                # Set connection-level pragmas (only once per connection)
+                conn.execute("PRAGMA foreign_keys = ON")
+                conn.execute("PRAGMA busy_timeout = 30000")
+                conn.execute("PRAGMA cache_size = 10000")
+                conn.execute("PRAGMA temp_store = MEMORY")
 
-            # Set WAL mode and synchronous level on every new connection.
-            # journal_mode=WAL persists in the database file, but synchronous
-            # is a per-connection setting, so it must be applied for each
-            # thread's connection, not just the first one.
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA synchronous = NORMAL")
+                # Set WAL mode and synchronous level on every new connection.
+                # journal_mode=WAL persists in the database file, but synchronous
+                # is a per-connection setting, so it must be applied for each
+                # thread's connection, not just the first one. The mode change
+                # needs a moment of exclusive access, so retry briefly on
+                # SQLITE_BUSY instead of crashing when several processes open a
+                # fresh database at the same time.
+                for attempt in range(5):
+                    try:
+                        conn.execute("PRAGMA journal_mode = WAL")
+                        break
+                    except sqlite3.OperationalError as e:
+                        if "locked" not in str(e) and "busy" not in str(e):
+                            raise
+                        if attempt == 4:
+                            raise
+                        time.sleep(0.05 * (2**attempt))
+                conn.execute("PRAGMA synchronous = NORMAL")
+            except BaseException:
+                with contextlib.suppress(Exception):
+                    conn.close()
+                raise
 
             self._local.connection = conn
 

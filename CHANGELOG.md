@@ -5,6 +5,76 @@ All notable changes to IssueDB will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+(Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
+for the intermediate releases.)
+
+## [2.12.0] - 2026-07-23
+
+Full audit release: correctness, concurrency, security, and agent-contract
+hardening across every layer.
+
+### Fixed
+- Status/priority filters now match documented aliases (`in_progress`,
+  `in progress`, padded/case-variant values) in list, count, get-next,
+  blocked, and advanced search — previously they validated but matched
+  nothing.
+- `bulk-create` no longer silently drops `due_date`, `estimated_hours`, and
+  `tags`.
+- CLI error contract: invalid `create --due-date`, memory/lesson/link
+  failures, `estimate` on a missing issue, and `timer-stop` with no running
+  timer now exit 1 with the error on stderr (previously stdout + exit 0).
+  Bare `memory`/`lesson`/`tag`/`link` exit 2. Broken pipes (`| head`) exit
+  quietly with code 141.
+- Keyword search escapes `%` and `_` (LIKE wildcards) so they match literally.
+- Blockers in `wont-do` status count as resolved: dependent issues are no
+  longer hidden from `get-next`/`blocked` forever.
+- Stored XSS in the web issue-detail page (audit history values, dependency
+  titles, time-entry notes, commit hashes) — all dynamic HTML is now escaped.
+- Web: the `?db=` query parameter no longer selects the database (it allowed
+  any request to create/read arbitrary SQLite files); the served database is
+  fixed at startup and `issuedb-cli web` now honors `--db`.
+- Web: blank-title form posts no longer 500; JSON API accepts `tags` as an
+  array; updating a missing issue returns 404; inbound links can be deleted;
+  search composes with status/priority/tag filters; memory keys containing
+  `/` can be deleted; `GET /api/next` no longer writes an audit row.
+- Git: `get_commit_message` returned the wrong commit's message (pathspec
+  misuse); commit scanning now reads full message bodies and survives `|` in
+  author names; detached HEAD no longer reports branch "HEAD"; issue-ref
+  search no longer matches `#10` when looking for `#1`.
+- Ollama: `OLLAMA_HOST` accepts `host:port` and URL forms; generated commands
+  run this installation's CLI (not whatever `issuedb-cli` is on PATH); prose
+  is no longer extracted and executed as a command; interactive runs ask for
+  confirmation; added `--ollama-dry-run`.
+- Similarity: all-punctuation texts no longer score 1.0 against each other;
+  `dedupe` is ~3x faster on large databases.
+- Concurrency: WAL-mode switch and schema migration no longer crash when
+  several processes open a fresh database simultaneously; duplicate running
+  timers per issue are prevented by a unique index; workspace `stop` cannot
+  wipe another process's newly started issue; `clear` snapshots and deletes
+  atomically.
+- Tests no longer touch (or delete!) the real `.issue.db` in the invoking
+  directory — every test runs in an isolated temp directory.
+
+### Added
+- Git integration commands: `git-link`, `git-unlink`, `git-links`,
+  `git-linked`, `git-scan [--auto-close]`, `git-status` (the code existed but
+  was never wired to the CLI).
+- Issue templates: `templates` and `create --template NAME` (bug/feature/task
+  built-ins).
+- `create --check-duplicates` / `--force` flags (documented but previously
+  not wired).
+- `timer-stop` with no arguments now stops all running timers (matching its
+  help text); new `stop_all_timers` repository API.
+- List/search/get-next now include issue tags in output.
+
+### Changed
+- Minimum supported Python is 3.9 (the code used runtime PEP 585 generics
+  that never imported on 3.8).
+- Deleted templates are no longer re-seeded on every start (seeding happens
+  only when a database is first created).
+- Removed dead repo-root scripts `git_cli_integration.py` and
+  `screenshot_tool.py`.
+
 ## [2.3.1] - 2025-11-25
 
 ### Fixed

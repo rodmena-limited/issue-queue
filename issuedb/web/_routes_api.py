@@ -1,12 +1,25 @@
 """JSON API routes (part 1)."""
 
-from typing import Any
+from typing import Any, Union
 
 from flask import jsonify, redirect, request, url_for
 
 from issuedb.models import Issue, Priority, Status
 from issuedb.similarity import find_similar_issues
 from issuedb.web._app import _issue_id_from_referer, app, get_repo
+
+
+def _tag_names(value: Union[str, "list[Any]", None]) -> "list[str]":
+    """Accept tags as either a comma-separated string or a JSON array."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts: list[Any] = value.split(",")
+    elif isinstance(value, list):
+        parts = value
+    else:
+        raise ValueError("tags must be a string or an array of strings")
+    return [name for part in parts if (name := str(part).strip())]
 
 
 @app.route("/api/issues", methods=["GET"])
@@ -34,7 +47,7 @@ def api_create_issue() -> Any:
     if not title:
         if request.is_json:
             return jsonify({"error": "Title is required"}), 400
-        return redirect(url_for("issue_new", error="Title is required"))
+        return redirect(url_for("create_issue", error="Title is required"))
 
     description = data.get("description")
     priority = data.get("priority", "medium")
@@ -48,7 +61,10 @@ def api_create_issue() -> Any:
 
             due_date_obj = datetime.fromisoformat(due_date)
         except ValueError:
-            pass
+            # Reject instead of silently dropping the caller's due date.
+            if request.is_json:
+                return jsonify({"error": "Invalid due_date format (use YYYY-MM-DD)"}), 400
+            return redirect(url_for("create_issue", error="Invalid due date (use YYYY-MM-DD)"))
 
     issue = Issue(
         title=title,
@@ -62,11 +78,8 @@ def api_create_issue() -> Any:
     assert created.id is not None  # ID is always assigned after creation
     issue_id = created.id
 
-    if "tags" in data:
-        tags_str = data["tags"]
-        for tag in tags_str.split(","):
-            if tag_name := tag.strip():
-                repo.add_issue_tag(issue_id, tag_name)
+    for tag_name in _tag_names(data.get("tags")):
+        repo.add_issue_tag(issue_id, tag_name)
 
     if request.is_json:
         # Refetch to include tags
@@ -107,6 +120,13 @@ def api_update_issue(issue_id: int) -> Any:
         data = request.form.to_dict()
         data.pop("_method", None)
 
+    # 404 before applying anything (previously a tags-only update on a missing
+    # issue crashed on the FK constraint instead).
+    if not repo.get_issue(issue_id):
+        if request.is_json:
+            return jsonify({"error": "Issue not found"}), 404
+        return redirect(url_for("issues_list", message="Issue not found"))
+
     updates = {}
     if "title" in data and data["title"]:
         updates["title"] = data["title"]
@@ -129,9 +149,8 @@ def api_update_issue(issue_id: int) -> Any:
 
     # Handle tags
     if "tags" in data:
-        tags_str = data["tags"]
         current_tags = {t.name for t in repo.get_issue_tags(issue_id)}
-        new_tags = {t.strip() for t in tags_str.split(",") if t.strip()}
+        new_tags = set(_tag_names(data["tags"]))
 
         for tag in new_tags - current_tags:
             repo.add_issue_tag(issue_id, tag)
@@ -214,12 +233,13 @@ def api_delete_comment(comment_id: int) -> Any:
     else:
         target = url_for("issues_list")
 
+    # REST DELETE calls get JSON (not an HTML redirect); form POSTs redirect.
     if deleted:
-        if request.is_json:
+        if request.is_json or request.method == "DELETE":
             return jsonify({"message": "Comment deleted"})
         return redirect(target)
     else:
-        if request.is_json:
+        if request.is_json or request.method == "DELETE":
             return jsonify({"error": "Comment not found"}), 404
         return redirect(target)
 
@@ -327,9 +347,13 @@ def api_summary() -> Any:
 
 @app.route("/api/next", methods=["GET"])
 def api_next_issue() -> Any:
-    """API: Get next issue to work on."""
+    """API: Get next issue to work on.
+
+    Read-only: a GET must not write a FETCH audit row (GETs bypass the CSRF
+    guard, so they must never change state).
+    """
     repo = get_repo()
-    issue = repo.get_next_issue()
+    issue = repo.get_next_issue(log_fetch=False)
 
     if issue:
         return jsonify(issue.to_dict())

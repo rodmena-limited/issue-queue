@@ -16,14 +16,15 @@ def lesson_add(
     category: str = "general",
     as_json: bool = False,
 ) -> str:
-    """Add lesson learned."""
-    try:
-        ll = self.repo.add_lesson(lesson, issue_id, category)
-        if as_json:
-            return json.dumps(ll.to_dict(), indent=2)
-        return f"Lesson added: {ll.id}"
-    except ValueError as e:
-        return json.dumps({"error": str(e)}) if as_json else str(e)
+    """Add lesson learned.
+
+    Raises:
+        ValueError: If the referenced issue does not exist.
+    """
+    ll = self.repo.add_lesson(lesson, issue_id, category)
+    if as_json:
+        return json.dumps(ll.to_dict(), indent=2)
+    return f"Lesson added: {ll.id}"
 
 
 def lesson_list(

@@ -2,7 +2,7 @@
 
 import contextlib
 import os
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 from flask import redirect, render_template_string, request, url_for
 from werkzeug.wrappers import Response
@@ -59,25 +59,17 @@ def issues_list() -> str:
     limit = 20
     offset = (page - 1) * limit
 
-    if search_query:
-        issues = repo.search_issues(search_query, limit=limit, offset=offset)
-    else:
-        issues = repo.list_issues(
-            status=status_filter,
-            priority=priority_filter,
-            due_date=due_date_filter,
-            tag=tag_filter,
-            limit=limit,
-            offset=offset,
-        )
-
-    # Populate tags in batch (single query instead of N queries)
-    issue_ids = [issue.id for issue in issues if issue.id]
-    if issue_ids:
-        tags_by_issue = repo.get_tags_for_issues(issue_ids)
-        for issue in issues:
-            if issue.id:
-                issue.tags = tags_by_issue.get(issue.id, [])
+    # Keyword search combines with the other filters (and matches
+    # count_issues below), so filtered searches paginate correctly.
+    issues = repo.list_issues(
+        status=status_filter,
+        priority=priority_filter,
+        due_date=due_date_filter,
+        tag=tag_filter,
+        keyword=search_query,
+        limit=limit,
+        offset=offset,
+    )
 
     total_issues = repo.count_issues(
         status=status_filter,
@@ -102,7 +94,25 @@ def issues_list() -> str:
         page=page,
         total_pages=total_pages,
         total_issues=total_issues,
+        message=request.args.get("message"),
     )
+
+
+def _link_related_issues(repo: Any, issue_id: int, raw: Optional[str]) -> list[str]:
+    """Link comma-separated issue IDs as 'related'; return failure notes."""
+    failures = []
+    for part in (raw or "").split(","):
+        token = part.strip().lstrip("#")
+        if not token:
+            continue
+        if not token.isdigit():
+            failures.append(f"invalid issue ID {part.strip()!r}")
+            continue
+        try:
+            repo.link_issues(issue_id, int(token), "related")
+        except ValueError as e:
+            failures.append(f"#{token}: {e}")
+    return failures
 
 
 @app.route("/issues/new", methods=["GET", "POST"])
@@ -133,7 +143,12 @@ def create_issue() -> Union[str, Response]:
 
                 due_date_obj = datetime.fromisoformat(due_date)
             except ValueError:
-                pass
+                return render_template_string(
+                    ISSUE_FORM_TEMPLATE,
+                    title="New Issue",
+                    issue=None,
+                    error="Invalid due date (use YYYY-MM-DD)",
+                )
 
         issue = Issue(
             title=title,
@@ -151,9 +166,25 @@ def create_issue() -> Union[str, Response]:
                 if tag_name := tag.strip():
                     repo.add_issue_tag(created.id, tag_name)
 
+        # The form documents this field as linking the new issue as 'related'.
+        failures = _link_related_issues(repo, created.id, request.form.get("related_issues"))
+        if failures:
+            return redirect(
+                url_for(
+                    "issue_detail",
+                    issue_id=created.id,
+                    error="Could not link related issues: " + "; ".join(failures),
+                )
+            )
+
         return redirect(url_for("issue_detail", issue_id=created.id))
 
-    return render_template_string(ISSUE_FORM_TEMPLATE, title="New Issue", issue=None)
+    return render_template_string(
+        ISSUE_FORM_TEMPLATE,
+        title="New Issue",
+        issue=None,
+        error=request.args.get("error"),
+    )
 
 
 @app.route("/issues/<int:issue_id>")
@@ -220,6 +251,16 @@ def edit_issue(issue_id: int) -> Union[str, Response]:
 
         for tag in current_tags - new_tags:
             repo.remove_issue_tag(issue_id, tag)
+
+        failures = _link_related_issues(repo, issue_id, request.form.get("related_issues"))
+        if failures:
+            return redirect(
+                url_for(
+                    "issue_detail",
+                    issue_id=issue_id,
+                    error="Could not link related issues: " + "; ".join(failures),
+                )
+            )
 
         return redirect(url_for("issue_detail", issue_id=issue_id))
 

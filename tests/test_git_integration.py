@@ -177,12 +177,15 @@ class TestGitUtils:
         mock_git_check.returncode = 0
         mock_git_check.stdout = "true"
 
-        # Mock git log output
+        # Mock git log output: \x1f-separated fields, \x1e-terminated records,
+        # full message bodies. One author contains '|' and one message has a
+        # body line — both must parse correctly.
         mock_log = MagicMock()
         mock_log.returncode = 0
         mock_log.stdout = (
-            "abc123|John Doe|2024-01-01 12:00:00|Fix login bug #123\n"
-            "def456|Jane Smith|2024-01-02 13:00:00|Add feature closes #456\n"
+            "abc123\x1fJohn | Doe\x1f2024-01-01 12:00:00\x1fFix login bug #123\x1e\n"
+            "def456\x1fJane Smith\x1f2024-01-02 13:00:00\x1f"
+            "Add feature\n\ncloses #456\x1e\n"
         )
 
         mock_run.side_effect = [mock_git_check, mock_log]
@@ -191,9 +194,12 @@ class TestGitUtils:
 
         assert len(commits) == 2
         assert commits[0]["hash"] == "abc123"
-        assert commits[0]["author"] == "John Doe"
+        assert commits[0]["author"] == "John | Doe"
         assert commits[0]["message"] == "Fix login bug #123"
         assert commits[1]["hash"] == "def456"
+        # Body text (below the subject line) must be included so issue refs
+        # in commit bodies are seen.
+        assert "closes #456" in commits[1]["message"]
 
     @patch("subprocess.run")
     def test_get_commit_message(self, mock_run):
@@ -249,8 +255,13 @@ class TestGitUtils:
     # --- Regression tests: argument-injection hardening ---
 
     @patch("subprocess.run")
-    def test_get_commit_message_uses_separator_before_ref(self, mock_run):
-        """A normal ref must be passed positionally after a '--' separator."""
+    def test_get_commit_message_passes_ref_as_revision(self, mock_run):
+        """The hash must be a revision (before '--'), not a pathspec.
+
+        With the ref after '--' git treats it as a pathspec and the function
+        never returns that commit's message. Leading-dash injection is covered
+        separately by test_get_commit_message_rejects_dash_ref.
+        """
         mock_git_check = MagicMock()
         mock_git_check.returncode = 0
         mock_git_check.stdout = "true"
@@ -266,7 +277,7 @@ class TestGitUtils:
         # The second call is the actual git log; inspect its argv.
         argv = mock_run.call_args_list[1].args[0]
         assert "--" in argv, "git log must include a '--' separator"
-        assert argv.index("--") < argv.index("abc123"), "'--' must precede the ref"
+        assert argv.index("abc123") < argv.index("--"), "the ref must precede '--'"
 
     @patch("subprocess.run")
     def test_get_commit_message_rejects_dash_ref(self, mock_run):

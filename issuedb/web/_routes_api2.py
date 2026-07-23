@@ -46,7 +46,8 @@ def api_get_context(issue_id: int) -> Any:
             commits = []
             try:
                 log_result = subprocess.run(
-                    ["git", "log", "--oneline", "-10", f"--grep=#{issue_id}"],
+                    # Non-digit boundary so issue 1 does not match #10..#19x.
+                    ["git", "log", "--oneline", "-10", "-E", f"--grep=#{issue_id}([^0-9]|$)"],
                     capture_output=True,
                     text=True,
                     timeout=5,
@@ -184,7 +185,7 @@ def api_memory_list_create() -> Any:
         return jsonify([m.to_dict() for m in memories])
 
 
-@app.route("/api/memory/<key>", methods=["PUT", "DELETE"])
+@app.route("/api/memory/<path:key>", methods=["PUT", "DELETE"])
 def api_memory_update_delete(key: str) -> Any:
     """API: Update or delete memory item."""
     repo = get_repo()

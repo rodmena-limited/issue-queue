@@ -5,14 +5,38 @@ extracted from the Database class so the package files stay small. The
 runtime behavior is identical to the original inline implementation.
 """
 
+import contextlib
 import json
 import sqlite3
 from typing import Any
 
 
+def _add_column_if_missing(cursor: Any, table: str, column: str, ddl: str) -> None:
+    """Add a column when absent, tolerating the concurrent-migration race.
+
+    Two processes can both observe the column as missing and both issue the
+    ALTER; the loser gets "duplicate column name", which means the migration
+    is already done and must not crash the caller.
+    """
+    cursor.execute(f"PRAGMA table_info({table})")
+    columns = [row[1] for row in cursor.fetchall()]
+    if column not in columns:
+        try:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                raise
+
+
 def initialize_schema(conn: sqlite3.Connection) -> None:
     """Initialize database schema if it doesn't exist."""
     cursor = conn.cursor()
+
+    # Detect a fresh database before any DDL runs, so one-time seeding (the
+    # built-in templates) happens only on creation and deleted templates are
+    # not resurrected on every process start.
+    cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='issues'")
+    is_fresh_database = cursor.fetchone()[0] == 0
 
     # Create issues table
     cursor.execute("""
@@ -191,12 +215,19 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
         ON time_entries(ended_at)
     """)
 
+    # At most one running timer per issue: closes the check-then-insert race
+    # between concurrent processes. Existing databases that already contain
+    # duplicate running timers would make the index creation fail — in that
+    # case skip it (the application-level check still applies) rather than
+    # breaking every subsequent CLI invocation.
+    with contextlib.suppress(sqlite3.OperationalError):
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_time_entries_one_running
+            ON time_entries(issue_id) WHERE ended_at IS NULL
+        """)
+
     # Add estimated_hours column to issues table if it doesn't exist
-    # Check if column exists first
-    cursor.execute("PRAGMA table_info(issues)")
-    columns = [row[1] for row in cursor.fetchall()]
-    if "estimated_hours" not in columns:
-        cursor.execute("ALTER TABLE issues ADD COLUMN estimated_hours REAL")
+    _add_column_if_missing(cursor, "issues", "estimated_hours", "REAL")
 
     # Create issue_templates table
     cursor.execute("""
@@ -315,13 +346,12 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
     """)
 
     # Add due_date column to issues table if it doesn't exist
-    cursor.execute("PRAGMA table_info(issues)")
-    columns = [row[1] for row in cursor.fetchall()]
-    if "due_date" not in columns:
-        cursor.execute("ALTER TABLE issues ADD COLUMN due_date TIMESTAMP")
+    _add_column_if_missing(cursor, "issues", "due_date", "TIMESTAMP")
 
-    # Initialize built-in templates if they don't exist
-    initialize_builtin_templates(cursor)
+    # Seed built-in templates only on a fresh database so user deletions of
+    # the built-ins are respected on subsequent starts.
+    if is_fresh_database:
+        initialize_builtin_templates(cursor)
 
     conn.commit()
 

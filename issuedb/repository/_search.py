@@ -49,11 +49,18 @@ def search_issues_advanced(
     Raises:
         ValueError: If invalid parameters are provided.
     """
-    # Parse date strings
+    # Parse date strings. Upper bounds parsed from date-only input (midnight)
+    # are extended to the end of that day so "--created-before 2026-07-23"
+    # includes issues created on 2026-07-23, matching the inclusive intent.
+    def _end_of_day(dt: datetime) -> datetime:
+        if dt.hour == dt.minute == dt.second == dt.microsecond == 0:
+            return dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return dt
+
     created_after_dt = parse_date(created_after) if created_after else None
-    created_before_dt = parse_date(created_before) if created_before else None
+    created_before_dt = _end_of_day(parse_date(created_before)) if created_before else None
     updated_after_dt = parse_date(updated_after) if updated_after else None
-    updated_before_dt = parse_date(updated_before) if updated_before else None
+    updated_before_dt = _end_of_day(parse_date(updated_before)) if updated_before else None
 
     # Validate date ranges
     validate_date_range(created_after_dt, created_before_dt)
@@ -81,10 +88,13 @@ def search_issues_advanced(
     query = "SELECT * FROM issues WHERE 1=1"
     params: list[Any] = []
 
-    # Keyword search
+    # Keyword search (wildcards escaped so keywords match literally)
     if keyword:
-        query += " AND (title LIKE ? OR description LIKE ?)"
-        params.extend([f"%{keyword}%", f"%{keyword}%"])
+        from issuedb.repository._query import _escape_like
+
+        query += " AND (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')"
+        escaped = f"%{_escape_like(keyword)}%"
+        params.extend([escaped, escaped])
 
     # Date filters
     if created_after_dt:
@@ -103,17 +113,17 @@ def search_issues_advanced(
         query += " AND updated_at <= ?"
         params.append(updated_before_dt.isoformat())
 
-    # Priority filter
+    # Priority filter (bind normalized enum values, not raw input)
     if priorities:
         placeholders = ",".join(["?"] * len(priorities))
         query += f" AND priority IN ({placeholders})"
-        params.extend([p.lower() for p in priorities])
+        params.extend([Priority.from_string(p).value for p in priorities])
 
-    # Status filter
+    # Status filter (bind normalized enum values, not raw input)
     if statuses:
         placeholders = ",".join(["?"] * len(statuses))
         query += f" AND status IN ({placeholders})"
-        params.extend([s.lower() for s in statuses])
+        params.extend([Status.from_string(s).value for s in statuses])
 
     # Sorting
     if sort_by == "created":
@@ -144,7 +154,7 @@ def search_issues_advanced(
             """
 
     # Limit
-    if limit:
+    if limit is not None:
         query += " LIMIT ?"
         params.append(limit)
 
@@ -154,7 +164,9 @@ def search_issues_advanced(
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
-        return [self._row_to_issue(row) for row in rows]
+        from issuedb.repository._query import _populate_tags
+
+        return _populate_tags(self, [self._row_to_issue(row) for row in rows])
 
 
 def save_search(self: IssueRepository, name: str, search_params: dict[str, Any]) -> int:

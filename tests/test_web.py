@@ -13,9 +13,12 @@ from issuedb.web import app
 
 @pytest.fixture
 def temp_db() -> Path:
-    """Create a temporary database file."""
+    """Create a temporary database file (removed with its WAL sidecars)."""
     with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
-        return Path(f.name)
+        path = Path(f.name)
+    yield path
+    for suffix in ("", "-wal", "-shm"):
+        Path(str(path) + suffix).unlink(missing_ok=True)
 
 
 @pytest.fixture
@@ -26,12 +29,18 @@ def repo(temp_db: Path) -> IssueRepository:
 
 @pytest.fixture
 def client(temp_db: Path):
-    """Create a Flask test client."""
+    """Create a Flask test client serving the temp database."""
+    from issuedb.web import _app
+
     app.config["TESTING"] = True
+    # The served database is fixed at startup (no per-request ?db= override).
+    app.config["ISSUEDB_DB_PATH"] = str(temp_db)
+    _app._repo_cache.clear()
     with app.test_client() as client:
-        # Store temp_db path for use in requests
         client.temp_db = str(temp_db)
         yield client
+    app.config.pop("ISSUEDB_DB_PATH", None)
+    _app._repo_cache.clear()
 
 
 @pytest.fixture
@@ -502,3 +511,65 @@ class TestCommentDeleteRedirect:
         assert response.status_code == 302
         location = response.headers["Location"]
         assert location.startswith(f"/issues/{issue.id}")
+
+
+class TestAuditRegressions:
+    """Server-side regressions from the 2.12.0 full audit."""
+
+    def test_blank_title_form_post_does_not_500(self, client) -> None:
+        response = client.post("/api/issues", data={"title": "   "})
+        assert response.status_code in (302, 400)
+
+    def test_invalid_due_date_rejected_not_dropped(self, client) -> None:
+        response = client.post(
+            "/api/issues",
+            json={"title": "X", "due_date": "not-a-date"},
+        )
+        assert response.status_code == 400
+        assert "due_date" in response.get_json()["error"]
+
+    def test_tags_as_json_array(self, client) -> None:
+        response = client.post(
+            "/api/issues",
+            json={"title": "Array tags", "tags": ["backend", "urgent"]},
+        )
+        assert response.status_code == 201
+        assert sorted(t["name"] for t in response.get_json()["tags"]) == ["backend", "urgent"]
+
+    def test_update_missing_issue_with_tags_is_404(self, client) -> None:
+        response = client.patch("/api/issues/9999", json={"tags": "a,b"})
+        assert response.status_code == 404
+
+    def test_get_next_does_not_write_audit(self, client, repo: IssueRepository) -> None:
+        issue = repo.create_issue(Issue(title="Next up"))
+        assert issue.id is not None
+        before = len(repo.get_audit_logs(issue.id))
+        response = client.get("/api/next")
+        assert response.status_code == 200
+        assert len(repo.get_audit_logs(issue.id)) == before
+
+    def test_memory_key_with_slash_deletable(self, client, repo: IssueRepository) -> None:
+        repo.add_memory("path/to/thing", "value")
+        response = client.delete("/api/memory/path/to/thing")
+        assert response.status_code == 200
+        assert repo.get_memory("path/to/thing") is None
+
+    def test_search_composes_with_status_filter(self, client, repo: IssueRepository) -> None:
+        repo.create_issue(Issue(title="alpha match", status=Status.OPEN))
+        repo.create_issue(Issue(title="alpha match closed", status=Status.CLOSED))
+        response = client.get("/issues?q=alpha&status=closed")
+        assert response.status_code == 200
+        html = response.data.decode()
+        assert "alpha match closed" in html
+        # The open issue matches the search but must be excluded by the
+        # status filter, and the total count must reflect both filters.
+        assert html.count("alpha match") == 1
+        assert "1 issue" in html
+
+    def test_rest_delete_comment_returns_json(self, client, repo: IssueRepository) -> None:
+        issue = repo.create_issue(Issue(title="C host"))
+        assert issue.id is not None
+        comment = repo.add_comment(issue.id, "bye")
+        response = client.delete(f"/api/comments/{comment.id}")
+        assert response.status_code == 200
+        assert response.get_json()["message"] == "Comment deleted"

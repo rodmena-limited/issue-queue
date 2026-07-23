@@ -6,7 +6,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
-from issuedb.models import Issue
+from issuedb.models import Issue, Priority, Status
 
 if TYPE_CHECKING:
     from issuedb.repository import IssueRepository
@@ -24,24 +24,26 @@ def bulk_create_issues(self: IssueRepository, issues_data: list[dict[str, Any]])
     Raises:
         ValueError: If any issue data is invalid.
     """
+    # Parse and validate everything up front so a bad entry fails the whole
+    # batch before any row is written.
+    issues = []
+    for issue_data in issues_data:
+        if "title" not in issue_data or not issue_data["title"]:
+            raise ValueError(f"Title is required for all issues: {issue_data}")
+        issues.append(Issue.from_dict(issue_data))
+
     created_issues = []
 
     with self.db.get_connection() as conn:
-        for issue_data in issues_data:
-            # Validate required fields
-            if "title" not in issue_data or not issue_data["title"]:
-                raise ValueError(f"Title is required for all issues: {issue_data}")
-
-            # Create Issue object from dict
-            issue = Issue.from_dict(issue_data)
-
-            # Insert into database
-            cursor = conn.cursor()
+        cursor = conn.cursor()
+        for issue in issues:
+            # Insert all fields Issue.from_dict accepts — due_date and
+            # estimated_hours included, matching create_issue.
             cursor.execute(
                 """
                 INSERT INTO issues (title, description, priority, status,
-                                   created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                                   created_at, updated_at, estimated_hours, due_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     issue.title,
@@ -50,11 +52,29 @@ def bulk_create_issues(self: IssueRepository, issues_data: list[dict[str, Any]])
                     issue.status.value,
                     issue.created_at.isoformat(),
                     issue.updated_at.isoformat(),
+                    issue.estimated_hours,
+                    issue.due_date.isoformat() if issue.due_date else None,
                 ),
             )
 
             issue.id = cursor.lastrowid
             assert issue.id is not None  # Guaranteed by successful insert
+
+            # Persist tags inline (same transaction) instead of dropping them.
+            for tag in issue.tags:
+                if not tag.name:
+                    continue
+                cursor.execute(
+                    "INSERT OR IGNORE INTO tags (name, color, created_at) VALUES (?, ?, ?)",
+                    (tag.name, tag.color, issue.created_at.isoformat()),
+                )
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO issue_tags (issue_id, tag_id, created_at)
+                    SELECT ?, id, ? FROM tags WHERE name = ?
+                """,
+                    (issue.id, issue.created_at.isoformat(), tag.name),
+                )
 
             # Log creation in audit log
             self._log_audit(
@@ -85,27 +105,47 @@ def bulk_update_issues_from_json(
     Raises:
         ValueError: If any update data is invalid or issue not found.
     """
-    updated_issues = []
-
+    # Validate the whole batch before applying anything, so a bad entry midway
+    # through the list cannot leave earlier updates committed (partial apply).
+    allowed_fields = {"title", "description", "priority", "status", "due_date"}
+    parsed: list[tuple[int, dict[str, Any]]] = []
     for update_data in updates_data:
-        # Validate required id field
         if "id" not in update_data:
             raise ValueError(f"Issue ID is required for all updates: {update_data}")
 
         issue_id = update_data["id"]
-
-        # Extract update fields (exclude id)
         updates = {k: v for k, v in update_data.items() if k != "id"}
 
         if not updates:
             raise ValueError(f"No update fields provided for issue {issue_id}")
 
-        # Update the issue
-        updated_issue = self.update_issue(issue_id, **updates)
+        for field_name, value in updates.items():
+            if field_name not in allowed_fields:
+                raise ValueError(f"Cannot update field: {field_name}")
+            if field_name == "priority":
+                Priority.from_string(value)
+            elif field_name == "status":
+                Status.from_string(value)
 
+        parsed.append((issue_id, updates))
+
+    # Verify all target issues exist up front.
+    ids = [issue_id for issue_id, _ in parsed]
+    if ids:
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ",".join("?" * len(ids))
+            cursor.execute(f"SELECT id FROM issues WHERE id IN ({placeholders})", ids)
+            existing = {row["id"] for row in cursor.fetchall()}
+        missing = [issue_id for issue_id in ids if issue_id not in existing]
+        if missing:
+            raise ValueError(f"Issue {missing[0]} not found")
+
+    updated_issues = []
+    for issue_id, updates in parsed:
+        updated_issue = self.update_issue(issue_id, **updates)
         if not updated_issue:
             raise ValueError(f"Issue {issue_id} not found")
-
         updated_issues.append(updated_issue)
 
     return updated_issues
@@ -123,6 +163,18 @@ def bulk_close_issues(self: IssueRepository, issue_ids: list[int]) -> list[Issue
     Raises:
         ValueError: If any issue not found.
     """
+    # Verify all issues exist before closing any, so a bad ID midway through
+    # the list cannot leave the batch half-applied.
+    if issue_ids:
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ",".join("?" * len(issue_ids))
+            cursor.execute(f"SELECT id FROM issues WHERE id IN ({placeholders})", issue_ids)
+            existing = {row["id"] for row in cursor.fetchall()}
+        missing = [issue_id for issue_id in issue_ids if issue_id not in existing]
+        if missing:
+            raise ValueError(f"Issue {missing[0]} not found")
+
     closed_issues = []
 
     for issue_id in issue_ids:
@@ -162,26 +214,26 @@ def find_by_pattern(
         title_match = True
         desc_match = True
 
-        # Match title if pattern provided
+        # Match title if pattern provided. For regex, never lowercase the
+        # pattern itself — that inverts escape classes like \D or \S —
+        # re.IGNORECASE alone handles case-insensitivity.
         if title_pattern:
-            title_text = issue.title if case_sensitive else issue.title.lower()
-            pattern = title_pattern if case_sensitive else title_pattern.lower()
-
             if use_regex:
                 flags = 0 if case_sensitive else re.IGNORECASE
-                title_match = bool(re.search(pattern, issue.title, flags=flags))
+                title_match = bool(re.search(title_pattern, issue.title, flags=flags))
             else:
+                title_text = issue.title if case_sensitive else issue.title.lower()
+                pattern = title_pattern if case_sensitive else title_pattern.lower()
                 title_match = fnmatch.fnmatch(title_text, pattern)
 
         # Match description if pattern provided
         if desc_pattern and issue.description:
-            desc_text = issue.description if case_sensitive else issue.description.lower()
-            pattern = desc_pattern if case_sensitive else desc_pattern.lower()
-
             if use_regex:
                 flags = 0 if case_sensitive else re.IGNORECASE
-                desc_match = bool(re.search(pattern, issue.description, flags=flags))
+                desc_match = bool(re.search(desc_pattern, issue.description, flags=flags))
             else:
+                desc_text = issue.description if case_sensitive else issue.description.lower()
+                pattern = desc_pattern if case_sensitive else desc_pattern.lower()
                 desc_match = fnmatch.fnmatch(desc_text, pattern)
         elif desc_pattern and not issue.description:
             desc_match = False

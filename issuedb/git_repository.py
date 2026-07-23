@@ -1,7 +1,7 @@
 """Git link repository methods for IssueDB."""
 
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from issuedb.database import get_database
 from issuedb.models import Issue, IssueLink, Priority, Status
@@ -122,18 +122,27 @@ class GitLinkRepository:
                 reference=reference,
             )
 
-            cursor.execute(
-                """
-                INSERT INTO issue_links (issue_id, link_type, reference, created_at)
-                VALUES (?, ?, ?, ?)
-            """,
-                (
-                    link.issue_id,
-                    link.link_type,
-                    link.reference,
-                    link.created_at.isoformat(),
-                ),
-            )
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO issue_links (issue_id, link_type, reference, created_at)
+                    VALUES (?, ?, ?, ?)
+                """,
+                    (
+                        link.issue_id,
+                        link.link_type,
+                        link.reference,
+                        link.created_at.isoformat(),
+                    ),
+                )
+            except Exception as e:
+                # A concurrent writer can win the check-then-insert race; report
+                # it the same way as the pre-check instead of crashing.
+                if "UNIQUE constraint failed" in str(e):
+                    raise ValueError(
+                        f"Link already exists: issue {issue_id} -> {link_type} {reference}"
+                    ) from e
+                raise
 
             link.id = cursor.lastrowid
 
@@ -170,7 +179,7 @@ class GitLinkRepository:
 
         # Build query based on filters
         query = "DELETE FROM issue_links WHERE issue_id = ?"
-        params: List[Any] = [issue_id]
+        params: list[Any] = [issue_id]
 
         if link_type:
             if link_type not in ("commit", "branch"):
@@ -207,7 +216,7 @@ class GitLinkRepository:
 
             return count
 
-    def get_links(self, issue_id: int) -> List[IssueLink]:
+    def get_links(self, issue_id: int) -> list[IssueLink]:
         """Get all git links for an issue.
 
         Args:
@@ -243,7 +252,7 @@ class GitLinkRepository:
 
     def get_issues_by_link(
         self, link_type: Optional[str] = None, reference: Optional[str] = None
-    ) -> List[Issue]:
+    ) -> list[Issue]:
         """Get issues linked to a commit or branch.
 
         Args:
@@ -265,7 +274,7 @@ class GitLinkRepository:
             INNER JOIN issue_links il ON i.id = il.issue_id
             WHERE 1=1
         """
-        params: List[Any] = []
+        params: list[Any] = []
 
         if link_type:
             if link_type not in ("commit", "branch"):
@@ -300,7 +309,7 @@ class GitLinkRepository:
             return issues
 
     def scan_commits_and_close_issues(
-        self, commits: List[dict[str, Any]], auto_close: bool = True
+        self, commits: list[dict[str, Any]], auto_close: bool = True
     ) -> dict[str, Any]:
         """Scan commits for issue references and optionally auto-close issues.
 

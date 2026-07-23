@@ -115,7 +115,7 @@ def _handle_value_error(error: ValueError) -> Response:
 @app.context_processor
 def inject_project_info() -> dict[str, str]:
     """Inject project information into templates."""
-    db_path = request.args.get("db")
+    db_path = app.config.get("ISSUEDB_DB_PATH")
     if db_path:
         try:
             path = Path(db_path).resolve()
@@ -128,8 +128,14 @@ def inject_project_info() -> dict[str, str]:
 
 
 def get_repo() -> IssueRepository:
-    """Get cached repository instance for the current db_path."""
-    db_path = request.args.get("db") or ""
+    """Get the repository for the database this server was started for.
+
+    The database path is fixed at server startup (``--db`` on the CLI). It was
+    previously taken from a ``?db=`` query parameter, which let any request —
+    including unauthenticated cross-origin GETs — create directories and
+    SQLite files at arbitrary filesystem paths or read arbitrary databases.
+    """
+    db_path = app.config.get("ISSUEDB_DB_PATH") or ""
 
     # Use request-scoped cache first (Flask g object)
     cache_key = f"repo_{db_path}"

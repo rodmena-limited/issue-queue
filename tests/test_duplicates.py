@@ -201,22 +201,16 @@ class TestDuplicateDetection:
             as_json=False,
         )
 
-        # Try to create similar issue with duplicate check enabled
-        result = cli.create_issue(
-            title="Fix login bug",  # Exact match for stronger similarity
-            description="Users cannot login",
-            check_duplicates=True,
-            as_json=False,
-        )
-
-        # Should either find similar issues or create successfully
-        # (creating is ok if similarity is below threshold)
-        lower_result = result.lower()
-        assert (
-            "similar issues found" in lower_result
-            or "warning" in lower_result
-            or "id:" in lower_result
-        )
+        # Creating a near-identical issue with duplicate check enabled must
+        # be refused with an error (nonzero exit at the CLI), not a warning
+        # string returned as successful output.
+        with pytest.raises(ValueError, match="Similar issues found"):
+            cli.create_issue(
+                title="Fix login bug",  # Exact match for stronger similarity
+                description="Users cannot login",
+                check_duplicates=True,
+                as_json=False,
+            )
 
     def test_create_with_duplicate_check_json(self, cli):
         """Test creating issue with duplicate check in JSON format."""
@@ -228,21 +222,21 @@ class TestDuplicateDetection:
             description="Users cannot login",
         )
 
-        # Try to create similar issue with duplicate check enabled
-        result = cli.create_issue(
-            title="Login problem - users can't authenticate",
-            description="The login is broken",
-            check_duplicates=True,
-            as_json=True,
-        )
-
-        data = json.loads(result)
-        # Should either have error about similar issues or be created
-        assert "error" in data or "id" in data
-
-        if "error" in data:
-            assert "similar_issues" in data
-            assert isinstance(data["similar_issues"], list)
+        # Try to create similar issue with duplicate check enabled. If the
+        # similarity clears the threshold this must raise; below-threshold
+        # similarity creates normally.
+        try:
+            result = cli.create_issue(
+                title="Login problem - users can't authenticate",
+                description="The login is broken",
+                check_duplicates=True,
+                as_json=True,
+            )
+        except ValueError as e:
+            assert "Similar issues found" in str(e)
+        else:
+            data = json.loads(result)
+            assert "id" in data
 
     def test_create_with_force_flag(self, cli):
         """Test creating issue with force flag bypasses duplicate check."""

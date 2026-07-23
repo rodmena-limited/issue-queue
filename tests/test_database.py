@@ -50,7 +50,9 @@ class TestDatabase:
         Database._instances = {}  # type: ignore[attr-defined]
         try:
             db = Database()
-            expected_path = Path(".issue.db")
+            # Paths are resolved to absolute at construction so later chdir
+            # calls cannot silently retarget new connections.
+            expected_path = Path(".issue.db").resolve()
             assert db.db_path == expected_path
         finally:
             # Restore the registry and cleanup
@@ -239,7 +241,7 @@ class TestGetDatabase:
                 # never the custom one created above.
                 default_db = Database()
                 assert default_db is not custom_db
-                assert default_db.db_path == Path(".issue.db")
+                assert default_db.db_path == Path(".issue.db").resolve()
         finally:
             Database._instances = old_instances  # type: ignore[attr-defined]
             Path(".issue.db").unlink(missing_ok=True)
