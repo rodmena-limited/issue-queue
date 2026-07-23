@@ -93,11 +93,11 @@ SCRIPTS_PART_1 = """{% block scripts %}
                 var limit = Math.min(logs.length, 10);
                 for (var i = 0; i < limit; i++) {
                     var log = logs[i];
-                    html += '<div class="audit-entry"><span class="audit-action">' + log.action + '</span>';
+                    html += '<div class="audit-entry"><span class="audit-action">' + escapeHtml(log.action) + '</span>';
                     if (log.field_name) {
-                        html += '<span class="audit-field">' + log.field_name + '</span>: ';
-                        if (log.old_value) html += '<span class="audit-value">' + truncate(log.old_value, 30) + '</span> &rarr; ';
-                        html += '<span class="audit-value">' + (log.new_value ? truncate(log.new_value, 30) : 'null') + '</span>';
+                        html += '<span class="audit-field">' + escapeHtml(log.field_name) + '</span>: ';
+                        if (log.old_value) html += '<span class="audit-value">' + escapeHtml(truncate(log.old_value, 30)) + '</span> &rarr; ';
+                        html += '<span class="audit-value">' + (log.new_value ? escapeHtml(truncate(log.new_value, 30)) : 'null') + '</span>';
                     }
                     html += '<div class="audit-time">' + log.timestamp.replace('T', ' ') + '</div></div>';
                 }
@@ -120,7 +120,7 @@ SCRIPTS_PART_1 = """{% block scripts %}
                 for (var i = 0; i < deps.blockers.length; i++) {
                     var b = deps.blockers[i];
                     html += '<div class="blocker-item"><span class="blocker-icon" style="color: var(--accent-red);">&#x26D4;</span>' +
-                        '<a href="/issues/' + b.id + '">#' + b.id + ' ' + truncate(b.title, 25) + '</a>';
+                        '<a href="/issues/' + b.id + '">#' + b.id + ' ' + escapeHtml(truncate(b.title, 25)) + '</a>';
                     if (b.status === 'closed') html += '<span class="badge badge-closed" style="margin-left: auto; font-size: 9px;">done</span>';
                     html += '</div>';
                 }
@@ -131,7 +131,7 @@ SCRIPTS_PART_1 = """{% block scripts %}
                 for (var i = 0; i < deps.blocking.length; i++) {
                     var b = deps.blocking[i];
                     html += '<div class="blocker-item"><span style="color: var(--accent-yellow);">&#x2192;</span>' +
-                        '<a href="/issues/' + b.id + '">#' + b.id + ' ' + truncate(b.title, 25) + '</a></div>';
+                        '<a href="/issues/' + b.id + '">#' + b.id + ' ' + escapeHtml(truncate(b.title, 25)) + '</a></div>';
                 }
                 html += '</div></div>';
             }
@@ -181,11 +181,11 @@ SCRIPTS_PART_1 = """{% block scripts %}
                     html += '<div class="blocker-item" style="flex-wrap: wrap;">';
                     html += '<span style="color: var(--accent-cyan); margin-right: 6px;">' + icon + '</span>';
                     html += '<span class="badge badge-low" style="margin-right: 6px; font-size: 9px;">' + escapeHtml(link.type) + '</span>';
-                    html += '<a href="/issues/' + link.id + '" style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#' + link.id + ' ' + truncate(link.title, 20) + '</a>';
+                    html += '<a href="/issues/' + link.id + '" style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#' + link.id + ' ' + escapeHtml(truncate(link.title, 20)) + '</a>';
 
                     // Delete button (link.type is user-controlled: carry it in a safely
                     // escaped data-attribute and bind the handler instead of inlining it).
-                    html += '<button class="del-link-btn" data-issue-id="' + issueId + '" data-link-id="' + link.id + '" data-link-type="' + escapeAttr(link.type) + '" style="background: none; border: none; color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 14px;">&times;</button>';
+                    html += '<button class="del-link-btn" data-issue-id="' + issueId + '" data-link-id="' + link.id + '" data-direction="' + link.direction + '" data-link-type="' + escapeAttr(link.type) + '" style="background: none; border: none; color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 14px;">&times;</button>';
 
                     html += '</div>';
                 }

@@ -124,24 +124,40 @@ def stop_issue(
         Tuple of (Issue, started_at, stopped_at) if there was an active issue,
         None otherwise.
     """
-    active = self.get_active_issue()
-    if not active:
-        return None
-
-    issue, started_at = active
     stopped_at = datetime.now()
 
-    # Clear the workspace and (optionally) close the issue in one transaction.
+    # Read and clear the active issue in one transaction, and only clear the
+    # slot if it still holds the issue we read — so stopping cannot wipe an
+    # issue a concurrent process started in the meantime.
     with self.db.get_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT active_issue_id, started_at FROM workspace_state WHERE id = 1"
+        )
+        row = cursor.fetchone()
+        if not row or not row["active_issue_id"]:
+            return None
 
-        # Clear workspace_state
+        active_id = row["active_issue_id"]
+        started_at = datetime.fromisoformat(row["started_at"])
+        issue = self._get_issue_with_conn(conn, active_id)
+        if not issue:
+            # Dangling reference to a deleted issue: clear it and report no
+            # active issue.
+            cursor.execute(
+                "UPDATE workspace_state SET active_issue_id = NULL, started_at = NULL"
+                " WHERE id = 1"
+            )
+            return None
+
+        # Clear workspace_state (guarded on the issue we read)
         cursor.execute(
             """
             UPDATE workspace_state
             SET active_issue_id = NULL, started_at = NULL
-            WHERE id = 1
-        """
+            WHERE id = 1 AND active_issue_id = ?
+        """,
+            (active_id,),
         )
 
         # Log workspace action in audit log

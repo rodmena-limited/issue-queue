@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from issuedb.cli import CLI
@@ -31,33 +31,46 @@ def timer_start(self: CLI, issue_id: int, note: str | None = None, as_json: bool
     return self.format_output(result, as_json)
 
 
+def _format_stopped_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    duration = entry.get("duration_seconds", 0)
+    hours = duration // 3600
+    minutes = (duration % 3600) // 60
+    seconds = duration % 60
+    return {
+        "entry_id": entry.get("id"),
+        "issue_id": entry.get("issue_id"),
+        "duration_seconds": duration,
+        "duration_formatted": f"{hours}h {minutes}m {seconds}s",
+    }
+
+
 def timer_stop(self: CLI, issue_id: int | None = None, as_json: bool = False) -> str:
-    """Stop a timer for an issue.
+    """Stop timers.
 
     Args:
-        issue_id: Issue ID (stops all running timers for this issue if None).
+        issue_id: Issue ID whose timer to stop. If omitted, stops ALL running
+            timers (matching the documented behavior).
         as_json: Output as JSON.
 
     Returns:
         Formatted output.
+
+    Raises:
+        ValueError: If no running timer exists.
     """
-    try:
+    if issue_id is not None:
         entry = self.repo.stop_timer(issue_id)
-        duration = entry.get("duration_seconds", 0)
-        hours = duration // 3600
-        minutes = (duration % 3600) // 60
-        seconds = duration % 60
-        result = {
-            "message": "Timer stopped",
-            "entry_id": entry.get("id"),
-            "issue_id": entry.get("issue_id"),
-            "duration_seconds": duration,
-            "duration_formatted": f"{hours}h {minutes}m {seconds}s",
-        }
+        result = {"message": "Timer stopped", **_format_stopped_entry(entry)}
         return self.format_output(result, as_json)
-    except ValueError:
-        result = {"message": "No running timer found"}
-        return self.format_output(result, as_json)
+
+    stopped = self.repo.stop_all_timers()
+    if not stopped:
+        raise ValueError("No running timer found")
+    result = {
+        "message": f"Stopped {len(stopped)} timer(s)",
+        "stopped": [_format_stopped_entry(entry) for entry in stopped],
+    }
+    return self.format_output(result, as_json)
 
 
 def timer_status(self: CLI, as_json: bool = False) -> str:
@@ -112,8 +125,12 @@ def set_estimate(self: CLI, issue_id: int, hours: float, as_json: bool = False) 
 
     Returns:
         Formatted output.
+
+    Raises:
+        ValueError: If the issue does not exist.
     """
-    self.repo.set_estimate(issue_id, hours)
+    if self.repo.set_estimate(issue_id, hours) is None:
+        raise ValueError(f"Issue {issue_id} not found")
     result = {
         "message": f"Estimate set for issue {issue_id}",
         "issue_id": issue_id,

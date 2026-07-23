@@ -4,11 +4,16 @@ SCRIPTS_PART_2 = """            section.innerHTML = html;
             var delBtns = section.querySelectorAll('.del-link-btn');
             for (var di = 0; di < delBtns.length; di++) {
                 delBtns[di].addEventListener('click', function() {
-                    deleteLink(
-                        parseInt(this.getAttribute('data-issue-id'), 10),
-                        parseInt(this.getAttribute('data-link-id'), 10),
-                        this.getAttribute('data-link-type')
-                    );
+                    var selfId = parseInt(this.getAttribute('data-issue-id'), 10);
+                    var otherId = parseInt(this.getAttribute('data-link-id'), 10);
+                    var linkType = this.getAttribute('data-link-type');
+                    // Inbound relations are stored as source=other, target=self;
+                    // the delete request must use the stored orientation.
+                    if (this.getAttribute('data-direction') === 'in') {
+                        deleteLink(otherId, selfId, linkType);
+                    } else {
+                        deleteLink(selfId, otherId, linkType);
+                    }
                 });
             }
         })
@@ -61,7 +66,7 @@ SCRIPTS_PART_2 = """            section.innerHTML = html;
                 for (var i = 0; i < limit; i++) {
                     var e = data.entries[i];
                     html += '<div class="time-entry"><span class="time-duration">' + e.duration_formatted + '</span>';
-                    if (e.note) html += '<span style="color: var(--text-muted);"> - ' + truncate(e.note, 20) + '</span>';
+                    if (e.note) html += '<span style="color: var(--text-muted);"> - ' + escapeHtml(truncate(e.note, 20)) + '</span>';
                     html += '<div style="font-size: 10px; color: var(--text-muted);">' + e.started_at + '</div></div>';
                 }
                 html += '</div></div>';
@@ -93,7 +98,7 @@ SCRIPTS_PART_2 = """            section.innerHTML = html;
                     for (var i = 0; i < ctx.git.commits_mentioning_issue.length; i++) {
                         var c = ctx.git.commits_mentioning_issue[i];
                         html += '<div class="context-commit">';
-                        html += '<code class="commit-hash">' + c.hash + '</code>';
+                        html += '<code class="commit-hash">' + escapeHtml(c.hash) + '</code>';
                         html += '<span class="commit-msg">' + escapeHtml(c.message) + '</span>';
                         html += '</div>';
                     }

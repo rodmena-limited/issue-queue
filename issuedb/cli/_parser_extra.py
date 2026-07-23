@@ -297,3 +297,52 @@ def register_advanced(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
         default=0.7,
         help="Similarity threshold for duplicates (0.0 to 1.0, default: 0.7)",
     )
+
+    # Git integration commands ("git-" prefixed: plain `link` is taken by
+    # issue-to-issue relations)
+    git_link_parser = subparsers.add_parser(
+        "git-link", help="Link an issue to a git commit or branch"
+    )
+    git_link_parser.add_argument("issue_id", type=int, help="Issue ID")
+    git_link_group = git_link_parser.add_mutually_exclusive_group(required=True)
+    git_link_group.add_argument("-c", "--commit", help="Commit hash to link")
+    git_link_group.add_argument("-b", "--branch", help="Branch name to link")
+
+    git_unlink_parser = subparsers.add_parser(
+        "git-unlink", help="Remove git link(s) from an issue"
+    )
+    git_unlink_parser.add_argument("issue_id", type=int, help="Issue ID")
+    git_unlink_group = git_unlink_parser.add_mutually_exclusive_group(required=True)
+    git_unlink_group.add_argument("-c", "--commit", help="Commit hash to unlink")
+    git_unlink_group.add_argument("-b", "--branch", help="Branch name to unlink")
+
+    git_links_parser = subparsers.add_parser(
+        "git-links", help="Show all git links for an issue"
+    )
+    git_links_parser.add_argument("issue_id", type=int, help="Issue ID")
+
+    git_linked_parser = subparsers.add_parser(
+        "git-linked", help="Show issues linked to a commit or branch"
+    )
+    git_linked_group = git_linked_parser.add_mutually_exclusive_group(required=True)
+    git_linked_group.add_argument("-c", "--commit", help="Commit hash")
+    git_linked_group.add_argument("-b", "--branch", help="Branch name")
+
+    git_scan_parser = subparsers.add_parser(
+        "git-scan",
+        help="Scan recent git commits for issue references and link them",
+    )
+    git_scan_parser.add_argument(
+        "-n",
+        "--num-commits",
+        type=int,
+        default=10,
+        help="Number of recent commits to scan (default: 10)",
+    )
+    git_scan_parser.add_argument(
+        "--auto-close",
+        action="store_true",
+        help="Auto-close issues with 'fixes #N' or 'closes #N' patterns",
+    )
+
+    subparsers.add_parser("git-status", help="Show git repository status")

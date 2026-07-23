@@ -14,6 +14,26 @@ if TYPE_CHECKING:
     from issuedb.repository import IssueRepository
 
 
+def _escape_like(text: str) -> str:
+    """Escape LIKE wildcards so user keywords match literally.
+
+    Without this, a keyword containing ``%`` matches everything and ``_``
+    matches any single character.
+    """
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _populate_tags(self: IssueRepository, issues: list[Issue]) -> list[Issue]:
+    """Attach tags to a list of issues with a single batched query."""
+    ids = [issue.id for issue in issues if issue.id is not None]
+    if ids:
+        tag_map = self.get_tags_for_issues(ids)
+        for issue in issues:
+            if issue.id is not None:
+                issue.tags = tag_map.get(issue.id, [])
+    return issues
+
+
 def count_issues(
     self: IssueRepository,
     status: str | None = None,
@@ -47,22 +67,23 @@ def count_issues(
         params.append(tag)
 
     if status:
-        Status.from_string(status)  # Validate status
+        # Bind the normalized enum value: the validator accepts forms like
+        # "in_progress" or " open " that would never match the stored value.
         wheres.append("i.status = ?")
-        params.append(status.lower())
+        params.append(Status.from_string(status).value)
 
     if priority:
-        Priority.from_string(priority)  # Validate priority
         wheres.append("i.priority = ?")
-        params.append(priority.lower())
+        params.append(Priority.from_string(priority).value)
 
     if due_date:
         wheres.append("date(i.due_date) = date(?)")
         params.append(due_date)
 
     if keyword:
-        wheres.append("(i.title LIKE ? OR i.description LIKE ?)")
-        params.extend([f"%{keyword}%", f"%{keyword}%"])
+        wheres.append("(i.title LIKE ? ESCAPE '\\' OR i.description LIKE ? ESCAPE '\\')")
+        escaped = f"%{_escape_like(keyword)}%"
+        params.extend([escaped, escaped])
 
     if joins:
         query += " " + " ".join(joins)
@@ -84,6 +105,7 @@ def list_issues(
     offset: int = 0,
     due_date: str | None = None,
     tag: str | None = None,
+    keyword: str | None = None,
 ) -> list[Issue]:
     """List issues with optional filters.
 
@@ -94,6 +116,8 @@ def list_issues(
         offset: Number of issues to skip.
         due_date: Filter by due date (exact match).
         tag: Filter by tag name.
+        keyword: Keyword search in title/description (combines with filters,
+            mirroring count_issues so listings and counts always agree).
 
     Returns:
         List of matching issues.
@@ -111,18 +135,21 @@ def list_issues(
         params.append(tag)
 
     if status:
-        Status.from_string(status)  # Validate status
         wheres.append("i.status = ?")
-        params.append(status.lower())
+        params.append(Status.from_string(status).value)
 
     if priority:
-        Priority.from_string(priority)  # Validate priority
         wheres.append("i.priority = ?")
-        params.append(priority.lower())
+        params.append(Priority.from_string(priority).value)
 
     if due_date:
         wheres.append("date(i.due_date) = date(?)")
         params.append(due_date)
+
+    if keyword:
+        wheres.append("(i.title LIKE ? ESCAPE '\\' OR i.description LIKE ? ESCAPE '\\')")
+        escaped = f"%{_escape_like(keyword)}%"
+        params.extend([escaped, escaped])
 
     if joins:
         query += " " + " ".join(joins)
@@ -130,19 +157,18 @@ def list_issues(
     query += " WHERE " + " AND ".join(wheres)
     query += " ORDER BY i.created_at DESC"
 
-    if limit:
-        query += " LIMIT ?"
-        params.append(limit)
-        if offset:
-            query += " OFFSET ?"
-            params.append(offset)
+    # LIMIT -1 means "no limit" in SQLite, which lets offset work on its own.
+    if limit is not None or offset:
+        query += " LIMIT ? OFFSET ?"
+        params.extend([limit if limit is not None else -1, offset])
 
     with self.db.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
-        return [self._row_to_issue(row) for row in rows]
+        issues = [self._row_to_issue(row) for row in rows]
+        return _populate_tags(self, issues)
 
 
 def get_all_issues(self: IssueRepository) -> list[Issue]:
@@ -158,7 +184,8 @@ def get_all_issues(self: IssueRepository) -> list[Issue]:
         cursor.execute(query)
         rows = cursor.fetchall()
 
-        return [self._row_to_issue(row) for row in rows]
+        issues = [self._row_to_issue(row) for row in rows]
+        return _populate_tags(self, issues)
 
 
 def search_issues(
@@ -176,25 +203,24 @@ def search_issues(
     """
     query = """
         SELECT * FROM issues
-        WHERE (title LIKE ? OR description LIKE ?)
+        WHERE (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')
     """
-    params: list[Any] = [f"%{keyword}%", f"%{keyword}%"]
+    escaped = f"%{_escape_like(keyword)}%"
+    params: list[Any] = [escaped, escaped]
 
     query += " ORDER BY created_at DESC"
 
-    if limit:
-        query += " LIMIT ?"
-        params.append(limit)
-        if offset:
-            query += " OFFSET ?"
-            params.append(offset)
+    if limit is not None or offset:
+        query += " LIMIT ? OFFSET ?"
+        params.extend([limit if limit is not None else -1, offset])
 
     with self.db.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
-        return [self._row_to_issue(row) for row in rows]
+        issues = [self._row_to_issue(row) for row in rows]
+        return _populate_tags(self, issues)
 
 
 def clear_all_issues(self: IssueRepository) -> int:
@@ -203,13 +229,13 @@ def clear_all_issues(self: IssueRepository) -> int:
     Returns:
         Number of issues deleted.
     """
-    # Get all issues for audit logging
-    issues = self.list_issues()
-
+    # Snapshot and delete in the same transaction so an issue created by a
+    # concurrent process cannot be deleted without an audit entry.
     with self.db.get_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("SELECT * FROM issues ORDER BY created_at DESC")
+        issues = [self._row_to_issue(row) for row in cursor.fetchall()]
 
-        # Log deletion for each issue
         for issue in issues:
             assert issue.id is not None  # Issues from DB always have ID
             self._log_audit(
@@ -221,6 +247,5 @@ def clear_all_issues(self: IssueRepository) -> int:
                 None,
             )
 
-        # Delete all issues
         cursor.execute("DELETE FROM issues")
         return cursor.rowcount

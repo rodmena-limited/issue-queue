@@ -42,15 +42,20 @@ def parse_date(date_str: str) -> datetime:
         amount = int(relative_pattern.group(1))
         unit = relative_pattern.group(2)
 
-        if unit == "d":
-            # Days ago
-            return now - timedelta(days=amount)
-        elif unit == "w":
-            # Weeks ago
-            return now - timedelta(weeks=amount)
-        elif unit == "m":
-            # Months ago (approximate as 30 days)
-            return now - timedelta(days=amount * 30)
+        try:
+            if unit == "d":
+                # Days ago
+                return now - timedelta(days=amount)
+            elif unit == "w":
+                # Weeks ago
+                return now - timedelta(weeks=amount)
+            elif unit == "m":
+                # Months ago (approximate as 30 days)
+                return now - timedelta(days=amount * 30)
+        except (OverflowError, OSError):
+            # Absurdly large amounts overflow datetime arithmetic; report them
+            # as the invalid input they are so ValueError handlers catch it.
+            raise ValueError(f"Relative date out of range: '{date_str}'") from None
 
     # Handle YYYY-MM-DD format
     try:

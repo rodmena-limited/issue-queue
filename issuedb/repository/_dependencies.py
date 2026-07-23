@@ -170,8 +170,11 @@ def is_blocked(self: IssueRepository, issue_id: int) -> bool:
         True if the issue has at least one open/in-progress blocker.
     """
     blockers = self.get_blockers(issue_id)
-    # Issue is blocked if it has any blocker that is not closed
-    return any(blocker.status != Status.CLOSED for blocker in blockers)
+    # Issue is blocked if it has any unresolved blocker; closed and wont-do
+    # blockers are both resolved.
+    return any(
+        blocker.status not in (Status.CLOSED, Status.WONT_DO) for blocker in blockers
+    )
 
 
 def get_all_blocked_issues(self: IssueRepository, status: str | None = None) -> list[Issue]:
@@ -191,14 +194,13 @@ def get_all_blocked_issues(self: IssueRepository, status: str | None = None) -> 
             SELECT DISTINCT i.* FROM issues i
             INNER JOIN issue_dependencies d ON i.id = d.blocked_id
             INNER JOIN issues blocker ON blocker.id = d.blocker_id
-            WHERE blocker.status != 'closed'
+            WHERE blocker.status NOT IN ('closed', 'wont-do')
         """
         params: list[Any] = []
 
         if status:
-            Status.from_string(status)  # Validate status
             query += " AND i.status = ?"
-            params.append(status.lower())
+            params.append(Status.from_string(status).value)
 
         query += """
             ORDER BY

@@ -96,6 +96,9 @@ def update_issue(self: IssueRepository, issue_id: int, **updates: Any) -> Issue 
             if field not in allowed_fields:
                 raise ValueError(f"Cannot update field: {field}")
 
+            if field == "title" and (value is None or not str(value).strip()):
+                raise ValueError("Title is required")
+
             # Validate and convert enums
             old_value: Any
             if field == "priority":
@@ -210,7 +213,20 @@ def bulk_update_issues(
         where_conditions.append("priority = ?")
         where_values.append(filter_priority_enum.value)
 
-    where_clause = f" WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
+    # Only touch rows that would actually change so updated_at is not rewritten
+    # (and the row not counted) for issues already at the target values.
+    change_checks = []
+    change_values = []
+    if new_status:
+        change_checks.append("status != ?")
+        change_values.append(Status.from_string(new_status).value)
+    if new_priority:
+        change_checks.append("priority != ?")
+        change_values.append(Priority.from_string(new_priority).value)
+    where_conditions.append("(" + " OR ".join(change_checks) + ")")
+    where_values.extend(change_values)
+
+    where_clause = f" WHERE {' AND '.join(where_conditions)}"
 
     with self.db.get_connection() as conn:
         cursor = conn.cursor()
@@ -313,20 +329,23 @@ def get_next_issue(
 
     # Default to open issues if status not specified
     if status:
-        Status.from_string(status)  # Validate status
+        # Bind the normalized enum value so accepted forms like "in_progress"
+        # actually match the stored value.
         query += " AND status = ?"
-        params.append(status.lower())
+        params.append(Status.from_string(status).value)
     else:
         query += " AND status = ?"
         params.append(Status.OPEN.value)
 
-    # Exclude blocked issues (issues with unresolved blockers)
+    # Exclude blocked issues (issues with unresolved blockers). A blocker that
+    # is closed or wont-do is resolved — treating wont-do as unresolved would
+    # hide its dependents forever.
     query += """
         AND id NOT IN (
             SELECT DISTINCT d.blocked_id
             FROM issue_dependencies d
             INNER JOIN issues blocker ON blocker.id = d.blocker_id
-            WHERE blocker.status != 'closed'
+            WHERE blocker.status NOT IN ('closed', 'wont-do')
         )
     """
 
@@ -350,6 +369,8 @@ def get_next_issue(
 
         if row:
             issue = self._row_to_issue(row)
+            assert issue.id is not None  # Issues from DB always have ID
+            issue.tags = self._get_issue_tags_with_conn(conn, issue.id)
             # Log the fetch in audit log
             if log_fetch and issue.id is not None:
                 self._log_audit(

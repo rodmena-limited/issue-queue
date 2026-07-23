@@ -22,6 +22,7 @@ def create_issue(
     force: bool = False,
     check_duplicates: bool = False,
     tags: list[str] | None = None,
+    template: str | None = None,
 ) -> str:
     """Create a new issue.
 
@@ -35,6 +36,9 @@ def create_issue(
         force: Create issue even if similar issues found (with check_duplicates).
         check_duplicates: Enable duplicate checking (opt-in, disabled by default).
         tags: Optional list of tag names to attach to the new issue.
+        template: Optional template name; applies its title prefix, default
+            priority/status (unless explicitly overridden) and required-field
+            validation.
 
     Returns:
         Formatted output.
@@ -43,14 +47,33 @@ def create_issue(
 
     from issuedb.similarity import find_similar_issues
 
+    if template:
+        tmpl = self.repo.get_template(template)
+        if not tmpl:
+            available = ", ".join(t.name for t in self.repo.list_templates()) or "(none)"
+            raise ValueError(f"Template '{template}' not found. Available: {available}")
+        errors = self.repo.validate_against_template(
+            tmpl, {"title": title, "description": description}
+        )
+        if errors:
+            raise ValueError(f"Template '{template}': " + "; ".join(errors))
+        if tmpl.title_prefix and not title.startswith(tmpl.title_prefix):
+            title = f"{tmpl.title_prefix} {title}"
+        # Template defaults fill in when the caller left the parser defaults.
+        if tmpl.default_priority and priority == "medium":
+            priority = tmpl.default_priority
+        if tmpl.default_status and status == "open":
+            status = tmpl.default_status
+
     due_date_obj = None
     if due_date:
         try:
             due_date_obj = datetime.fromisoformat(due_date)
         except ValueError:
-            if as_json:
-                return json.dumps({"error": "Invalid date format"}, indent=2)
-            return "Error: Invalid date format (use YYYY-MM-DD)"
+            # Propagate so the CLI error handler reports it on stderr with
+            # exit code 1 — returning the error as output would look like a
+            # successful create to scripts and agents.
+            raise ValueError("Invalid date format (use YYYY-MM-DD)") from None
 
     issue = Issue(
         title=title,
@@ -73,35 +96,17 @@ def create_issue(
         # Find similar issues
         similar_issues = find_similar_issues(query_text, all_issues, threshold=0.7)
 
-        # If similar issues found and not forced, show warning
+        # If similar issues found and not forced, refuse with an error so the
+        # caller's exit code reflects that nothing was created.
         if similar_issues and not force:
-            if as_json:
-                warnings = []
-                for similar_issue, similarity in similar_issues[:3]:  # Show top 3
-                    warnings.append(
-                        {
-                            "id": similar_issue.id,
-                            "title": similar_issue.title,
-                            "similarity": round(similarity * 100, 1),
-                        }
-                    )
-                return json.dumps(
-                    {
-                        "error": "Similar issues found",
-                        "message": "Use --force to create anyway",
-                        "similar_issues": warnings,
-                    },
-                    indent=2,
-                )
-            else:
-                lines = ["Warning: Similar issues found:"]
-                for similar_issue, similarity in similar_issues[:3]:  # Show top 3
-                    lines.append(
-                        f"  - Issue #{similar_issue.id}: {similar_issue.title} "
-                        f"({round(similarity * 100, 1)}% similar)"
-                    )
-                lines.append("\nUse --force to create anyway")
-                return "\n".join(lines)
+            details = "; ".join(
+                f"#{similar_issue.id} {similar_issue.title!r}"
+                f" ({round(similarity * 100, 1)}% similar)"
+                for similar_issue, similarity in similar_issues[:3]
+            )
+            raise ValueError(
+                f"Similar issues found: {details}. Use --force to create anyway"
+            )
 
     created_issue = self.repo.create_issue(issue)
 
@@ -116,6 +121,35 @@ def create_issue(
             created_issue = refreshed
 
     return self.format_output(created_issue, as_json)
+
+
+def list_templates(self: CLI, as_json: bool = False) -> str:
+    """List available issue templates.
+
+    Args:
+        as_json: Output as JSON.
+
+    Returns:
+        Formatted output.
+    """
+    templates = self.repo.list_templates()
+    if as_json:
+        return json.dumps([t.to_dict() for t in templates], indent=2)
+    if not templates:
+        return "No templates found."
+    lines = []
+    for t in templates:
+        details = []
+        if t.title_prefix:
+            details.append(f"prefix: {t.title_prefix}")
+        if t.default_priority:
+            details.append(f"priority: {t.default_priority}")
+        if t.default_status:
+            details.append(f"status: {t.default_status}")
+        if t.required_fields:
+            details.append(f"requires: {', '.join(t.required_fields)}")
+        lines.append(t.name + (f" ({'; '.join(details)})" if details else ""))
+    return "\n".join(lines)
 
 
 def list_issues(
@@ -179,19 +213,6 @@ def update_issue(self: CLI, issue_id: int, as_json: bool = False, **updates: Any
     Raises:
         ValueError: If issue not found.
     """
-    # Validate due_date if present
-    if "due_date" in updates and updates["due_date"]:
-        import contextlib
-
-        with contextlib.suppress(ValueError):
-            # Just check format, value is passed as string to repo which handles conversion
-            # Actually repo update_issue expects string for due_date based on my update?
-            # Let's check repo.update_issue again.
-            # My update to repo.update_issue handles string conversion.
-            # "elif field == "due_date": if value: try: datetime.fromisoformat(value) ..."
-            # So we just pass the string.
-            pass
-
     issue = self.repo.update_issue(issue_id, **updates)
     if not issue:
         raise ValueError(f"Issue {issue_id} not found")

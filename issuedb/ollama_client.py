@@ -6,9 +6,10 @@ import re
 import shlex
 import subprocess
 import sys
-from typing import Optional, Tuple
+from typing import Optional
 from urllib import request
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 
 # Resource-exhaustion guards. The user request is attacker-influenced and the
 # Ollama response is untrusted, so we bound both before they hit memory:
@@ -37,12 +38,26 @@ class OllamaClient:
             port: Ollama server port (default: from OLLAMA_PORT env or 11434)
             model: Model to use (default: from OLLAMA_MODEL env or 'llama3')
         """
-        self.host = host or os.getenv("OLLAMA_HOST", "localhost")
-        self.port = port or int(os.getenv("OLLAMA_PORT", "11434"))
+        raw_host: str = host or os.getenv("OLLAMA_HOST") or "localhost"
+        env_port: Optional[int] = None
+        # OLLAMA_HOST conventionally accepts "host", "host:port" or a full
+        # "http://host:port" URL — parse all three instead of producing a
+        # malformed base URL like "http://http://host:11434:11434".
+        if "://" in raw_host:
+            parsed = urlsplit(raw_host)
+            env_port = parsed.port
+            raw_host = str(parsed.hostname or "localhost")
+        elif raw_host.count(":") == 1:
+            host_part, _, port_part = raw_host.partition(":")
+            if port_part.isdigit():
+                raw_host, env_port = host_part, int(port_part)
+
+        self.host = raw_host
+        self.port = port or env_port or int(os.getenv("OLLAMA_PORT", "11434"))
         self.model = model or os.getenv("OLLAMA_MODEL", "llama3")
         self.base_url = f"http://{self.host}:{self.port}"
 
-    def check_server(self) -> Tuple[bool, Optional[str]]:
+    def check_server(self) -> tuple[bool, Optional[str]]:
         """Check if Ollama server is available.
 
         Returns:
@@ -69,7 +84,7 @@ class OllamaClient:
 
     def generate_command(
         self, user_request: str, system_prompt: str
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> tuple[Optional[str], Optional[str]]:
         """Generate issuedb-cli command from natural language request.
 
         Args:
@@ -173,16 +188,14 @@ Generate the issuedb-cli command:"""
                 if len(command) > 11 and " " in command:  # "issuedb-cli" + space + something
                     return command
 
-        # If no valid command found in lines, try to find it anywhere in text
-        match = re.search(r"issuedb-cli\s+\S+.*", text)
-        if match:
-            return match.group(0).strip()
-
+        # No line-anchored command found. Deliberately no substring fallback:
+        # grabbing "issuedb-cli ..." out of mid-sentence prose used to extract
+        # (and execute) fragments of the model's explanation text.
         return None
 
     def execute_command(
         self, command: str, dry_run: bool = False
-    ) -> Tuple[bool, str, Optional[str]]:
+    ) -> tuple[bool, str, Optional[str]]:
         """Execute the generated issuedb-cli command.
 
         Args:
@@ -209,6 +222,10 @@ Generate the issuedb-cli command:"""
                 "",
                 "Refusing to execute: command must start with 'issuedb-cli'",
             )
+
+        # Run the CLI of THIS installation, not whatever issuedb-cli happens
+        # to be first on PATH (which may be a stale or different version).
+        argv = [sys.executable, "-m", "issuedb.cli"] + argv[1:]
 
         try:
             # Execute command without a shell (shell=False).
@@ -285,6 +302,17 @@ def handle_ollama_request(
     if dry_run:
         print("\nDry run mode - command not executed", file=sys.stderr)
         return 0
+
+    # Interactive terminals get a confirmation prompt before a model-generated
+    # command runs; non-interactive callers (scripts, agents) proceed directly.
+    if sys.stdin.isatty() and sys.stderr.isatty():
+        try:
+            reply = input("Execute this command? [y/N] ")
+        except EOFError:
+            reply = ""
+        if reply.strip().lower() not in ("y", "yes"):
+            print("Aborted.", file=sys.stderr)
+            return 1
 
     # Execute command
     print("\nExecuting command...", file=sys.stderr)

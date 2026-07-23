@@ -44,6 +44,18 @@ def _log_audit(
     )
 
 
+def _parse_dt(value: Any) -> datetime | None:
+    """Parse a stored timestamp, tolerating empty/blank strings as absent.
+
+    Older data (and third-party writers) can leave a date column as the empty
+    string rather than NULL; ``datetime.fromisoformat('')`` would raise and
+    break any listing that touches such a row.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return datetime.fromisoformat(value)
+
+
 def _row_to_issue(self: IssueRepository, row: Any) -> Issue:
     """Convert a database row to an Issue object.
 
@@ -53,14 +65,18 @@ def _row_to_issue(self: IssueRepository, row: Any) -> Issue:
     Returns:
         Issue object.
     """
+    # created_at/updated_at are NOT NULL with defaults, but tolerate a blank
+    # value defensively so one malformed row can't break an entire listing.
+    created = _parse_dt(row["created_at"])
+    updated = _parse_dt(row["updated_at"])
     issue = Issue(
         id=row["id"],
         title=row["title"],
         description=row["description"],
         priority=Priority.from_string(row["priority"]),
         status=Status.from_string(row["status"]),
-        created_at=datetime.fromisoformat(row["created_at"]),
-        updated_at=datetime.fromisoformat(row["updated_at"]),
+        created_at=created if created is not None else datetime.now(),
+        updated_at=updated if updated is not None else datetime.now(),
     )
 
     # NOTE: use row.keys(), not ``"col" in row`` — sqlite3.Row.__contains__ tests
@@ -70,8 +86,8 @@ def _row_to_issue(self: IssueRepository, row: Any) -> Issue:
     if "estimated_hours" in row_keys and row["estimated_hours"] is not None:
         issue.estimated_hours = row["estimated_hours"]
 
-    if "due_date" in row_keys and row["due_date"] is not None:
-        issue.due_date = datetime.fromisoformat(row["due_date"])
+    if "due_date" in row_keys:
+        issue.due_date = _parse_dt(row["due_date"])
 
     return issue
 

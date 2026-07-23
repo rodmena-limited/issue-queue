@@ -109,6 +109,7 @@ class IssueRepository:
     # _time_tracking
     start_timer = _time_tracking.start_timer
     stop_timer = _time_tracking.stop_timer
+    stop_all_timers = _time_tracking.stop_all_timers
     get_running_timers = _time_tracking.get_running_timers
     get_time_entries = _time_tracking.get_time_entries
     set_estimate = _time_tracking.set_estimate

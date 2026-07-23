@@ -103,15 +103,28 @@ Summary
    {
      "total_issues": 10,
      "by_status": {
-       "open": {"count": 5, "percentage": 50.0},
-       "in_progress": {"count": 3, "percentage": 30.0},
-       "closed": {"count": 2, "percentage": 20.0}
+       "open": 5,
+       "in_progress": 3,
+       "closed": 2,
+       "wont_do": 0
      },
      "by_priority": {
-       "critical": {"count": 1, "percentage": 10.0},
-       "high": {"count": 3, "percentage": 30.0},
-       "medium": {"count": 4, "percentage": 40.0},
-       "low": {"count": 2, "percentage": 20.0}
+       "low": 2,
+       "medium": 4,
+       "high": 3,
+       "critical": 1
+     },
+     "status_percentages": {
+       "open": 50.0,
+       "in-progress": 30.0,
+       "closed": 20.0,
+       "wont-do": 0.0
+     },
+     "priority_percentages": {
+       "low": 20.0,
+       "medium": 40.0,
+       "high": 30.0,
+       "critical": 10.0
      }
    }
 
@@ -186,9 +199,9 @@ Database Info
 .. code-block:: json
 
    {
-     "database_path": "/path/to/issuedb.sqlite",
-     "total_issues": 25,
-     "total_audit_logs": 150,
+     "database_path": "/path/to/project/.issue.db",
+     "issue_count": 25,
+     "audit_log_count": 150,
      "database_size_bytes": 45056
    }
 

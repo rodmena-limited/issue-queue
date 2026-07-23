@@ -83,6 +83,14 @@ def add_issue_tag(self: IssueRepository, issue_id: int, tag_name: str) -> bool:
     Returns:
         True if tag was added, False if already present.
     """
+    # Verify the issue exists BEFORE creating the tag, so a bad issue ID
+    # cannot leave an orphan tag behind or surface a raw FK error.
+    with self.db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM issues WHERE id = ?", (issue_id,))
+        if not cursor.fetchone():
+            raise ValueError(f"Issue {issue_id} not found")
+
     # Ensure tag exists
     with contextlib.suppress(ValueError):
         self.create_tag(tag_name)
@@ -115,6 +123,8 @@ def add_issue_tag(self: IssueRepository, issue_id: int, tag_name: str) -> bool:
         except Exception as e:
             if "UNIQUE constraint failed" in str(e):
                 return False
+            if "FOREIGN KEY constraint failed" in str(e):
+                raise ValueError(f"Issue {issue_id} not found") from e
             raise
 
 

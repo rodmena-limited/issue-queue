@@ -35,6 +35,10 @@ def link_issues(
 
     with self.db.get_connection() as conn:
         cursor = conn.cursor()
+        for issue_id in (source_id, target_id):
+            cursor.execute("SELECT 1 FROM issues WHERE id = ?", (issue_id,))
+            if not cursor.fetchone():
+                raise ValueError(f"Issue {issue_id} not found")
         try:
             cursor.execute(
                 """
@@ -71,6 +75,8 @@ def link_issues(
         except Exception as e:
             if "UNIQUE constraint failed" in str(e):
                 raise ValueError("Relation already exists") from e
+            if "FOREIGN KEY constraint failed" in str(e):
+                raise ValueError("Issue not found") from e
             raise
 
     return relation

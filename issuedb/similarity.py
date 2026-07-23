@@ -5,7 +5,6 @@ It combines Levenshtein distance for short texts and Jaccard similarity for long
 """
 
 import string
-from typing import List, Tuple
 
 from issuedb.models import Issue
 
@@ -173,6 +172,23 @@ def _overlap_coefficient(s1: str, s2: str) -> float:
     return intersection / smaller
 
 
+def _token_similarity_sets(tokens1: set[str], tokens2: set[str]) -> float:
+    """Token-based similarity from precomputed token sets (see _token_similarity)."""
+    if not tokens1 and not tokens2:
+        return 1.0
+    if not tokens1 or not tokens2:
+        return 0.0
+
+    intersection = len(tokens1 & tokens2)
+    union = len(tokens1 | tokens2)
+    jaccard = intersection / union if union else 0.0
+    smaller = min(len(tokens1), len(tokens2))
+    overlap = intersection / smaller if smaller else 0.0
+
+    # Weighted blend; favor Jaccard but let overlap rescue containment cases.
+    return 0.6 * jaccard + 0.4 * overlap
+
+
 def _token_similarity(s1: str, s2: str) -> float:
     """Token-based similarity blending Jaccard with overlap (containment).
 
@@ -188,11 +204,55 @@ def _token_similarity(s1: str, s2: str) -> float:
     Returns:
         Token similarity score from 0.0 to 1.0.
     """
-    jaccard = _jaccard_similarity(s1, s2)
-    overlap = _overlap_coefficient(s1, s2)
+    return _token_similarity_sets(_tokenize(s1), _tokenize(s2))
 
-    # Weighted blend; favor Jaccard but let overlap rescue containment cases.
-    return 0.6 * jaccard + 0.4 * overlap
+
+def _similarity_from_normalized(
+    norm1: str,
+    norm2: str,
+    tokens1: "set[str] | None" = None,
+    tokens2: "set[str] | None" = None,
+) -> float:
+    """Similarity of two already-normalized, non-empty texts.
+
+    Accepts optional precomputed token sets so O(n^2) callers
+    (find_duplicate_groups) do not re-tokenize the same text per pair.
+    """
+    if tokens1 is None:
+        tokens1 = _tokenize(norm1)
+    if tokens2 is None:
+        tokens2 = _tokenize(norm2)
+
+    len1 = len(norm1)
+    len2 = len(norm2)
+
+    # If either string is too long, the character DP is too expensive; fall
+    # back entirely to token-based similarity.
+    too_long = len1 > MAX_LEVENSHTEIN_LEN or len2 > MAX_LEVENSHTEIN_LEN
+
+    # Detect a large length mismatch (e.g. short query vs long description).
+    longer = max(len1, len2)
+    shorter = min(len1, len2)
+    length_mismatch = shorter > 0 and (longer / shorter) > LENGTH_RATIO_THRESHOLD
+
+    if too_long or length_mismatch:
+        # Token-based path: robust to length differences and cheap to compute.
+        return _token_similarity_sets(tokens1, tokens2)
+
+    # Use pure character Levenshtein only when BOTH strings are short and of
+    # comparable length (the original short-text fast path).
+    if len1 < 20 and len2 < 20:
+        return _normalized_levenshtein_similarity(norm1, norm2)
+
+    # For longer (but still capped) texts of comparable length, combine
+    # Jaccard with character-level similarity for better accuracy.
+    union = len(tokens1 | tokens2)
+    jaccard = len(tokens1 & tokens2) / union if union else 0.0
+    lev = _normalized_levenshtein_similarity(norm1, norm2)
+
+    # Weighted combination: favor Jaccard for longer texts
+    # but still consider character-level similarity.
+    return 0.7 * jaccard + 0.3 * lev
 
 
 def calculate_similarity(text1: str, text2: str) -> float:
@@ -221,39 +281,14 @@ def calculate_similarity(text1: str, text2: str) -> float:
     norm2 = _normalize_text(text2)
 
     if not norm1 and not norm2:
-        return 1.0
+        # No token signal survives normalization (e.g. all-punctuation
+        # strings): only literal equality counts as similar — "???" and "!!!"
+        # are not duplicates of each other.
+        return 1.0 if text1.strip() == text2.strip() else 0.0
     if not norm1 or not norm2:
         return 0.0
 
-    len1 = len(norm1)
-    len2 = len(norm2)
-
-    # If either string is too long, the character DP is too expensive; fall
-    # back entirely to token-based similarity.
-    too_long = len1 > MAX_LEVENSHTEIN_LEN or len2 > MAX_LEVENSHTEIN_LEN
-
-    # Detect a large length mismatch (e.g. short query vs long description).
-    longer = max(len1, len2)
-    shorter = min(len1, len2)
-    length_mismatch = shorter > 0 and (longer / shorter) > LENGTH_RATIO_THRESHOLD
-
-    if too_long or length_mismatch:
-        # Token-based path: robust to length differences and cheap to compute.
-        return _token_similarity(norm1, norm2)
-
-    # Use pure character Levenshtein only when BOTH strings are short and of
-    # comparable length (the original short-text fast path).
-    if len1 < 20 and len2 < 20:
-        return _normalized_levenshtein_similarity(norm1, norm2)
-
-    # For longer (but still capped) texts of comparable length, combine
-    # Jaccard with character-level similarity for better accuracy.
-    jaccard = _jaccard_similarity(norm1, norm2)
-    lev = _normalized_levenshtein_similarity(norm1, norm2)
-
-    # Weighted combination: favor Jaccard for longer texts
-    # but still consider character-level similarity.
-    return 0.7 * jaccard + 0.3 * lev
+    return _similarity_from_normalized(norm1, norm2)
 
 
 def _combine_issue_text(issue: Issue) -> str:
@@ -273,8 +308,8 @@ def _combine_issue_text(issue: Issue) -> str:
 
 
 def find_similar_issues(
-    query: str, issues: List[Issue], threshold: float = 0.6
-) -> List[Tuple[Issue, float]]:
+    query: str, issues: list[Issue], threshold: float = 0.6
+) -> list[tuple[Issue, float]]:
     """Find issues similar to a query text.
 
     Args:
@@ -306,8 +341,8 @@ def find_similar_issues(
 
 
 def find_duplicate_groups(
-    issues: List[Issue], threshold: float = 0.7
-) -> List[List[Tuple[Issue, float]]]:
+    issues: list[Issue], threshold: float = 0.7
+) -> list[list[tuple[Issue, float]]]:
     """Find groups of potentially duplicate issues.
 
     Args:
@@ -329,24 +364,36 @@ def find_duplicate_groups(
     # Sort issues by ID to ensure consistent ordering
     sorted_issues = sorted(issues, key=lambda x: x.id if x.id else 0)
 
+    # Normalize and tokenize each issue ONCE up front: the pairwise loop below
+    # is O(n^2) and used to redo this text processing for every single pair.
+    raw_texts = [_combine_issue_text(issue).strip() for issue in sorted_issues]
+    norm_texts = [_normalize_text(text) for text in raw_texts]
+    token_sets = [_tokenize(norm) for norm in norm_texts]
+
+    def _pair_similarity(a: int, b: int) -> float:
+        if not norm_texts[a] and not norm_texts[b]:
+            return 1.0 if raw_texts[a] == raw_texts[b] else 0.0
+        if not norm_texts[a] or not norm_texts[b]:
+            return 0.0
+        return _similarity_from_normalized(
+            norm_texts[a], norm_texts[b], token_sets[a], token_sets[b]
+        )
+
     for i, primary_issue in enumerate(sorted_issues):
         # Skip if this issue is already in a group
         if primary_issue.id in grouped_ids:
             continue
 
-        # Find all similar issues to this one
-        primary_text = _combine_issue_text(primary_issue)
         group = [(primary_issue, 1.0)]  # Primary has 100% similarity to itself
 
         # Compare with remaining issues
-        for other_issue in sorted_issues[i + 1 :]:
+        for j in range(i + 1, len(sorted_issues)):
+            other_issue = sorted_issues[j]
             # Skip if already grouped
             if other_issue.id in grouped_ids:
                 continue
 
-            # Calculate similarity
-            other_text = _combine_issue_text(other_issue)
-            similarity = calculate_similarity(primary_text, other_text)
+            similarity = _pair_similarity(i, j)
 
             # If above threshold, add to group
             if similarity >= threshold:

@@ -2,7 +2,7 @@
 
 import re
 import subprocess
-from typing import Any, List, Optional, Set
+from typing import Any, Optional
 
 
 class GitError(Exception):
@@ -64,7 +64,8 @@ def get_current_branch(path: Optional[str] = None) -> Optional[str]:
         path: Optional path to git repository. Defaults to current directory.
 
     Returns:
-        Current branch name, or None if not in a git repository.
+        Current branch name, or None if not in a git repository or on a
+        detached HEAD (where there is no current branch).
 
     Raises:
         GitError: If git command fails.
@@ -86,7 +87,10 @@ def get_current_branch(path: Optional[str] = None) -> Optional[str]:
             check=True,
             timeout=15,
         )
-        return result.stdout.strip()
+        branch = result.stdout.strip()
+        # A detached HEAD reports the literal string "HEAD" — that is not a
+        # branch name.
+        return branch if branch and branch != "HEAD" else None
     except subprocess.TimeoutExpired as e:
         raise GitError("Timed out getting current branch") from e
     except subprocess.CalledProcessError as e:
@@ -95,7 +99,7 @@ def get_current_branch(path: Optional[str] = None) -> Optional[str]:
         raise GitError("git command not found") from e
 
 
-def get_recent_commits(n: int = 10, path: Optional[str] = None) -> List[dict[str, Any]]:
+def get_recent_commits(n: int = 10, path: Optional[str] = None) -> list[dict[str, Any]]:
     """Get recent commit hashes and messages.
 
     Args:
@@ -117,12 +121,15 @@ def get_recent_commits(n: int = 10, path: Optional[str] = None) -> List[dict[str
         raise GitError("Not in a git repository")
 
     try:
-        # Format: hash|author|date|message
+        # Fields separated by the ASCII unit separator and records by the
+        # record separator, so author names containing '|' cannot break
+        # parsing. %B (full message, not just the subject) so issue refs in
+        # commit bodies are seen too.
         cmd = [
             "git",
             "log",
             f"-{n}",
-            "--pretty=format:%H|%an|%ai|%s",
+            "--pretty=format:%H%x1f%an%x1f%ai%x1f%B%x1e",
         ]
         cwd = path or None
 
@@ -138,16 +145,17 @@ def get_recent_commits(n: int = 10, path: Optional[str] = None) -> List[dict[str
         )
 
         commits = []
-        for line in result.stdout.strip().split("\n"):
-            if line:
-                parts = line.split("|", 3)
+        for record in result.stdout.split("\x1e"):
+            record = record.strip("\n")
+            if record:
+                parts = record.split("\x1f", 3)
                 if len(parts) == 4:
                     commits.append(
                         {
                             "hash": parts[0],
                             "author": parts[1],
                             "date": parts[2],
-                            "message": parts[3],
+                            "message": parts[3].strip(),
                         }
                     )
 
@@ -160,7 +168,7 @@ def get_recent_commits(n: int = 10, path: Optional[str] = None) -> List[dict[str
         raise GitError("git command not found") from e
 
 
-def parse_issue_refs(message: str) -> Set[int]:
+def parse_issue_refs(message: str) -> set[int]:
     """Extract issue references from a commit message.
 
     Supports patterns like:
@@ -196,7 +204,7 @@ def parse_issue_refs(message: str) -> Set[int]:
     return issue_ids
 
 
-def parse_close_refs(message: str) -> Set[int]:
+def parse_close_refs(message: str) -> set[int]:
     """Extract issue references that should auto-close from a commit message.
 
     Only matches patterns that indicate closing:
@@ -249,7 +257,10 @@ def get_commit_message(commit_hash: str, path: Optional[str] = None) -> Optional
         return None
 
     try:
-        cmd = ["git", "log", "-1", "--pretty=format:%B", "--", commit_hash]
+        # The hash must come BEFORE "--": after the separator git treats it
+        # as a pathspec, which silently returns the wrong (or no) message.
+        # _is_safe_ref above already rejects leading-dash values.
+        cmd = ["git", "log", "-1", "--pretty=format:%B", commit_hash, "--"]
         cwd = path or None
 
         result = subprocess.run(
@@ -307,7 +318,7 @@ def validate_commit_hash(commit_hash: str, path: Optional[str] = None) -> bool:
         return False
 
 
-def get_branches_containing_commit(commit_hash: str, path: Optional[str] = None) -> List[str]:
+def get_branches_containing_commit(commit_hash: str, path: Optional[str] = None) -> list[str]:
     """Get list of branches that contain the given commit.
 
     Args:
