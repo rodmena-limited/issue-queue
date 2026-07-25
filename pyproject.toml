@@ -113,3 +113,13 @@ disable_error_code = ["arg-type", "operator", "attr-defined"]
 [[tool.mypy.overrides]]
 module = ["pytest", "_pytest.*"]
 follow_imports = "skip"
+
+# Flask pulls in click transitively. Newer click releases (>= 8.2) use
+# `match` statements, which mypy flags as a syntax error against our
+# python_version = 3.9 target when it follows imports into click's source.
+# We don't use click's types directly, so skip following into it; flask and
+# werkzeug remain fully type-checked.
+[[tool.mypy.overrides]]
+module = ["click", "click.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
