@@ -1,5 +1,9 @@
 # IssueDB
 
+[![CI](https://github.com/rodmena-limited/issue-queue/actions/workflows/ci.yml/badge.svg)](https://github.com/rodmena-limited/issue-queue/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/issuedb.svg)](https://pypi.org/project/issuedb/)
+[![Python versions](https://img.shields.io/pypi/pyversions/issuedb.svg)](https://pypi.org/project/issuedb/)
+
 A command-line issue tracking system for software development projects. IssueDB provides a simple yet concrete way to manage issues, bugs, and tasks directly from your terminal with a **per-directory database model** - each directory gets its own issue database.
 
 ## Installation
@@ -156,6 +160,30 @@ Or use the JSON output format for all commands:
 
 ```bash
 issuedb-cli --json list
+```
+
+## Continuous Integration
+
+Every push and pull request is validated by GitHub Actions
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
+
+- **test** — the full test suite on Python 3.9–3.14, with the `[web]` extra
+  installed so the Flask Web UI/API tests run.
+- **lint & type-check** — `ruff check .` and `mypy issuedb`.
+- **build & verify dist** — `python -m build` plus `twine check`.
+
+Publishing to PyPI is automated by
+[`.github/workflows/release.yml`](.github/workflows/release.yml): publishing a
+GitHub Release tagged `v<version>` re-runs the tests, checks that the built
+version matches the tag, and uploads to PyPI via OIDC Trusted Publishing. See
+[docs/contributing.rst](docs/contributing.rst) for the one-time Trusted
+Publisher setup.
+
+Run the same gates locally:
+
+```bash
+pip install -e ".[web]" pytest
+ruff check . && mypy issuedb && pytest
 ```
 
 ## License

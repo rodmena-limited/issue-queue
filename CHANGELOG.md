@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [Unreleased]
+
+### Added
+- GitHub Actions CI/CD pipeline (`.github/workflows/`). `ci.yml` runs the full
+  test suite on Python 3.9–3.14 (with the `[web]` extra so Flask tests run),
+  plus `ruff check`, `mypy`, and a `build` + `twine check` job, on every push
+  and pull request. `release.yml` publishes to PyPI via OIDC Trusted Publishing
+  when a GitHub Release tagged `v<version>` is published, after re-running the
+  tests and verifying the built version matches the tag. This is
+  infrastructure only — no packaged code changed, so the package version is
+  unchanged.
+
 ## [2.12.0] - 2026-07-23
 
 Full audit release: correctness, concurrency, security, and agent-contract

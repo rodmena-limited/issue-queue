@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    # A `branches` filter only matches branch refs, so tag pushes never
+    # trigger this workflow — releases are handled by release.yml.
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with web extra + test deps
+        run: |
+          python -m pip install --upgrade pip
+          # The [web] extra pulls in Flask so the Flask-dependent tests
+          # (tests/test_web.py) are actually exercised, not skipped.
+          python -m pip install -e ".[web]" pytest
+
+      - name: Run test suite
+        run: python -m pytest -q
+
+  lint:
+    name: lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # mypy is pinned to python_version = 3.9 in pyproject, so the
+          # interpreter used here only needs to be able to run the tools.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package + pinned lint tooling
+        run: |
+          python -m pip install --upgrade pip
+          # Pin ruff/mypy so a new tool release cannot turn CI red without a
+          # deliberate bump. Versions match the locally-verified toolchain.
+          python -m pip install -e ".[web]" ruff==0.14.6 mypy==1.18.2
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: mypy type-check
+        run: mypy issuedb
+
+  build:
+    name: build & verify dist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+
+      - name: Verify distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error

@@ -9,7 +9,7 @@ Getting Started
 Prerequisites
 ~~~~~~~~~~~~~
 
-- Python 3.8 or higher
+- Python 3.9 or higher
 - Git
 - pip
 
@@ -91,7 +91,30 @@ We use several tools to maintain code quality:
 
 .. code-block:: bash
 
-   ruff check . && ruff format --check . && mypy issuedb/ && pytest
+   ruff check . && mypy issuedb/ && pytest
+
+Continuous Integration
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every push and every pull request against ``main`` is validated by GitHub
+Actions (``.github/workflows/ci.yml``). The pipeline mirrors the local checks
+above and must be green before a change is merged:
+
+- **test** — runs the full ``pytest`` suite on Python 3.9, 3.10, 3.11, 3.12,
+  3.13 and 3.14. The package is installed with its ``[web]`` extra so the
+  Flask-backed Web UI/API tests are exercised rather than skipped.
+- **lint & type-check** — runs ``ruff check .`` and ``mypy issuedb`` with
+  pinned tool versions, so a new linter release cannot break CI without a
+  deliberate bump.
+- **build & verify dist** — builds the sdist and wheel with ``python -m build``
+  and validates the packaged metadata with ``twine check``.
+
+To run the same gates locally before pushing:
+
+.. code-block:: bash
+
+   pip install -e ".[web]" pytest
+   ruff check . && mypy issuedb && pytest
 
 Building Documentation
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -330,21 +353,29 @@ Release Process
 
 (For maintainers)
 
-1. Update version in ``pyproject.toml``
-2. Update ``CHANGELOG.md``
-3. Create git tag:
+Publishing to PyPI is automated by ``.github/workflows/release.yml``, which
+triggers when a GitHub Release is published. It re-runs the test suite, builds
+the distribution, verifies the built version matches the release tag, and
+uploads to PyPI via OIDC **Trusted Publishing** (no API token is stored in the
+repository).
+
+1. Update the version in ``pyproject.toml`` and ``CHANGELOG.md`` and merge to
+   ``main``.
+2. Publish a GitHub Release whose tag is ``v<version>`` (for example
+   ``v2.13.0``). This creates the tag and starts the release workflow:
 
    .. code-block:: bash
 
-      git tag -a v2.2.0 -m "Version 2.2.0"
-      git push origin v2.2.0
+      gh release create v2.13.0 --title "v2.13.0" --notes "See CHANGELOG.md"
 
-4. Build and publish:
+3. Watch the ``Release`` workflow run to completion; it publishes the sdist and
+   wheel to PyPI automatically.
 
-   .. code-block:: bash
-
-      python -m build
-      twine upload dist/*
+**One-time setup** (required before the first automated release): register a
+PyPI Trusted Publisher for the ``issuedb`` project pointing at the
+``rodmena-limited/issue-queue`` repository, workflow ``release.yml``, and
+environment ``pypi``; then create a matching ``pypi`` environment in the GitHub
+repository settings.
 
 License
 -------
