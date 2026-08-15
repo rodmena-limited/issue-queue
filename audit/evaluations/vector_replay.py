@@ -37,6 +37,7 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import pathlib
@@ -139,10 +140,8 @@ def call(
             delay = 2.0
             header = exc.headers.get("Retry-After") if exc.headers else None
             if header:
-                try:
+                with contextlib.suppress(ValueError):
                     delay = float(header)
-                except ValueError:
-                    pass
             time.sleep(min(delay, 30.0))
             step["_retried"] = True
             return call(server, step, token, timeout, run_id)
