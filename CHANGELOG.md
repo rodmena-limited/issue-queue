@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.24.0]
+
+### Added
+- **`sync` now states which local data CANNOT sync**, on every run including a
+  dry run. The apply path reports an `UNSUPPORTED` entity when a change for it
+  *arrives* — but an entity the server has no interface for never arrives, so
+  the user saw "52 applied" and nothing at all about the rest, and would
+  reasonably conclude everything was synced.
+  Against this repo's own database it reports 80 rows across 5 areas —
+  audit_logs, comments, issue_links, issue_templates, lessons_learned — none of
+  which the server can carry. Computed from the server's advertised `entities`
+  and the rows actually present, reports only tables that hold rows, and says
+  UNKNOWN rather than guessing when a server advertises no list.
+
 ## [2.23.0]
 
 ### Fixed

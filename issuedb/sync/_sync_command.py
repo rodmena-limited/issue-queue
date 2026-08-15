@@ -16,7 +16,7 @@ from __future__ import annotations
 import sqlite3
 import sys
 
-from issuedb.sync import _apply
+from issuedb.sync import _apply, _coverage
 from issuedb.sync._auth_commands import DEFAULT_SERVER
 from issuedb.sync._client import SyncClient, SyncError
 from issuedb.sync._credentials import load
@@ -80,6 +80,15 @@ def sync(
         print(f"Pulled {len(pulled.changes)} change(s) from cursor {state.cursor}.")
         print()
         print(_apply.render_plan(actions, applying=do_apply))
+
+        # Stated on EVERY sync, dry run included: data that cannot move is the
+        # thing a user is least likely to discover on their own, because it
+        # produces no output anywhere else.
+        gaps = _coverage.uncovered(conn, shake.entities)
+        report = _coverage.render(gaps, shake.entities)
+        if report:
+            print()
+            print(report)
 
         if not do_apply:
             return 0
