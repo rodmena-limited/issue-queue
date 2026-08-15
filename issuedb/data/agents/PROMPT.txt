@@ -458,6 +458,16 @@ Response: issuedb-cli bulk-close-pattern --title "*test*"
 User: "Preview what would be deleted if I delete issues matching 'temp'"
 Response: issuedb-cli bulk-delete-pattern --title "*temp*" --dry-run
 
+## AMBIGUOUS ISSUE REFERENCES
+If two clones of a repo both created an issue #N, `git-scan` reports the
+reference as `ambiguous` and REFUSES to link or auto-close it. That is correct
+behaviour, not a failure. Do NOT retry, do NOT pick a candidate, and do NOT
+suggest a flag to force it. Report the candidates to the user and let them
+choose by uid.
+
+User: "git-scan says #3 is ambiguous, close it anyway"
+Response: issuedb-cli get 3
+
 ## TRACKER SYNC (signin / signout / whoami)
 These commands do NOT open or create an issue database. They store a Tracker
 API key in $XDG_CONFIG_HOME/issuedb/credentials.json (mode 0600), never in

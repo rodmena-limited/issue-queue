@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.18.0]
+
+### Changed
+- **`git-scan` refuses to act on an ambiguous `#N`** and reports every
+  candidate. (#6)
+  - This is where the ambiguity rule stops being a display concern and starts
+    preventing a destructive write: `git-scan --auto-close` CLOSES issues from a
+    number parsed out of a commit message, and two clones allocate that number
+    independently. Acting on an ambiguous reference closes **somebody else's
+    issue**, and nothing errors when it does.
+  - For an automated action, "select none" means **do nothing and report**. The
+    scan skips the reference, creates no link, closes nothing, and continues
+    with the other commits.
+  - Ambiguity is checked **before** the issue lookup — the local candidate is
+    always findable, so a lookup-first scanner would act on it and never reach
+    the check.
+  - `ambiguous_refs` is a first-class count on the result and appears on its own
+    summary line. Buried in `details`, "Closed 0 issue(s)" reads as "nothing to
+    do" rather than "I refused to guess".
+  - Every candidate is named with its uid, so the refusal is actionable instead
+    of a dead end.
+
 ## [2.17.0]
 
 ### Added

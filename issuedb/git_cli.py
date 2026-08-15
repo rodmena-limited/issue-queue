@@ -241,6 +241,16 @@ class GitCLI:
             if auto_close:
                 lines.append(f"Closed {result['issues_closed']} issue(s)")
 
+            # On its own summary line, not buried in details. A scan that
+            # declined to act must say so where the user is already looking:
+            # "Closed 0 issue(s)" otherwise reads as "there was nothing to do"
+            # rather than "I refused to guess which issue you meant".
+            ambiguous = result.get("ambiguous_refs", 0)
+            if ambiguous:
+                lines.append(
+                    f"SKIPPED {ambiguous} ambiguous reference(s) - issuedb did not choose"
+                )
+
             if result["details"]:
                 lines.append("\nDetails:")
                 for detail in result["details"]:
@@ -253,6 +263,16 @@ class GitCLI:
                     if reason:
                         line += f" ({reason})"
                     lines.append(line)
+
+                    # Every candidate, so the refusal is actionable rather
+                    # than a dead end. Without these the user is told a
+                    # reference is ambiguous and given no way to resolve it.
+                    for candidate in detail.get("candidates", []):
+                        short = str(candidate.get("uid", "")).split(":")[-1][:12]
+                        lines.append(
+                            f"      candidate [{short}] #{candidate.get('local_id')}: "
+                            f"{candidate.get('title')}"
+                        )
 
             return "\n".join(lines)
 

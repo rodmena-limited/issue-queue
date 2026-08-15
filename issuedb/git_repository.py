@@ -46,6 +46,25 @@ class GitLinkRepository:
             (issue_id, action, field_name, old_value, new_value),
         )
 
+
+    def _resolve_reference(self, issue_id: int) -> Any:
+        """Resolve a "#N" reference, or None when the resolver is unavailable.
+
+        Returns None rather than raising if the database predates the alias
+        table (schema < 3): an older file cannot express ambiguity, so there
+        is none to report, and a scan must not crash on it.
+        """
+        try:
+            from issuedb.sync._references import resolve_reference
+        except ImportError:  # pragma: no cover - the package is always present
+            return None
+
+        with self.db.get_connection() as conn:
+            try:
+                return resolve_reference(conn, issue_id)
+            except Exception:
+                return None
+
     def get_issue(self, issue_id: int) -> Optional[Issue]:
         """Get an issue by ID.
 
@@ -333,6 +352,7 @@ class GitLinkRepository:
         scanned = 0
         links_created = 0
         issues_closed = 0
+        ambiguous_refs = 0
         details = []
 
         for commit in commits:
@@ -349,6 +369,38 @@ class GitLinkRepository:
             close_refs = parse_close_refs(message)
 
             for issue_id in issue_refs:
+                # AMBIGUITY IS CHECKED BEFORE ANY ACTION IS TAKEN.
+                #
+                # This loop links commits and, with auto_close, CLOSES issues.
+                # Both are writes driven by a "#N" that two replicas may have
+                # allocated independently, so acting on an ambiguous reference
+                # does not merely mislabel something — it closes somebody
+                # else's issue, and nothing errors when it does.
+                #
+                # "Present every candidate and select none" applied to an
+                # automated action means DO NOTHING AND REPORT. A scanner that
+                # picks the local candidate because it is the one it can see is
+                # choosing, and the choice is invisible in the output.
+                reference = self._resolve_reference(issue_id)
+                if reference is not None and reference.is_ambiguous:
+                    ambiguous_refs += 1
+                    details.append(
+                        {
+                            "commit": commit_hash,
+                            "issue_id": issue_id,
+                            "action": "ambiguous",
+                            "reason": (
+                                f"#{issue_id} matches {len(reference.candidates)} issues; "
+                                f"issuedb will not choose"
+                            ),
+                            "candidates": [
+                                {"uid": c.uid, "local_id": c.local_id, "title": c.title}
+                                for c in reference.candidates
+                            ],
+                        }
+                    )
+                    continue
+
                 # Check if issue exists
                 issue = self.get_issue(issue_id)
                 if not issue:
@@ -402,5 +454,9 @@ class GitLinkRepository:
             "scanned": scanned,
             "links_created": links_created,
             "issues_closed": issues_closed,
+            # Reported as a first-class count, not buried in details: a scan
+            # that declined to act on some references must say so on its own
+            # summary line, or "0 issues closed" reads as "nothing to do".
+            "ambiguous_refs": ambiguous_refs,
             "details": details,
         }
