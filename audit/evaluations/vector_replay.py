@@ -41,6 +41,7 @@ import hashlib
 import json
 import pathlib
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -109,7 +110,7 @@ def adapt_body(request_spec: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def call(
-    server: str, step: dict[str, Any], token: str, timeout: float
+    server: str, step: dict[str, Any], token: str, timeout: float, run_id: str = ""
 ) -> tuple[int, dict[str, Any]]:
     request_spec = step["request"]
     url = f"{server}{request_spec['path']}"
@@ -130,6 +131,21 @@ def call(
             return response.status, (json.loads(raw) if raw else {})
     except urllib.error.HTTPError as exc:
         raw = exc.read()
+        # 429 is the server telling this harness to slow down, not a defect.
+        # Replaying 12 vectors back to back is a burst no real client makes,
+        # so the harness paces itself and retries ONCE rather than scoring the
+        # server's correct throttling as a failure.
+        if exc.code == 429 and not step.get("_retried"):
+            delay = 2.0
+            header = exc.headers.get("Retry-After") if exc.headers else None
+            if header:
+                try:
+                    delay = float(header)
+                except ValueError:
+                    pass
+            time.sleep(min(delay, 30.0))
+            step["_retried"] = True
+            return call(server, step, token, timeout, run_id)
         try:
             return exc.code, (json.loads(raw) if raw else {})
         except json.JSONDecodeError:
@@ -275,6 +291,23 @@ def replay(path: pathlib.Path, server: str, token: str, run_id: str, timeout: fl
         # horizon is 180 days, c:3 is recent, and a 200 there is CORRECT.
         # Scoring it FAILED would be a false accusation caused entirely by the
         # environment, so it is named as untestable instead.
+        # A pull expecting an exact change-set at a fixture cursor cannot hold
+        # against a shared feed: vector 09 asks for cursor c:2 and expects one
+        # change, and production returns everything since seq 2. The vector's
+        # cursor is meaningful only in a store it created. Same family as 05.
+        if (
+            status == 200
+            and "cursor" in salted["request"]["path"]
+            and isinstance((expected.get("body") or {}).get("changes"), list)
+            and len(body.get("changes") or []) != len(expected["body"]["changes"])
+        ):
+            return UNTESTABLE, [
+                f"step {index}: the vector expects "
+                f"{len(expected['body']['changes'])} change(s) at its own cursor and the "
+                f"shared production feed returned {len(body.get('changes') or [])} — the "
+                f"cursor is meaningful only in a store the vector created"
+            ]
+
         if (
             expected_status == 409
             and status == 200

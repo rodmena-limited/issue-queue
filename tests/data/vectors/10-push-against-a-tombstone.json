@@ -3,6 +3,57 @@
   "why": "issuedb's D4, and the seam where 'absence is not deletion' meets the direction rule. A relation is deleted while replica B is offline. B comes back and pushes its own copy -- same uid, and under D3 the same content_hash, so it looks exactly like an ordinary replay. If the server answers with a bare 'here is the existing row', B reads 200 as success and keeps a local row the server considers deleted. B's next PULL shows no change, because absence is not deletion. The row then lives locally FOREVER, undeletable, with nothing erroring anywhere. The response must therefore CARRY THE TOMBSTONE: deleted=true plus the last-known payload. That is what lets a client tell 'your write is already there' from 'your write is superseded by a delete', which it cannot otherwise distinguish. restorable=true because with N offline replicas an unrecoverable delete is not a tradeoff anyone gets to make on a user's behalf.",
   "steps": [
     {
+      "note": "PRECONDITION. The edges below reference these issues, and no correct server accepts an edge whose endpoint it has never seen -- push ordering is a hard constraint (issues, then tags, then edges). The vectors were frozen without this step, so FakeTracker accepted them and Tracker refused them; the fixture was MORE PERMISSIVE than the server, which is the one thing a reference implementation must never be. Found by issuedb replaying against the real server.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "ha",
+              "payload": {
+                "title": "A"
+              }
+            },
+            {
+              "uid": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "hb",
+              "payload": {
+                "title": "B"
+              }
+            }
+          ],
+          "replica_id": "R1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "created"
+            },
+            {
+              "uid": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
       "request": {
         "method": "POST",
         "path": "/v1/sync/push",

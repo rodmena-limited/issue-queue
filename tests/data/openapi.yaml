@@ -1,4 +1,4 @@
-# VENDORED from Tracker contracts/sync/openapi.yaml at COMMIT 29c461d.
+# VENDORED from Tracker contracts/sync/openapi.yaml at COMMIT ca91f7b.
 # Taken with `git show <sha>:path`, NOT from the working tree.
 openapi: 3.1.0
 info:

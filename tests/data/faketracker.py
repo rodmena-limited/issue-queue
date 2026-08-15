@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VENDORED from Tracker contracts/sync/faketracker.py at 29c461d.
+# VENDORED from Tracker contracts/sync/faketracker.py at ca91f7b.
 # DO NOT EDIT HERE. Re-vendor from source.
 """FakeTracker — a reference sync server on the Python standard library alone.
 
@@ -260,6 +260,32 @@ class Store:
         if number is not None:
             self.pushed_numbers.setdefault(project, set()).add(int(number))
 
+    #: Which payload fields of each entity name an ISSUE that must already exist.
+    #: `relation_type` is deliberately absent: it is not a uid and resolving it
+    #: as one would reject every relation.
+    ENDPOINTS = {
+        "issue_tag": ("issue_uid",),
+        "issue_dependency": ("blocker", "blocked"),
+        "issue_relation": ("source", "target"),
+    }
+
+    def _unknown_endpoints(self, entry: dict[str, Any]) -> list[str]:
+        """Endpoint uids this store has never seen, in payload order.
+
+        A TOMBSTONED endpoint counts as KNOWN. The issue existed; a replica that
+        was offline through its deletion is not pushing out of order, and
+        refusing it would report an ordering problem for a deletion problem --
+        two different fixes behind one message, which is the ambiguity this whole
+        rejection exists to remove.
+        """
+        fields = self.ENDPOINTS.get(str(entry.get("entity", "issue")), ())
+        payload = entry.get("payload") or {}
+        return [
+            str(payload[f])
+            for f in fields
+            if payload.get(f) and str(payload[f]) not in self.rows
+        ]
+
     def apply(self, entry: dict[str, Any]) -> dict[str, Any]:
         """One push entry. The outcome vocabulary IS the contract."""
         uid = entry["uid"]
@@ -272,6 +298,32 @@ class Store:
             )
         content_hash = entry.get("content_hash")
         existing = self.rows.get(uid)
+
+        # REFERENTIAL INTEGRITY, and this server did not have it.
+        #
+        # THE STANDING RULE: FakeTracker may be SMALLER than Tracker, never MORE
+        # PERMISSIVE. A fixture that accepts what the real server refuses teaches
+        # a client to send it, and the client then discovers the refusal in
+        # production -- which is the `replica_id` divergence exactly, one layer
+        # up. issuedb found this one: the five edge vectors pushed edges whose
+        # endpoint issues were never pushed, this server accepted them, and no
+        # correct server could.
+        #
+        # They classified the result VECTOR PRECONDITION rather than FAILED, and
+        # were right to: scoring it as a failure would have told Tracker it built
+        # the feature wrong when it built it right.
+        if op != "delete":
+            missing = self._unknown_endpoints(entry)
+            if missing:
+                return {
+                    "uid": uid,
+                    "entity": entry.get("entity", "issue"),
+                    "outcome": "rejected",
+                    "reason": (
+                        f"unknown endpoint: {missing[0]}. "
+                        "Push issues before the edges between them."
+                    ),
+                }
 
         if op == "delete":
             if existing is None:

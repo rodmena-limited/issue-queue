@@ -71,6 +71,57 @@
   ],
   "steps": [
     {
+      "note": "PRECONDITION. The edges below reference these issues, and no correct server accepts an edge whose endpoint it has never seen -- push ordering is a hard constraint (issues, then tags, then edges). The vectors were frozen without this step, so FakeTracker accepted them and Tracker refused them; the fixture was MORE PERMISSIVE than the server, which is the one thing a reference implementation must never be. Found by issuedb replaying against the real server.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "ha",
+              "payload": {
+                "title": "A"
+              }
+            },
+            {
+              "uid": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "hb",
+              "payload": {
+                "title": "B"
+              }
+            }
+          ],
+          "replica_id": "R1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "created"
+            },
+            {
+              "uid": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
       "request": {
         "method": "POST",
         "path": "/v1/sync/push",
