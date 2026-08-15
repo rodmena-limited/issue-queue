@@ -63,6 +63,33 @@ def test_the_vector_file_is_present_and_populated():
     assert all(d["expect"].startswith(UID_PREFIX) for d in derivations)
 
 
+def test_the_load_bearing_case_variant_derivations_are_present():
+    """Vector 07 must not be pruned, and a comment cannot stop a prune.
+
+    Reintroducing the C1 casefold is caught in only ONE of the ten vendored
+    derivations, because exactly one vector carries a case-variant tag. The
+    cross-implementation check's whole sensitivity to a data-losing defect
+    rests on it — and it looks redundant, which is the trap. So the guard is a
+    test that fails when it disappears, not a note asking people not to.
+
+    If this ever fails: do not delete this test. Restore the derivation, or
+    establish that some other entry now covers case-variance and point this
+    test at that one instead.
+    """
+    load_bearing = [e for e in _load() if e.get("load_bearing") == "C1-casefold"]
+    assert load_bearing, (
+        "the case-variant tag derivations are gone from the vendored vectors; "
+        "the cross-implementation check can no longer detect a casefold defect"
+    )
+
+    # The property, not just the marker: these must actually differ by case,
+    # or the marker is on entries that no longer exercise case-variance.
+    tag_fields = {e["fields"][-1] for e in load_bearing}
+    assert len({t.casefold() for t in tag_fields}) < len(tag_fields), (
+        f"the load-bearing entries no longer differ only by case: {sorted(tag_fields)}"
+    )
+
+
 @pytest.mark.parametrize("entry", _load(), ids=lambda e: f"{e['vector']}:{e['kind']}")
 def test_agrees_with_trackers_frozen_derivation(entry):
     """issuedb's uid must equal Tracker's, byte for byte.

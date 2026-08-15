@@ -3,7 +3,8 @@
     "source": "Tracker contracts/sync/vectors/*.json",
     "tracker_commit": "c1cb9b5",
     "captured": "2026-08-15",
-    "why": "Vendored so the cross-implementation check RUNS rather than skipping when the Tracker checkout is absent (CI, a fresh clone). A skipped check is a check that cannot go red. Refresh deliberately when the contract version changes."
+    "why": "Vendored so the cross-implementation check RUNS rather than skipping when the Tracker checkout is absent (CI, a fresh clone). A skipped check is a check that cannot go red. Refresh deliberately when the contract version changes.",
+    "load_bearing_note": "Entries tagged load_bearing carry a property no other entry covers. test_the_load_bearing_case_variant_derivations_are_present fails if they are removed, because a comment cannot stop a prune and an invisible importance is one someone deletes."
   },
   "derivations": [
     {
@@ -26,7 +27,9 @@
         "Bug"
       ],
       "symmetric_types": [],
-      "expect": "s256t128:55cf7696f3df71f0cfc79f1349b0f385"
+      "expect": "s256t128:55cf7696f3df71f0cfc79f1349b0f385",
+      "load_bearing": "C1-casefold",
+      "do_not_remove": "The cross-implementation check's ENTIRE sensitivity to the C1 casefold data-loss defect rests on these two derivations. Reintroducing casefold is caught in only 1 of 10 derivations. Pruning 07 as redundant -- and it looks redundant -- makes the cross-check pass clean with the bug in place."
     },
     {
       "vector": "07-case-variant-tags.json",
@@ -37,7 +40,9 @@
         "bug"
       ],
       "symmetric_types": [],
-      "expect": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3"
+      "expect": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3",
+      "load_bearing": "C1-casefold",
+      "do_not_remove": "The cross-implementation check's ENTIRE sensitivity to the C1 casefold data-loss defect rests on these two derivations. Reintroducing casefold is caught in only 1 of 10 derivations. Pruning 07 as redundant -- and it looks redundant -- makes the cross-check pass clean with the bug in place."
     },
     {
       "vector": "08-symmetric-relation.json",
