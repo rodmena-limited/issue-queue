@@ -26,6 +26,7 @@ from issuedb.sync._apply import (
     AMBIGUOUS,
     CREATE,
     DELETE,
+    MALFORMED,
     SKIP,
     UNSUPPORTED,
     already_applied,
@@ -407,3 +408,123 @@ def test_an_unsupported_entity_never_advances_the_cursor(repo, conn):
     result = apply(conn, actions, "c:1")
     assert result.cursor == "c:1"
     assert result.applied == 0
+
+
+# --- malformed vs unsupported: one check, two directions -------------------
+
+SUPPORTED = frozenset({"issue"})
+
+
+def test_a_malformed_entry_of_a_SUPPORTED_type_is_malformed_not_unsupported(repo, conn):
+    """The second direction, and the one that was missing.
+
+    A client that called EVERYTHING unsupported would pass the unsupported test
+    on its own. These are different causes needing different actions:
+    unsupported waits for the server to ship; malformed is a defect to report.
+    """
+    actions = plan(
+        conn,
+        [{"uid": UID_A, "entity": "issue", "seq": 1, "payload": {"title": ""}}],
+        server_entities=SUPPORTED,
+    )
+    assert [a.kind for a in actions] == [MALFORMED]
+    assert "no title" in actions[0].reason
+
+
+def test_an_unsupported_type_is_unsupported_even_when_also_malformed(repo, conn):
+    """Unsupported is decided FIRST: reporting it as malformed would send
+    someone hunting a data defect in a feature that does not exist yet."""
+    actions = plan(
+        conn,
+        [{"uid": UID_A, "entity": "issue_tag", "seq": 1, "payload": "not even an object"}],
+        server_entities=SUPPORTED,
+    )
+    assert [a.kind for a in actions] == [UNSUPPORTED]
+
+
+def test_a_non_dict_payload_does_not_crash_the_plan(repo, conn):
+    """Server data is INPUT, not something to trust.
+
+    `payload.get(...)` on a string raised AttributeError and took the whole
+    plan down — one bad row from the server broke sync for every other row in
+    the page.
+    """
+    actions = plan(
+        conn,
+        [
+            {"uid": UID_A, "entity": "issue", "seq": 1, "payload": "oops"},
+            {"uid": UID_B, "entity": "issue", "seq": 2, "payload": {"title": "fine"}},
+        ],
+        server_entities=SUPPORTED,
+    )
+    assert [a.kind for a in actions] == [MALFORMED, CREATE], (
+        "a malformed row must not prevent the rest of the page being planned"
+    )
+
+
+def test_a_malformed_entry_is_never_applied_and_never_advances_the_cursor(repo, conn):
+    actions = plan(
+        conn,
+        [{"uid": UID_A, "entity": "issue", "seq": 9, "payload": {}}],
+        server_entities=SUPPORTED,
+    )
+    result = apply(conn, actions, "c:2")
+    conn.commit()
+    assert result.applied == 0
+    assert result.cursor == "c:2"
+    assert _issue_count(conn) == 0
+
+
+def test_a_valid_entry_of_a_supported_type_still_applies(repo, conn):
+    """Positive control: without it, a planner that called everything malformed
+    would pass every test above while applying nothing at all."""
+    actions = plan(
+        conn,
+        [{"uid": UID_B, "entity": "issue", "seq": 4, "payload": {"title": "real work"}}],
+        server_entities=SUPPORTED,
+    )
+    assert [a.kind for a in actions] == [CREATE]
+    assert apply(conn, actions, "c:0").applied == 1
+
+
+def test_a_malformed_entry_is_a_skip_not_a_run_stopping_failure(repo, conn):
+    """Asserts `failed` and `stopped_at`, which the cursor test alone missed.
+
+    Found by mutation: removing MALFORMED from apply()'s skip-list left
+    applied, cursor and row-count all identical, so the earlier test passed —
+    but the run then reported failed=1 and stopped, ABORTING THE REST OF THE
+    PAGE over one bad row. A malformed entry should be reported and stepped
+    over, not treated as a reason to stop syncing.
+    """
+    actions = plan(
+        conn,
+        [
+            {"uid": UID_A, "entity": "issue", "seq": 9, "payload": {}},
+            {"uid": UID_B, "entity": "issue", "seq": 10, "payload": {"title": "good"}},
+        ],
+        server_entities=SUPPORTED,
+    )
+    result = apply(conn, actions, "c:2")
+    conn.commit()
+
+    assert result.failed == 0, "a malformed entry was treated as a run-stopping failure"
+    assert result.stopped_at is None
+    assert result.applied == 1, "the good row after a malformed one was not applied"
+    assert result.cursor == "c:10"
+
+
+def test_with_no_advertised_list_an_unappliable_type_is_skip_not_malformed(repo, conn):
+    """Discriminates the entity fork when the server advertises nothing.
+
+    Also found by mutation: with an advertised list, the unsupported branch
+    diverts non-issue types before the malformed check, so widening that check
+    to every entity is behaviourally identical. It is NOT identical when the
+    list is absent, and this is the case that tells them apart.
+    """
+    actions = plan(
+        conn,
+        [{"uid": UID_A, "entity": "issue_tag", "seq": 1, "payload": "not an object"}],
+        server_entities=None,
+    )
+    assert [a.kind for a in actions] == [SKIP]
+    assert "issuedb does not apply" in actions[0].reason

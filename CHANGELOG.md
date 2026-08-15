@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.22.0]
+
+### Fixed
+- **A malformed change from the server crashed the planner.** `payload.get(...)`
+  on a payload that was a string raised `AttributeError` and took the whole plan
+  down — one bad row broke sync for every other row on the page. Server data is
+  input, not something to trust.
+- **A malformed change was silently applied.** An issue with no payload or an
+  empty title planned as `CREATE` and produced a titleless row. It is now
+  `MALFORMED`: reported, never applied, and it does not advance the cursor.
+
+### Added
+- `MALFORMED` is distinct from `UNSUPPORTED`, decided after the entity fork so
+  an unsupported type is never reported as a data defect in a feature that does
+  not exist yet. Both directions asserted — a client calling everything
+  "unsupported" would pass the unsupported test alone.
+
 ## [2.21.0]
 
 ### Added

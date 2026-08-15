@@ -68,6 +68,7 @@ class ApplyResult(NamedTuple):
 
 
 UNSUPPORTED = "unsupported"
+MALFORMED = "malformed"
 
 
 def plan(
@@ -103,9 +104,18 @@ def plan(
     for change in changes:
         uid = str(change.get("uid", ""))
         entity = str(change.get("entity", ""))
-        seq = int(change.get("seq", 0))
-        payload = change.get("payload") or {}
-        title = str(payload.get("title") or "")
+        try:
+            seq = int(change.get("seq", 0))
+        except (TypeError, ValueError):
+            seq = 0
+
+        # Server data is INPUT, not something to trust. `payload.get(...)` on a
+        # payload that is a string raises AttributeError and takes the whole
+        # plan down — a malformed entry from the server should be reported,
+        # never crash the client mid-plan.
+        raw_payload = change.get("payload")
+        payload = raw_payload if isinstance(raw_payload, dict) else None
+        title = str((payload or {}).get("title") or "")
 
         if not uid:
             actions.append(
@@ -125,6 +135,30 @@ def plan(
                 )
             )
             continue
+
+        # MALFORMED is checked AFTER the entity fork, so an unsupported type is
+        # never reported as malformed and vice versa. Those are different
+        # causes needing different actions: unsupported waits for the server,
+        # malformed is a defect to report. A client that called everything
+        # "unsupported" would satisfy the unsupported test alone, which is why
+        # both directions are asserted.
+        if entity == "issue":
+            if payload is None:
+                actions.append(
+                    Action(
+                        MALFORMED, uid, entity, seq, None, title,
+                        f"payload is {type(raw_payload).__name__}, expected an object",
+                    )
+                )
+                continue
+            if not title.strip():
+                actions.append(
+                    Action(
+                        MALFORMED, uid, entity, seq, None, title,
+                        "an issue carries no title, and issues.title is NOT NULL locally",
+                    )
+                )
+                continue
 
         if entity != "issue":
             # The CLIENT does not apply this type yet, though the server
@@ -242,7 +276,7 @@ def apply(
     stopped_at: str | None = None
 
     for action in actions:
-        if action.kind in (SKIP, AMBIGUOUS, UNSUPPORTED):
+        if action.kind in (SKIP, AMBIGUOUS, UNSUPPORTED, MALFORMED):
             # Not applied, and NOT counted as progress: advancing the cursor
             # past an ambiguous change would mean never being asked about it
             # again.
