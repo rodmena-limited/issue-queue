@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.24.1]
+
+### Changed
+- **The `NOT SYNCED` report now says it is about SYNC, not about the server.**
+  It read "N row(s) … have nowhere to go on this server". Tracker then shipped
+  a web interface for code references, git links and time tracking while its
+  handshake still advertised four entities — so for exactly those three tables
+  the sentence became false: the server has somewhere to put them, sync just
+  cannot carry them. Now reads "have no sync entity to travel on", with an
+  explicit line separating the two claims. A warning that goes stale as the
+  peer ships is one users learn to discount.
+  Verified by a test that fails on the old wording (proven red, then green).
+
 ## [2.24.0]
 
 ### Added

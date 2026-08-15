@@ -86,13 +86,18 @@ def render(items: list[Uncovered], server_entities: frozenset[str] | None) -> st
 
     total = sum(i.rows for i in items)
     lines = [
-        f"NOT SYNCED — {total} row(s) across {len(items)} area(s) have nowhere to go on "
-        f"this server:",
+        f"NOT SYNCED — {total} row(s) across {len(items)} area(s) have no sync entity "
+        f"to travel on:",
     ]
     lines.extend(f"    {i.rows:>6} {i.table}  (no '{i.entity}' entity)" for i in items)
     lines.append(
         "  This data stays local. The server advertises "
-        f"{sorted(server_entities)} and carries nothing else, so these are not "
-        "'pending' — they cannot transfer until the server implements them."
+        f"{sorted(server_entities)} and sync carries nothing else, so these are not "
+        "'pending' — they cannot transfer until the server adds those entities."
+    )
+    lines.append(
+        "  This is a statement about SYNC, not about the server's features. The "
+        "server may well have its own interface for some of these; that is a "
+        "different thing from being able to carry them over the wire to you."
     )
     return "\n".join(lines)

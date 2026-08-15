@@ -73,6 +73,24 @@ def test_the_report_names_the_rows_and_the_missing_entity(repo, conn):
     assert "cannot transfer" in text
 
 
+def test_the_report_says_this_is_about_sync_and_not_about_the_server(repo, conn):
+    """"No entity" is not "no such feature over there".
+
+    Tracker shipped a UI for code references, git links and time tracking while
+    the handshake still advertised four entities. The earlier wording — "have
+    nowhere to go on this server" — would then have been FALSE for exactly
+    those three: the server has somewhere to put them, sync just cannot carry
+    them. An accurate warning that becomes inaccurate as the peer ships is a
+    warning users learn to discount.
+    """
+    issue = repo.create_issue(Issue(title="x"))
+    repo.add_comment(issue.id, "c")
+    text = render(uncovered(conn, FOUR), FOUR)
+    assert "no sync entity" in text
+    assert "nowhere to go" not in text, "reinstates a claim about the SERVER, not about sync"
+    assert "not about the server's features" in text
+
+
 def test_the_report_is_silent_when_everything_is_covered(repo, conn):
     repo.create_issue(Issue(title="x"))
     everything = FOUR | {"comment", "issue_link", "code_reference", "time_entry",
