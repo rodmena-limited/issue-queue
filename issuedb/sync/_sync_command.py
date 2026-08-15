@@ -24,6 +24,11 @@ from issuedb.sync._project import ProjectIdentityError, record_project_uid
 from issuedb.sync._state import load as load_state
 from issuedb.sync._state import save as save_state
 
+# Bound on the paginated pull walk, so a server that never lowers has_more
+# cannot spin forever. Reaching it is reported to the user as a partial run,
+# never rounded up to a complete one.
+MAX_PULL_PAGES = 200
+
 
 def sync(
     db_path: str,
@@ -68,16 +73,43 @@ def sync(
             print(f"Recorded project {shake.project_uid} for this database.")
 
         state = load_state(db_path, shake.project_uid, env)
-        try:
-            pulled = client.pull(state.cursor)
-        except SyncError as exc:
-            print(f"Error: pull failed: {exc.code} — {exc}", file=sys.stderr)
-            return 1
+
+        # PULL IS PAGINATED. Reading one page was correct while every feed fit
+        # in one, and it fails silently the moment one does not: the user is
+        # told "Pulled 200 change(s)" and nothing at all about the rest, and a
+        # dry run then describes a fraction of what --apply would do. The
+        # server says so plainly in has_more; the client simply was not asking.
+        cursor = state.cursor
+        changes: list[dict[str, object]] = []
+        pages = 0
+        truncated = False
+        while True:
+            try:
+                pulled = client.pull(cursor)
+            except SyncError as exc:
+                print(f"Error: pull failed: {exc.code} — {exc}", file=sys.stderr)
+                return 1
+            pages += 1
+            changes.extend(pulled.changes)
+            if not pulled.has_more or not pulled.changes or pulled.cursor == cursor:
+                cursor = pulled.cursor
+                break
+            cursor = pulled.cursor
+            if pages >= MAX_PULL_PAGES:
+                truncated = True
+                break
 
         # The server's advertised entity list, so "the server does not support
         # tags yet" is distinguishable from "issuedb does not apply tags yet".
-        actions = _apply.plan(conn, pulled.changes, server_entities=shake.entities)
-        print(f"Pulled {len(pulled.changes)} change(s) from cursor {state.cursor}.")
+        actions = _apply.plan(conn, changes, server_entities=shake.entities)
+        page_note = "" if pages == 1 else f" over {pages} pages"
+        print(f"Pulled {len(changes)} change(s){page_note} from cursor {state.cursor}.")
+        if truncated:
+            print(
+                f"WARNING: stopped after {MAX_PULL_PAGES} pages with more still "
+                f"available. This run covers only part of the feed; re-run to continue.",
+                file=sys.stderr,
+            )
         print()
         print(_apply.render_plan(actions, applying=do_apply))
 

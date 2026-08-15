@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.26.0]
+
+### Fixed
+- **`sync` read only the FIRST PAGE of the feed.** The server paginates and says
+  so in `has_more`; the client never asked. That was correct for as long as
+  every feed fit in one page and it broke silently the moment one did not — the
+  user was told "Pulled 200 change(s)" and nothing at all about the remainder,
+  and a dry run then described a fraction of what `--apply` would do. Nothing
+  errored, and the number shown was real; it was just not the answer to the
+  question the user asked.
+  `sync` now walks pages until the server says there are no more, prints
+  "over N pages" when there was more than one, and is bounded — reaching the
+  bound prints an explicit partial-run warning to stderr rather than letting a
+  truncated read look complete.
+  Against the live server this took a dry run from 200 changes to 264.
+- **The first-contact probe made the same mistake, and it produced a FALSE
+  ACCUSATION against a correct server**: "the entry created by THIS RUN did not
+  come back from pull". The push was fine; the newest change was on the LAST
+  page, which is exactly the page a single read never sees. The probe now walks
+  the feed, distinguishes "read the whole feed and it is absent" from "stopped
+  early", and reports the latter as PROBE BROKEN rather than as a server defect.
+  A check that had been passing for hours became wrong with no code change on
+  either side — only the data grew.
+
 ## [2.25.0]
 
 ### Added

@@ -67,6 +67,12 @@ ABSENT = "NOT IMPLEMENTED"
 FAILED = "FAILED"
 PASSED = "PASSED"
 NO_CREDENTIAL = "NO CREDENTIAL"
+HARNESS = BROKEN  # a limit in this script is never a server verdict
+
+# Bound on the paginated pull walk. Generous, and reaching it is reported as
+# PROBE BROKEN rather than as absence — a truncated read must never be
+# mistaken for "the row is not there".
+MAX_PULL_PAGES = 50
 
 
 def _status(url: str, timeout: float) -> int | str:
@@ -472,24 +478,59 @@ def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
         )
         return FAILED, lines
 
-    try:
-        pulled = client.pull("c:0")
-    except SyncError as exc:
-        if exc.status == 404:
-            lines.append("  pull absent")
-            return ABSENT, lines
-        lines.append(f"  pull error: code={exc.code!r} status={exc.status}")
-        return FAILED, lines
+    # PULL IS PAGINATED, and this probe once read only the first page. That was
+    # correct for as long as the whole feed fit in one, and it silently became a
+    # FALSE "DIVERGENCE: the entry did not come back" the moment the feed
+    # crossed the page size — the newest entry is on the LAST page, which is
+    # exactly the one a single read never sees. It reported a server defect that
+    # did not exist, and the reason it looked plausible is that the assertion
+    # itself was still true of the page it examined.
+    #
+    # So: walk until the entry is found or the server says there is no more.
+    # "Not found" must mean the WHOLE feed was read and it is absent, never
+    # "the first page did not have it".
+    cursor = "c:0"
+    pages = 0
+    total = 0
+    found: list[Any] = []
+    saw_end = False
+    while pages < MAX_PULL_PAGES:
+        try:
+            pulled = client.pull(cursor)
+        except SyncError as exc:
+            if exc.status == 404:
+                lines.append("  pull absent")
+                return ABSENT, lines
+            lines.append(f"  pull error: code={exc.code!r} status={exc.status}")
+            return FAILED, lines
 
-    found = [c for c in pulled.changes if c.get("uid") == novel]
-    lines.append(f"  pull -> {len(pulled.changes)} change(s), cursor={pulled.cursor}")
+        pages += 1
+        total += len(pulled.changes)
+        found = [c for c in pulled.changes if c.get("uid") == novel]
+        if found:
+            break
+        if not pulled.has_more or pulled.cursor == cursor or not pulled.changes:
+            saw_end = True
+            break
+        cursor = pulled.cursor
+
+    lines.append(f"  pull -> {total} change(s) over {pages} page(s), cursor={cursor}")
     if not found:
+        if not saw_end:
+            lines.append(
+                f"  PROBE BROKEN: stopped after {MAX_PULL_PAGES} pages with the server "
+                f"still reporting more. This is a limit in THIS SCRIPT, not a server "
+                f"defect, and must not be reported as one."
+            )
+            return HARNESS, lines
         lines.append(
-            "  DIVERGENCE: the entry created by THIS RUN did not come back from pull"
+            "  DIVERGENCE: the entry created by THIS RUN did not come back from pull, "
+            "and the ENTIRE feed was read (has_more went false), so this is absence "
+            "and not pagination."
         )
         return FAILED, lines
 
-    lines.append("  the entry written by THIS RUN came back.")
+    lines.append(f"  the entry written by THIS RUN came back (page {pages}).")
     return PASSED, lines
 
 
