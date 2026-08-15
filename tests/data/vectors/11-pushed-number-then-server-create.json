@@ -23,7 +23,8 @@
                 "title": "arrived by sync"
               }
             }
-          ]
+          ],
+          "replica_id": "R1"
         }
       },
       "response": {
@@ -95,7 +96,8 @@
                 "title": "a later sync, higher number"
               }
             }
-          ]
+          ],
+          "replica_id": "R1"
         }
       },
       "response": {
@@ -129,5 +131,6 @@
         }
       }
     }
-  ]
+  ],
+  "multi_replica": 1
 }

@@ -21,7 +21,8 @@
                 "title": "A"
               }
             }
-          ]
+          ],
+          "replica_id": "R1"
         }
       },
       "response": {
@@ -54,10 +55,10 @@
               "content_hash": "h1",
               "payload": {
                 "title": "A"
-              },
-              "replica": "B"
+              }
             }
-          ]
+          ],
+          "replica_id": "R2"
         }
       },
       "response": {
@@ -73,5 +74,6 @@
         }
       }
     }
-  ]
+  ],
+  "multi_replica": 2
 }

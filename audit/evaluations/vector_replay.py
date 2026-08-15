@@ -59,6 +59,7 @@ FAILED = "FAILED"
 SKIPPED = "SKIPPED"
 HARNESS = "HARNESS ERROR"
 BLOCKED = "BLOCKED"
+UNTESTABLE = "UNTESTABLE HERE"
 
 
 def salt_uids(obj: Any, run_id: str) -> Any:
@@ -253,6 +254,24 @@ def replay(path: pathlib.Path, server: str, token: str, run_id: str, timeout: fl
         if verdict == ABSENT:
             return ABSENT, [f"step {index}: {salted['request']['path']} -> {status}"]
 
+        # Some vectors need SERVER STATE this harness cannot establish.
+        # 05-cursor-too-old expects 409 for cursor c:3, which is only past the
+        # horizon in a store whose horizon was set by the fixture. Production's
+        # horizon is 180 days, c:3 is recent, and a 200 there is CORRECT.
+        # Scoring it FAILED would be a false accusation caused entirely by the
+        # environment, so it is named as untestable instead.
+        if (
+            expected_status == 409
+            and status == 200
+            and "cursor" in salted["request"]["path"]
+        ):
+            return UNTESTABLE, [
+                f"step {index}: needs a cursor genuinely past the tombstone horizon. "
+                f"Production's is 180 days and this cursor is recent, so 200 is correct "
+                f"here — the vector's precondition cannot be established against a live "
+                f"server without waiting out the horizon."
+            ]
+
         if status == 422 and expected_status != 422:
             fields = [
                 ".".join(str(x) for x in e.get("loc", []))
@@ -329,14 +348,14 @@ def main() -> int:
     print(f"  run id {run_id} — uids are salted so this run cannot collide with the last\n")
 
     tally: dict[str, int] = {PASS: 0, ABSENT: 0, FAILED: 0, SKIPPED: 0, HARNESS: 0,
-                             BLOCKED: 0}
+                             BLOCKED: 0, UNTESTABLE: 0}
     failures: list[tuple[str, list[str]]] = []
 
     for path in vectors:
         verdict, notes = replay(path, server, token, run_id, args.timeout)
         tally[verdict] += 1
         marker = {PASS: "PASS", ABSENT: "----", FAILED: "FAIL", SKIPPED: "skip",
-                  HARNESS: "HARN", BLOCKED: "BLOK"}[verdict]
+                  HARNESS: "HARN", BLOCKED: "BLOK", UNTESTABLE: "n/a "}[verdict]
         detail = "" if verdict == PASS else f"   {notes[0] if notes else ''}"
         print(f"  {marker}  {path.stem:<34}{detail}")
         if verdict == FAILED:
@@ -345,7 +364,8 @@ def main() -> int:
     print(
         f"\n{tally[PASS]} passed, {tally[FAILED]} FAILED, "
         f"{tally[ABSENT]} not implemented, {tally[BLOCKED]} blocked, "
-        f"{tally[HARNESS]} harness errors, {tally[SKIPPED]} skipped"
+        f"{tally[HARNESS]} harness errors, {tally[UNTESTABLE]} untestable here, "
+        f"{tally[SKIPPED]} skipped"
     )
     if tally[BLOCKED]:
         print(

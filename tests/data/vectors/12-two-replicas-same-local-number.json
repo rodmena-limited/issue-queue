@@ -23,7 +23,8 @@
                 "title": "A: fix login timeout"
               }
             }
-          ]
+          ],
+          "replica_id": "R1"
         }
       },
       "response": {
@@ -61,7 +62,8 @@
                 "title": "B: update the changelog"
               }
             }
-          ]
+          ],
+          "replica_id": "R2"
         }
       },
       "response": {
@@ -101,7 +103,8 @@
                 "title": "A: fix login timeout"
               }
             }
-          ]
+          ],
+          "replica_id": "R1"
         }
       },
       "response": {
@@ -134,5 +137,6 @@
         }
       }
     }
-  ]
+  ],
+  "multi_replica": 2
 }

@@ -91,7 +91,8 @@
                 "target": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
               }
             }
-          ]
+          ],
+          "replica_id": "R1"
         }
       },
       "response": {
@@ -128,7 +129,8 @@
                 "target": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
               }
             }
-          ]
+          ],
+          "replica_id": "R2"
         }
       },
       "response": {
@@ -144,5 +146,6 @@
         }
       }
     }
-  ]
+  ],
+  "multi_replica": 2
 }

@@ -21,7 +21,8 @@
                 "title": "A"
               }
             }
-          ]
+          ],
+          "replica_id": "R1"
         }
       },
       "response": {
@@ -56,7 +57,8 @@
                 "title": "A"
               }
             }
-          ]
+          ],
+          "replica_id": "R2"
         }
       },
       "response": {
@@ -91,7 +93,8 @@
                 "title": "A"
               }
             }
-          ]
+          ],
+          "replica_id": "R2"
         }
       },
       "response": {
@@ -107,5 +110,6 @@
         }
       }
     }
-  ]
+  ],
+  "multi_replica": 2
 }

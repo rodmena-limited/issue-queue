@@ -163,7 +163,20 @@ def test_the_handshake_is_unauthenticated_by_design(server, faketracker):
     positive control for that, so this is not read as "auth is absent".
     """
     base, module = server
-    assert SyncClient(base, token="trk_not_a_real_key").handshake().project_uid
+    shake = SyncClient(base, token="trk_not_a_real_key").handshake()
+
+    # Discovery survives a bad credential: protocol fields are present.
+    assert shake.protocol_min <= 1 <= shake.protocol_max
+    assert shake.uid_algorithm == "s256t128"
+
+    # But rejection is a POSITIVE ASSERTION, not an absence. This test
+    # previously asserted `project_uid` was returned to a bad key, which was
+    # the pre-three-outcome behaviour; re-vendoring the fixture caught the
+    # stale assumption immediately, which is the whole reason the fixture is
+    # vendored from source rather than hand-maintained.
+    assert shake.credential_rejected is True
+    assert shake.authenticated is False
+    assert not shake.project_uid, "a rejected credential must not receive a project"
 
 
 def test_a_revoked_key_is_indistinguishable_from_an_unknown_one(server, faketracker):

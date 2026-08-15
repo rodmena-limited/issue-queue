@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-# VENDORED from Tracker contracts/sync/faketracker.py at e33c48b.
-# DO NOT EDIT HERE. Copied so issuedb's client tests RUN rather than skip when
-# the Tracker checkout is absent (CI, a fresh clone) -- a skipped test is a check
-# that cannot go red. Refresh deliberately when the contract version changes.
-# It is NOT Tracker: no tenancy, no authorization, no durability, no concurrency,
-# and its database is a dict. Passing against it proves this client obeys
-# PROTOCOL.md; it proves nothing about the real server.
+# VENDORED from Tracker contracts/sync/faketracker.py at 56215db.
+# DO NOT EDIT HERE. Re-vendor from source; a vendored file you have edited
+# proves nothing about the other implementation.
 """FakeTracker — a reference sync server on the Python standard library alone.
 
 Ticket #11. For `issuedb-ed3d5e`, so the client half can be built and tested with
@@ -433,17 +429,34 @@ class Handler(BaseHTTPRequestHandler):
             failed = self._protocol()
             if failed:
                 return self._send(*failed)
-            return self._send(
-                200,
-                {
-                    "protocol_min": PROTOCOL_MIN,
-                    "protocol_max": PROTOCOL_MAX,
-                    "project_uid": PROJECT_UID,
-                    "tombstone_retention_days": TOMBSTONE_RETENTION_DAYS,
-                    "symmetric_relation_types": sorted(SYMMETRIC_RELATION_TYPES),
-                    "uid_algorithm": "s256t128",
-                },
-            )
+            # THREE CREDENTIAL OUTCOMES, EACH STATED. A bad key is answered
+            # 200 + credential_rejected, NOT 401: a client whose key is stale and
+            # whose protocol is also unsupported must learn both in one round
+            # trip, rather than being sent at the key first and discovering the
+            # protocol problem only after fixing it.
+            #
+            # Absence of `project_uid` must never be the ONLY signal of
+            # rejection. A client can currently infer it -- "I sent a key and got
+            # no uid" -- but only by remembering what it sent, and that reasoning
+            # is nowhere in the contract. This reference server exists so a
+            # second implementation does not have to guess.
+            # ABSENT is not INVALID. `_auth` conflates them -- correctly, for
+            # push and pull, where both are simply 401 -- so the handshake must
+            # separate them itself rather than reuse that verdict.
+            presented = bool(self.headers.get("Authorization", ""))
+            rejected = presented and self._auth() is not None
+            body: dict[str, Any] = {
+                "protocol_min": PROTOCOL_MIN,
+                "protocol_max": PROTOCOL_MAX,
+                "authenticated": presented and not rejected,
+                "credential_rejected": rejected,
+                "tombstone_retention_days": TOMBSTONE_RETENTION_DAYS,
+                "symmetric_relation_types": sorted(SYMMETRIC_RELATION_TYPES),
+                "uid_algorithm": "s256t128",
+            }
+            if presented and not rejected:
+                body["project_uid"] = PROJECT_UID
+            return self._send(200, body)
 
         if parsed.path == "/v1/sync/pull":
             for check in (self._protocol(), self._auth()):
@@ -492,6 +505,25 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(length) or b"{}")
 
+        # REQUIRED, and this server used to ignore it. issuedb replayed the
+        # frozen vectors -- which carry no `replica_id`, because FakeTracker took
+        # it from the step rather than the body -- against the real Tracker and
+        # got a 422 on EVERY push.
+        #
+        # That is the reference server accepting what the real one rejects, which
+        # is worse than having no reference server: a client that validates
+        # against it is not validated. Everything FakeTracker is lenient about is
+        # a divergence a client discovers in production.
+        #
+        # `replica_id` is not decoration. Pushed issue numbers are recorded as
+        # aliases keyed by (project, replica, number), so a push that does not
+        # say which replica it is cannot have its numbers resolved by any other
+        # checkout.
+        if not str(payload.get("replica_id") or ""):
+            return self._send(
+                *problem("invalid_request", "Invalid Request", 422, "replica_id is required")
+            )
+
         results = []
         for entry in payload.get("entries", []):
             results.append(self.store.apply(entry))
@@ -508,6 +540,21 @@ def _replay(store: Store, step: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     if req["path"].startswith("/v1/sync/push"):
         if req.get("key") == "revoked":
             return problem("invalid_api_key", "Invalid API Key", 401, "malformed or missing")
+        # REFUSED WHEN ABSENT. NO DEFAULT ANYWHERE ON THIS PATH.
+        #
+        # My first repair was `setdefault(replica_id, step.get("replica", "R1"))`
+        # under a comment claiming it was an injection rather than a default. It
+        # was a default: the manager measured 0 of 28 push steps carrying the
+        # field, so EVERY vector received the literal "R1" -- and
+        # 02-same-uid-two-replicas, whose entire purpose is two replicas, would
+        # have exercised one. It would not have failed. It would have passed
+        # while testing nothing, inside a commit about restoring fidelity.
+        #
+        # A fallback in a test harness is a green light with no source.
+        if not str(req["body"].get("replica_id") or ""):
+            return problem(
+                "invalid_request", "Invalid Request", 422, "replica_id is required"
+            )
         return 200, {
             "results": [store.apply(e) for e in req["body"]["entries"]],
             "cursor": f"c:{store.seq}",
@@ -581,6 +628,33 @@ def _http_smoke() -> int:
             ["x-test-symmetric"],
         )
 
+        # THE THREE CREDENTIAL OUTCOMES. Two cases cannot catch this class: the
+        # defect being guarded against is that "present but invalid" is
+        # INDISTINGUISHABLE from "absent", and a suite comparing only absent and
+        # valid agrees with the broken server exactly as happily as with a
+        # correct one. That is how the wrong behaviour was verified as right.
+        check("anonymous authenticated", body.get("authenticated"), False)
+        check("anonymous credential_rejected", body.get("credential_rejected"), False)
+        check("anonymous has no project_uid", "project_uid" in body, False)
+
+        _, good, _ = call("/v1/sync/handshake", key=VALID_KEY)
+        check("valid key authenticated", good.get("authenticated"), True)
+        check("valid key credential_rejected", good.get("credential_rejected"), False)
+        check("valid key gets project_uid", good.get("project_uid"), PROJECT_UID)
+
+        bad_status, bad, _ = call("/v1/sync/handshake", key="trk_not_a_real_key")
+        # 200, DELIBERATELY. A client with a stale key AND an unsupported
+        # protocol must learn both facts in one round trip.
+        check("bad key status", bad_status, 200)
+        check("bad key authenticated", bad.get("authenticated"), False)
+        check("bad key credential_rejected", bad.get("credential_rejected"), True)
+        check("bad key has no project_uid", "project_uid" in bad, False)
+        check("bad key still gets the protocol", bad.get("protocol_max"), PROTOCOL_MAX)
+        # THE LOAD-BEARING ONE: rejection must be distinguishable from absence.
+        # Every check above is satisfied by a server that simply returns the
+        # anonymous body, which is the exact defect being removed.
+        check("rejection differs from absence", bad == body, False)
+
         status, body, _ = call("/v1/sync/handshake", key=None, proto="99")
         check("protocol mismatch status", status, 409)
         check("protocol mismatch code", body.get("code"), "protocol_unsupported")
@@ -592,13 +666,23 @@ def _http_smoke() -> int:
             "content_hash": "h1",
             "payload": {"title": "smoke"},
         }
-        status, body, _ = call("/v1/sync/push", {"entries": [entry]})
+        # replica_id IS REQUIRED. The real server has always required it and this
+        # file did not, so the vectors were validated against a protocol the
+        # production server does not speak -- issuedb got a 422 on every push.
+        status, body, _ = call("/v1/sync/push", {"entries": [entry], "replica_id": "R1"})
         check("push status", status, 200)
         check("push outcome", body["results"][0]["outcome"], "created")
-        status, body, _ = call("/v1/sync/push", {"entries": [entry]})
+
+        # AND IT IS REFUSED WHEN ABSENT. Requiring a field this server does not
+        # enforce is how the divergence arose in the first place; asserting only
+        # the accept direction would let it come straight back.
+        missing_status, missing_body, _ = call("/v1/sync/push", {"entries": [entry]})
+        check("push without replica_id is refused", missing_status, 422)
+        check("...and names the field", "replica_id" in json.dumps(missing_body), True)
+        status, body, _ = call("/v1/sync/push", {"entries": [entry], "replica_id": "R1"})
         check("replayed push is a no-op", body["results"][0]["outcome"], "existing")
 
-        status, body, ctype = call("/v1/sync/push", {"entries": []}, key=REVOKED_KEY)
+        status, body, ctype = call("/v1/sync/push", {"entries": [], "replica_id": "R1"}, key=REVOKED_KEY)
         check("revoked status", status, 401)
         check("revoked code", body.get("code"), "invalid_api_key")
         # The envelope is part of the contract: a client that branches on `code`
@@ -638,6 +722,35 @@ def self_test(directory: Path) -> int:
         vector = json.loads(path.read_text())
         store = Store()
         store.horizon = vector.get("setup", {}).get("horizon", 0)
+
+        # STRUCTURAL GUARD ON THE VECTORS THEMSELVES, before any of them runs.
+        #
+        # `replica_id` is required by the real server, and for a while it was
+        # carried by none of the 28 push steps -- the vectors were a contract for
+        # a protocol production does not speak. Replaying them is not enough to
+        # notice: a harness that supplies a fallback runs green forever.
+        #
+        # `multi_replica` is declared BY the vector rather than inferred from its
+        # name, and the check is that the declared count is actually distinct. A
+        # vector called "two replicas" that pushes twice as R1 does not fail --
+        # it passes while testing one replica, which is worse.
+        pushes = [
+            st["request"]["body"]
+            for st in vector["steps"]
+            if "/v1/sync/push" in st["request"].get("path", "")
+        ]
+        missing = [i for i, b in enumerate(pushes) if not str(b.get("replica_id") or "")]
+        if missing:
+            print(f"FAIL {path.name}: push step(s) {missing} carry no replica_id")
+            failures += 1
+        wanted = vector.get("multi_replica")
+        if wanted is not None:
+            seen = {b.get("replica_id") for b in pushes}
+            if len(seen) != wanted:
+                print(
+                    f"FAIL {path.name}: declares {wanted} replicas, pushes use {sorted(seen)}"
+                )
+                failures += 1
 
         # RE-DERIVE, never replay. The first version of this self-test only
         # replayed the uids written into the vectors, so reintroducing the

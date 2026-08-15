@@ -47,6 +47,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from issuedb.sync._client import (  # noqa: E402
     AuthFailedError,
+    Handshake,
     ProtocolUnsupportedError,
     SyncClient,
     SyncError,
@@ -186,6 +187,25 @@ def exercise_handshake(client: SyncClient) -> tuple[str, list[str]]:
     return (FAILED if problems else PASSED), lines
 
 
+def _raw_handshake(server: str, timeout: float) -> Any:
+    """A handshake with NO Authorization header, which SyncClient cannot send."""
+    request = urllib.request.Request(f"{server}/v1/sync/handshake", method="GET")
+    request.add_header("X-IssueDB-Protocol", "1")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = json.loads(response.read() or b"{}")
+    return Handshake(
+        protocol_min=int(body.get("protocol_min", 0)),
+        protocol_max=int(body.get("protocol_max", 0)),
+        project_uid=str(body.get("project_uid", "")),
+        symmetric_relation_types=frozenset(body.get("symmetric_relation_types") or ()),
+        tombstone_retention_days=int(body.get("tombstone_retention_days", 0)),
+        uid_algorithm=str(body.get("uid_algorithm", "")),
+        raw=body,
+        authenticated=body.get("authenticated"),
+        credential_rejected=body.get("credential_rejected"),
+    )
+
+
 def _raw_post(
     server: str, path: str, body: dict[str, Any], token: str | None, timeout: float
 ) -> tuple[int, dict[str, Any]]:
@@ -301,9 +321,24 @@ def exercise_credential_signalling(server: str, timeout: float) -> tuple[str, li
     lines = ["CREDENTIAL SIGNALLING (absent / present-but-invalid / valid):"]
     stored = load_credential(server)
 
-    def ask(token: str, label: str) -> Any:
+    def ask(token: str | None, label: str) -> Any:
+        """token=None means SEND NO Authorization HEADER AT ALL.
+
+        SyncClient always sets the header, so the earlier version passed an
+        empty string and produced `Authorization: Bearer ` — which a server
+        correctly reads as a credential that is PRESENT AND INVALID, not as an
+        absent one. The probe then saw credential_rejected=True for both cases
+        and was about to report the server as conflating them.
+
+        The server was right and the probe was wrong: an empty bearer IS a
+        rejected credential. Absent means the header is not there.
+        """
         try:
-            shake = SyncClient(server, token=token, timeout=timeout).handshake()
+            shake = (
+                _raw_handshake(server, timeout)
+                if token is None
+                else SyncClient(server, token=token, timeout=timeout).handshake()
+            )
         except SyncError as exc:
             lines.append(f"  {label:<22} error code={exc.code!r} status={exc.status}")
             return None
@@ -314,7 +349,7 @@ def exercise_credential_signalling(server: str, timeout: float) -> tuple[str, li
         )
         return shake
 
-    absent = ask("", "no credential")
+    absent = ask(None, "no credential (header absent)")
     invalid = ask("trk_deliberately_invalid", "present-but-invalid")
     valid = ask(stored.token, "valid key") if stored else None
     if stored is None:

@@ -49,7 +49,8 @@
                 "tag_name": "Bug"
               }
             }
-          ]
+          ],
+          "replica_id": "R1"
         }
       },
       "response": {
@@ -85,7 +86,8 @@
                 "tag_name": "bug"
               }
             }
-          ]
+          ],
+          "replica_id": "R1"
         }
       },
       "response": {
@@ -101,5 +103,6 @@
         }
       }
     }
-  ]
+  ],
+  "multi_replica": 1
 }
