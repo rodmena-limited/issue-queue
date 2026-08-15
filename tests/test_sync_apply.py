@@ -415,7 +415,7 @@ def test_an_unsupported_entity_never_advances_the_cursor(repo, conn):
 SUPPORTED = frozenset({"issue"})
 
 
-def test_a_malformed_entry_of_a_SUPPORTED_type_is_malformed_not_unsupported(repo, conn):
+def test_a_malformed_entry_of_a_supported_type_is_malformed_not_unsupported(repo, conn):
     """The second direction, and the one that was missing.
 
     A client that called EVERYTHING unsupported would pass the unsupported test
