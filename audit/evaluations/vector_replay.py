@@ -228,13 +228,14 @@ def replay(path: pathlib.Path, server: str, token: str, run_id: str, timeout: fl
         # field's VALUE is semantically significant, so supplying one would
         # decide the scenario's meaning on the vector's behalf.
         request_spec = salted["request"]
-        if request_spec["path"].startswith("/v1/sync/push"):
-            if "replica_id" not in (request_spec.get("body") or {}):
-                return BLOCKED, [
-                    f"step {index}: push carries no replica_id. The vector cannot be "
-                    f"replayed faithfully and the harness will not invent one — the "
-                    f"value decides replica identity, which is what this vector tests."
-                ]
+        if request_spec["path"].startswith("/v1/sync/push") and "replica_id" not in (
+            request_spec.get("body") or {}
+        ):
+            return BLOCKED, [
+                f"step {index}: push carries no replica_id. The vector cannot be "
+                f"replayed faithfully and the harness will not invent one — the "
+                f"value decides replica identity, which is what this vector tests."
+            ]
 
         step_key = salted["request"].get("key", "valid")
         if step_key not in ("valid", None):
