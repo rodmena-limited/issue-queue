@@ -186,6 +186,48 @@ def exercise_handshake(client: SyncClient) -> tuple[str, list[str]]:
     return (FAILED if problems else PASSED), lines
 
 
+def exercise_write_paths_still_refuse(server: str, timeout: float) -> tuple[str, list[str]]:
+    """push and pull must STILL 401 on a bad key. This is a non-generalisation.
+
+    The handshake deliberately does NOT 401, so protocol discovery survives a
+    bad credential. push and pull act on the caller's behalf and there is no
+    discovery argument for letting a bad key reach a write, so they must keep
+    refusing.
+
+    That asymmetry is exactly the kind of thing a later change "makes
+    consistent" — and making it consistent in the lenient direction turns a bad
+    key into an accepted write. So it is asserted rather than assumed, and it is
+    asserted in the DENY direction here because the permit direction is already
+    covered by every other check in this probe using a valid key.
+    """
+    lines = ["WRITE PATHS REFUSE A BAD KEY (deliberate non-generalisation):"]
+    bad = SyncClient(server, token="trk_deliberately_invalid", timeout=timeout)
+    problems = []
+
+    for label, call in (
+        ("push", lambda: bad.push([{"uid": "s256t128:" + "0" * 32, "entity": "issue",
+                                    "op": "upsert", "content_hash": "h",
+                                    "payload": {"title": "must be refused"}}], "probe")),
+        ("pull", lambda: bad.pull("c:0")),
+    ):
+        try:
+            call()
+            lines.append(f"  {label:<6} ACCEPTED a bad key")
+            problems.append(f"{label} accepted an invalid credential")
+        except AuthFailedError as exc:
+            lines.append(f"  {label:<6} refused: {exc.code} {exc.status}")
+        except SyncError as exc:
+            if exc.status == 404:
+                lines.append(f"  {label:<6} not implemented yet — cannot assert")
+            else:
+                lines.append(f"  {label:<6} error code={exc.code!r} status={exc.status}")
+                problems.append(f"{label} answered {exc.status} {exc.code!r}, expected 401")
+
+    for problem in problems:
+        lines.append(f"  DIVERGENCE: {problem}")
+    return (FAILED if problems else PASSED), lines
+
+
 def exercise_credential_signalling(server: str, timeout: float) -> tuple[str, list[str]]:
     """Three cases, not two: absent, valid, present-but-invalid.
 
@@ -407,6 +449,10 @@ def main() -> int:
             "exchanged a byte."
         )
         return 0
+
+    write_result, write_lines = exercise_write_paths_still_refuse(server, args.timeout)
+    print("\n".join(write_lines))
+    print()
 
     cred_result, cred_lines = exercise_credential_signalling(server, args.timeout)
     print("\n".join(cred_lines))
