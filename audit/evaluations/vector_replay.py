@@ -60,6 +60,7 @@ SKIPPED = "SKIPPED"
 HARNESS = "HARNESS ERROR"
 BLOCKED = "BLOCKED"
 UNTESTABLE = "UNTESTABLE HERE"
+PRECONDITION = "VECTOR PRECONDITION"
 
 
 def salt_uids(obj: Any, run_id: str) -> Any:
@@ -272,6 +273,22 @@ def replay(path: pathlib.Path, server: str, token: str, run_id: str, timeout: fl
                 f"server without waiting out the horizon."
             ]
 
+        # A rejection naming a MISSING PRECONDITION is not a server defect and
+        # not a harness bug: the vector omits a setup step the real server
+        # enforces and the fixture does not. Vectors 03/07/08/09/10 push only
+        # edges — issue_tag, issue_relation — and never push the issues those
+        # edges reference. FakeTracker does no referential-integrity checking
+        # at all, so they were frozen in a state no correct server accepts.
+        for result in body.get("results", []) or []:
+            reason = str(result.get("reason", ""))
+            if result.get("outcome") == "rejected" and (
+                "unknown endpoint" in reason or "needs" in reason
+            ):
+                return PRECONDITION, [
+                    f"step {index}: {reason} — the vector omits a precondition the real "
+                    f"server enforces and FakeTracker does not"
+                ]
+
         if status == 422 and expected_status != 422:
             fields = [
                 ".".join(str(x) for x in e.get("loc", []))
@@ -348,14 +365,15 @@ def main() -> int:
     print(f"  run id {run_id} — uids are salted so this run cannot collide with the last\n")
 
     tally: dict[str, int] = {PASS: 0, ABSENT: 0, FAILED: 0, SKIPPED: 0, HARNESS: 0,
-                             BLOCKED: 0, UNTESTABLE: 0}
+                             BLOCKED: 0, UNTESTABLE: 0, PRECONDITION: 0}
     failures: list[tuple[str, list[str]]] = []
 
     for path in vectors:
         verdict, notes = replay(path, server, token, run_id, args.timeout)
         tally[verdict] += 1
         marker = {PASS: "PASS", ABSENT: "----", FAILED: "FAIL", SKIPPED: "skip",
-                  HARNESS: "HARN", BLOCKED: "BLOK", UNTESTABLE: "n/a "}[verdict]
+                  HARNESS: "HARN", BLOCKED: "BLOK", UNTESTABLE: "n/a ",
+                  PRECONDITION: "PREC"}[verdict]
         detail = "" if verdict == PASS else f"   {notes[0] if notes else ''}"
         print(f"  {marker}  {path.stem:<34}{detail}")
         if verdict == FAILED:
@@ -365,6 +383,7 @@ def main() -> int:
         f"\n{tally[PASS]} passed, {tally[FAILED]} FAILED, "
         f"{tally[ABSENT]} not implemented, {tally[BLOCKED]} blocked, "
         f"{tally[HARNESS]} harness errors, {tally[UNTESTABLE]} untestable here, "
+        f"{tally[PRECONDITION]} vector-precondition, "
         f"{tally[SKIPPED]} skipped"
     )
     if tally[BLOCKED]:
