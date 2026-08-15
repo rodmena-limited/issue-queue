@@ -192,11 +192,10 @@ What sync does, in order:
 The cursor and replica identity live **outside** the database, keyed to the
 project, so a fresh clone of a tracked repo knows which project it belongs to.
 
-> **Known limitation:** the apply path currently skips `issue_relation` and
-> `issue_dependency` changes — the server sends them correctly, but issuedb
-> does not consume them yet. A sync reports these as `SKIP — issuedb does not
-> apply entity '…' yet`. Issues, tags, dependencies and relations are
-> advertised by the server; only issues and tags are applied.
+> **Known limitation:** the apply path applies issues, relations and
+> dependencies, but not tags — a sync reports tag changes as
+> `SKIP — issuedb does not apply entity 'issue_tag' yet`. The push direction
+> (sending local changes to the server) is not yet built.
 
 ## LLM Agent Integration
 

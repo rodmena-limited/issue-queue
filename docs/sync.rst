@@ -66,8 +66,7 @@ already holds one, sync refuses rather than merge two projects' rows.
 Known limitation
 ----------------
 
-The apply path currently skips ``issue_relation`` and ``issue_dependency``
-changes — the server sends them correctly, but issuedb does not consume them
-yet. A sync reports these as ``SKIP — issuedb does not apply entity '…' yet``.
-The server advertises issues, tags, dependencies and relations; issuedb applies
-issues and tags.
+The apply path applies issues, relations and dependencies, but not tags — a
+sync reports tag changes as ``SKIP — issuedb does not apply entity 'issue_tag'
+yet``. The push direction (sending local changes to the server) is not yet
+built.

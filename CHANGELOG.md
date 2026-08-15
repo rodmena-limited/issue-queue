@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.28.0]
+
+### Added
+- **The apply path now consumes `issue_relation` and `issue_dependency`
+  changes.** Previously every non-issue change was skipped with
+  `SKIP — issuedb does not apply entity '…' yet`. A relation or dependency is
+  defined by the issues it relates, so its local row references them by LOCAL
+  id while the server payload names them by UID — the endpoints are resolved at
+  apply time, once the feed has been applied in order. A missing endpoint is a
+  SKIP, never a crash and never a dangling foreign key.
+  Verified against the live server: a full sync from `c:0` applied 238 issues,
+  18 relations and 1 dependency, and a re-run pulled 0 changes (converged).
+  The plan carries endpoint UIDs and resolves them at apply time, because the
+  plan is computed for the whole feed before anything is applied — an endpoint
+  created by the same feed is not in the database yet when its edge is planned.
+- **16 tests** for the edge-entity apply, proven able to go red by reverting
+  the plan to skip non-issues.
+
+### Changed
+- The documented limitation is now narrower: the apply path applies issues,
+  relations and dependencies, but not tags. The push direction (sending local
+  changes to the server) is not yet built.
+
 ## [2.27.0]
 
 ### Added

@@ -53,6 +53,12 @@ class Action(NamedTuple):
     local_id: int | None
     title: str
     reason: str
+    # For issue_relation / issue_dependency: the UIDs of the two endpoint
+    # issues. The apply resolves them to local ids once the feed has been
+    # applied in order. None for issues.
+    endpoints: tuple[str, str] | None = None
+    # For issue_relation: the relation type. Empty otherwise.
+    relation_type: str = ""
 
     def describe(self, uid_width: int = 12) -> str:
         target = f"#{self.local_id}" if self.local_id is not None else "(new)"
@@ -69,6 +75,17 @@ class ApplyResult(NamedTuple):
 
 UNSUPPORTED = "unsupported"
 MALFORMED = "malformed"
+
+
+def _endpoint_present(
+    conn: sqlite3.Connection, uid: str, feed_issue_uids: set[str]
+) -> bool:
+    """Whether an endpoint issue will be resolvable when the apply reaches it.
+
+    True if the endpoint is already a live local issue, or if the feed itself
+    will create it (the server enforces push ordering, so it is applied first).
+    """
+    return len(resolve_uid(conn, uid)) == 1 or uid in feed_issue_uids
 
 
 def plan(
@@ -100,6 +117,24 @@ def plan(
     every change unsupported and silently stop applying anything.
     """
     actions: list[Action] = []
+
+    # The plan is computed for the WHOLE feed before anything is applied, so a
+    # relation/dependency whose endpoint issues are IN this feed cannot resolve
+    # them against the database yet — the issues are only planned, not applied.
+    # The server enforces push ordering (issues, then edges), so an edge's
+    # endpoints always have a lower seq and are applied first; the plan just
+    # has to know they are coming. This set is that knowledge: every live issue
+    # uid the feed will create. An endpoint present here OR already in the
+    # database is one the apply can resolve; an endpoint in neither is a SKIP.
+    feed_issue_uids: set[str] = set()
+    for c in changes:
+        c_uid = c.get("uid")
+        if (
+            c.get("entity") == "issue"
+            and c.get("deleted") is not True
+            and isinstance(c_uid, str)
+        ):
+            feed_issue_uids.add(c_uid)
 
     for change in changes:
         # NEVER str() a value that may be None. `str(None)` is "None" — a
@@ -167,6 +202,9 @@ def plan(
         # malformed is a defect to report. A client that called everything
         # "unsupported" would satisfy the unsupported test alone, which is why
         # both directions are asserted.
+        endpoints: tuple[str, str] | None = None
+        relation_type = ""
+
         if entity == "issue":
             if payload is None:
                 actions.append(
@@ -185,7 +223,104 @@ def plan(
                 )
                 continue
 
-        if entity != "issue":
+        elif entity in ("issue_relation", "issue_dependency"):
+            # A relation/dependency is defined by the issues it relates, so its
+            # local row references them by LOCAL id. The server payload names
+            # them by UID, so the endpoints must be resolved before the row can
+            # be written. Push ordering is a hard constraint (issues, then
+            # edges), so by the time an edge arrives its endpoints should be
+            # present — but a missing endpoint is a SKIP, never a crash, and
+            # never a row with a dangling foreign key.
+            if payload is None:
+                actions.append(
+                    Action(
+                        MALFORMED, uid, entity, seq, None, title,
+                        f"payload is {type(raw_payload).__name__}, expected an object",
+                    )
+                )
+                continue
+
+            if entity == "issue_relation":
+                source_uid = payload.get("source")
+                target_uid = payload.get("target")
+                rel_type = payload.get("type")
+                # Check each field individually: `all(isinstance(...))` does not
+                # narrow the individual variables for mypy, and a field that is
+                # present-but-null must be caught here, not crash the plan.
+                if not isinstance(source_uid, str) or not source_uid:
+                    actions.append(
+                        Action(
+                            MALFORMED, uid, entity, seq, None, title,
+                            "issue_relation payload needs string source, type and target",
+                        )
+                    )
+                    continue
+                if not isinstance(target_uid, str) or not target_uid:
+                    actions.append(
+                        Action(
+                            MALFORMED, uid, entity, seq, None, title,
+                            "issue_relation payload needs string source, type and target",
+                        )
+                    )
+                    continue
+                if not isinstance(rel_type, str) or not rel_type:
+                    actions.append(
+                        Action(
+                            MALFORMED, uid, entity, seq, None, title,
+                            "issue_relation payload needs string source, type and target",
+                        )
+                    )
+                    continue
+                if not (
+                    _endpoint_present(conn, source_uid, feed_issue_uids)
+                    and _endpoint_present(conn, target_uid, feed_issue_uids)
+                ):
+                    actions.append(
+                        Action(
+                            SKIP, uid, entity, seq, None, title,
+                            "an endpoint issue is not present locally",
+                        )
+                    )
+                    continue
+                # Carry the endpoint UIDs; the apply resolves them to local ids
+                # once the feed has been applied in order.
+                endpoints = (source_uid, target_uid)
+                relation_type = rel_type
+                title = rel_type
+            else:  # issue_dependency
+                blocker_uid = payload.get("blocker")
+                blocked_uid = payload.get("blocked")
+                if not isinstance(blocker_uid, str) or not blocker_uid:
+                    actions.append(
+                        Action(
+                            MALFORMED, uid, entity, seq, None, title,
+                            "issue_dependency payload needs string blocker and blocked",
+                        )
+                    )
+                    continue
+                if not isinstance(blocked_uid, str) or not blocked_uid:
+                    actions.append(
+                        Action(
+                            MALFORMED, uid, entity, seq, None, title,
+                            "issue_dependency payload needs string blocker and blocked",
+                        )
+                    )
+                    continue
+                if not (
+                    _endpoint_present(conn, blocker_uid, feed_issue_uids)
+                    and _endpoint_present(conn, blocked_uid, feed_issue_uids)
+                ):
+                    actions.append(
+                        Action(
+                            SKIP, uid, entity, seq, None, title,
+                            "an endpoint issue is not present locally",
+                        )
+                    )
+                    continue
+                endpoints = (blocker_uid, blocked_uid)
+                title = "dependency"
+
+        else:
             # The CLIENT does not apply this type yet, though the server
             # supports it. Reported rather than silently ignored, so a user can
             # see the sync is incomplete instead of assuming it covered
@@ -223,15 +358,26 @@ def plan(
                 )
             else:
                 actions.append(
-                    Action(DELETE, uid, entity, seq, local_id, title, "explicit tombstone")
+                    Action(
+                        DELETE, uid, entity, seq, local_id, title, "explicit tombstone",
+                        endpoints=endpoints, relation_type=relation_type,
+                    )
                 )
             continue
 
         if local_id is None:
-            actions.append(Action(CREATE, uid, entity, seq, None, title, "not present locally"))
+            actions.append(
+                Action(
+                    CREATE, uid, entity, seq, None, title, "not present locally",
+                    endpoints=endpoints, relation_type=relation_type,
+                )
+            )
         else:
             actions.append(
-                Action(UPDATE, uid, entity, seq, local_id, title, "present locally")
+                Action(
+                    UPDATE, uid, entity, seq, local_id, title, "present locally",
+                    endpoints=endpoints, relation_type=relation_type,
+                )
             )
 
     return actions
@@ -334,32 +480,104 @@ def apply(
     )
 
 
+# Server entity name -> local table. The ledger records the LOCAL table name as
+# its entity, so record_uid / tombstone must be called with the table, not the
+# wire name.
+ENTITY_TABLE = {
+    "issue": "issues",
+    "issue_relation": "issue_relations",
+    "issue_dependency": "issue_dependencies",
+}
+
+
+def _resolve_endpoint(conn: sqlite3.Connection, uid: str) -> int:
+    """The local id of an endpoint issue, resolved at apply time.
+
+    The plan carries endpoint UIDs because the feed creates the issues; by the
+    time the apply reaches the edge, the feed has been applied in order and the
+    endpoint is present. A uid that resolves to zero or two rows is a defect in
+    the plan's endpoint check, and must stop the run rather than write a
+    dangling foreign key.
+    """
+    ids = resolve_uid(conn, uid)
+    if len(ids) != 1:
+        raise ValueError(f"endpoint {uid} resolves to {len(ids)} local rows")
+    return ids[0]
+
+
 def _apply_one(conn: sqlite3.Connection, action: Action) -> None:
     """The single-row write. Called inside a transaction by :func:`apply`."""
+    table = ENTITY_TABLE[action.entity]
+
+    # A relation/dependency cannot be written without its endpoints. The plan
+    # always resolves them, so this is a guard against a programming error, not
+    # a server condition — and it lets mypy narrow the Optional.
+    endpoints = action.endpoints
+    if action.entity != "issue" and endpoints is None:
+        raise ValueError(f"{action.entity} action carries no resolved endpoints")
+    if action.entity != "issue":
+        assert endpoints is not None
+        endpoint_ids = (
+            _resolve_endpoint(conn, endpoints[0]),
+            _resolve_endpoint(conn, endpoints[1]),
+        )
+
     if action.kind == DELETE:
         # Tombstone the ledger entry BEFORE deleting the row: the ledger must
         # outlive the row, and doing it after would lose the record if the
         # delete succeeded and the process died.
-        tombstone(conn, "issues", action.local_id)  # type: ignore[arg-type]
-        conn.execute("DELETE FROM issues WHERE id = ?", (action.local_id,))
+        tombstone(conn, table, action.local_id)  # type: ignore[arg-type]
+        conn.execute(f"DELETE FROM {table} WHERE id = ?", (action.local_id,))
         return
 
     if action.kind == UPDATE:
-        conn.execute(
-            "UPDATE issues SET title = ?, updated_at = datetime('now','localtime') WHERE id = ?",
-            (action.title, action.local_id),
-        )
+        if action.entity == "issue":
+            conn.execute(
+                "UPDATE issues SET title = ?, updated_at = datetime('now','localtime') "
+                "WHERE id = ?",
+                (action.title, action.local_id),
+            )
+        else:
+            assert endpoints is not None  # the guard above guarantees it
+            if action.entity == "issue_relation":
+                # The uid is derived from the endpoints, so an UPDATE on the same
+                # uid normally means the same endpoints — but a symmetric
+                # relation can arrive with the endpoints in the opposite order,
+                # and the server's direction is authoritative. Converge to it.
+                conn.execute(
+                    "UPDATE issue_relations SET source_issue_id = ?, target_issue_id = ?, "
+                    "relation_type = ? WHERE id = ?",
+                    (endpoint_ids[0], endpoint_ids[1], action.relation_type, action.local_id),
+                )
+            elif action.entity == "issue_dependency":
+                conn.execute(
+                    "UPDATE issue_dependencies SET blocker_id = ?, blocked_id = ? WHERE id = ?",
+                    (endpoint_ids[0], endpoint_ids[1], action.local_id),
+                )
         return
 
     if action.kind == CREATE:
-        cursor_ = conn.execute(
-            "INSERT INTO issues (title) VALUES (?)",
-            (action.title,),
-        )
+        if action.entity == "issue":
+            cursor_ = conn.execute("INSERT INTO issues (title) VALUES (?)", (action.title,))
+        else:
+            assert endpoints is not None  # the guard above guarantees it
+            if action.entity == "issue_relation":
+                cursor_ = conn.execute(
+                    "INSERT INTO issue_relations (source_issue_id, target_issue_id, "
+                    "relation_type) VALUES (?, ?, ?)",
+                    (endpoint_ids[0], endpoint_ids[1], action.relation_type),
+                )
+            elif action.entity == "issue_dependency":
+                cursor_ = conn.execute(
+                    "INSERT INTO issue_dependencies (blocker_id, blocked_id) VALUES (?, ?)",
+                    (endpoint_ids[0], endpoint_ids[1]),
+                )
+            else:
+                raise ValueError(f"unhandled entity {action.entity!r}")
         new_id = cursor_.lastrowid
         if new_id is None:
             raise RuntimeError("insert returned no rowid")
-        record_uid(conn, "issues", int(new_id), action.uid)
+        record_uid(conn, table, int(new_id), action.uid)
         return
 
     raise ValueError(f"unhandled action kind {action.kind!r}")
