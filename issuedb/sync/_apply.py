@@ -102,8 +102,20 @@ def plan(
     actions: list[Action] = []
 
     for change in changes:
-        uid = str(change.get("uid", ""))
-        entity = str(change.get("entity", ""))
+        # NEVER str() a value that may be None. `str(None)` is "None" — a
+        # TRUTHY string that sails past `if not uid:` and gets recorded in the
+        # ledger as a real uid. Every row with a null uid would then share the
+        # identity "None", collide with each other, and be pushed back to the
+        # server under it.
+        #
+        # This is not hypothetical: Tracker's web-created issues had no
+        # sync_uid and pull emitted `uid: null`. `.get("uid", "")` returns the
+        # default only when the KEY IS ABSENT, never when it is present and
+        # null — which is why the absent case worked and the null case did not.
+        raw_uid = change.get("uid")
+        raw_entity = change.get("entity")
+        uid = raw_uid if isinstance(raw_uid, str) else ""
+        entity = raw_entity if isinstance(raw_entity, str) else ""
         try:
             seq = int(change.get("seq", 0))
         except (TypeError, ValueError):
@@ -119,7 +131,20 @@ def plan(
 
         if not uid:
             actions.append(
-                Action(SKIP, uid, entity, seq, None, title, "change carries no uid")
+                Action(
+                    MALFORMED, uid, entity, seq, None, title,
+                    f"uid is {type(raw_uid).__name__}, expected a string — a change with no "
+                    f"identity cannot be applied or recorded",
+                )
+            )
+            continue
+
+        if not entity:
+            actions.append(
+                Action(
+                    MALFORMED, uid, entity, seq, None, title,
+                    f"entity is {type(raw_entity).__name__}, expected a string",
+                )
             )
             continue
 

@@ -528,3 +528,64 @@ def test_with_no_advertised_list_an_unappliable_type_is_skip_not_malformed(repo,
     )
     assert [a.kind for a in actions] == [SKIP]
     assert "issuedb does not apply" in actions[0].reason
+
+
+# --- null is not a string, and str(None) is not empty ----------------------
+
+
+def test_a_null_uid_is_malformed_not_the_string_None(repo, conn):
+    """The exact defect Tracker's web-created issues produced.
+
+    `str(change.get("uid", ""))` returns the DEFAULT only when the key is
+    ABSENT. When the key is present and null it returns "None" — a TRUTHY
+    string that sails past `if not uid:` and is recorded in the ledger as a
+    real uid. Every null-uid row would then share the identity "None", collide
+    with each other, and be pushed back to the server under it.
+    """
+    actions = plan(
+        conn,
+        [{"uid": None, "entity": "issue", "seq": 1, "payload": {"title": "web-created"}}],
+        server_entities=SUPPORTED,
+    )
+    assert [a.kind for a in actions] == [MALFORMED]
+    assert actions[0].uid != "None", "a null uid became the literal string 'None'"
+    assert actions[0].uid == ""
+
+
+def test_a_null_uid_is_never_recorded_in_the_ledger(repo, conn):
+    """The consequence, asserted against the ledger rather than the plan."""
+    actions = plan(
+        conn,
+        [{"uid": None, "entity": "issue", "seq": 1, "payload": {"title": "x"}}],
+        server_entities=SUPPORTED,
+    )
+    apply(conn, actions, "c:0")
+    conn.commit()
+    rows = conn.execute("SELECT uid FROM sync_row").fetchall()
+    assert rows == [], f"a null uid reached the ledger: {rows}"
+    assert _issue_count(conn) == 0
+
+
+@pytest.mark.parametrize("bad", [None, 42, [], {}, True])
+def test_a_non_string_uid_of_any_type_is_malformed(repo, conn, bad):
+    actions = plan(
+        conn,
+        [{"uid": bad, "entity": "issue", "seq": 1, "payload": {"title": "x"}}],
+        server_entities=SUPPORTED,
+    )
+    assert [a.kind for a in actions] == [MALFORMED]
+
+
+def test_a_null_entity_is_malformed_not_unsupported(repo, conn):
+    """Null entity is bad DATA, not an unsupported type.
+
+    Reporting it as unsupported would send someone looking for a missing
+    feature when the row is simply broken.
+    """
+    actions = plan(
+        conn,
+        [{"uid": UID_A, "entity": None, "seq": 1, "payload": {"title": "x"}}],
+        server_entities=SUPPORTED,
+    )
+    assert [a.kind for a in actions] == [MALFORMED]
+    assert "entity is NoneType" in actions[0].reason

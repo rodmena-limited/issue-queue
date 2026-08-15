@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.23.0]
+
+### Fixed
+- **A null `uid` from the server became the literal string `"None"`.**
+  `str(change.get("uid", ""))` returns the default only when the key is
+  *absent*; when the key is present and null it returns `"None"` — a **truthy**
+  string that passes `if not uid:` and is recorded in the ledger as a real uid.
+  Every null-uid row would have shared the identity `"None"`, collided with the
+  others, and been pushed back to the server under it.
+  Not hypothetical: Tracker's web-created issues had no `sync_uid` and pull
+  emitted `uid: null`. A null `uid` or `entity` of any type is now `MALFORMED`,
+  never applied and never ledgered.
+
 ## [2.22.0]
 
 ### Fixed
