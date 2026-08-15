@@ -1,4 +1,4 @@
-# VENDORED from Tracker contracts/sync/openapi.yaml at COMMIT 56215db.
+# VENDORED from Tracker contracts/sync/openapi.yaml at COMMIT 2012446.
 # Taken with `git show <sha>:path`, NOT from the working tree — the peer's tree is
 # edited mid-turn by another agent, so reading it judges a file that is neither
 # committed nor deployed. DO NOT EDIT HERE; re-vendor from source.
@@ -63,7 +63,12 @@ paths:
               schema:
                 type: object
                 required:
-                  [protocol_min, protocol_max, uid_algorithm, authenticated, credential_rejected]
+                  - protocol_min
+                  - protocol_max
+                  - uid_algorithm
+                  - authenticated
+                  - credential_rejected
+                  - entities
                 properties:
                   protocol_min: { type: integer, example: 1 }
                   protocol_max: { type: integer, example: 1 }
@@ -109,6 +114,21 @@ paths:
                       `x-test-symmetric`, so the vectors exercise a rule that would
                       otherwise be unreachable and pass vacuously. A client MUST **read this
                       list** and never hardcode either version of it.
+                  entities:
+                    type: array
+                    items: { type: string }
+                    example: [issue]
+                    description: |
+                      **What `push` can actually apply today.** Advertised so a client can ASK
+                      rather than discover it from a batch of per-entry `rejected` outcomes —
+                      which are indistinguishable from a malformed entry of a *supported*
+                      type. "Unsupported" and "you sent rubbish" are different facts and were
+                      arriving as one; issuedb had five of the twelve frozen vectors
+                      unrunnable with no way to tell which it was.
+
+                      **This list grows.** A client must treat an absent entity as "not yet"
+                      and re-read the handshake, never hardcode the set or fail closed on a
+                      value it does not recognise.
                   uid_algorithm:
                     type: string
                     enum: [s256t128]

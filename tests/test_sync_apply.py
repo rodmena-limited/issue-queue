@@ -27,6 +27,7 @@ from issuedb.sync._apply import (
     CREATE,
     DELETE,
     SKIP,
+    UNSUPPORTED,
     already_applied,
     apply,
     plan,
@@ -355,8 +356,54 @@ def test_already_applied_sees_a_tombstoned_uid(repo, conn):
 # --- entities we do not apply ----------------------------------------------
 
 
-def test_an_unsupported_entity_is_reported_not_silently_dropped(repo, conn):
+def test_an_entity_this_client_cannot_apply_is_reported_not_silently_dropped(repo, conn):
+    """With no advertised list, the client's own limitation is still surfaced."""
     actions = plan(conn, [_change(UID_A, entity="issue_tag")])
     assert [a.kind for a in actions] == [SKIP]
-    assert "not applied yet" in actions[0].reason
+    assert "issuedb does not apply" in actions[0].reason
     assert "issue_tag" in render_plan(actions, applying=True)
+
+
+# --- the server's advertised entity list -----------------------------------
+
+
+def test_an_entity_the_server_does_not_support_is_unsupported_not_skip(repo, conn):
+    """Two causes that used to be one observation.
+
+    "the server has not shipped tags" and "issuedb does not apply tags" both
+    arrived as an identical per-entry rejection. A client that cannot tell them
+    apart retries forever against a server that will never accept tags, or
+    discards a genuinely malformed entry as unsupported.
+    """
+    actions = plan(
+        conn, [_change(UID_A, entity="issue_tag")], server_entities=frozenset({"issue"})
+    )
+    assert [a.kind for a in actions] == [UNSUPPORTED]
+    assert "server does not support" in actions[0].reason
+
+
+def test_an_entity_the_server_supports_but_we_do_not_is_skipped(repo, conn):
+    """The other side of the same fork — this one IS fixed by upgrading issuedb."""
+    actions = plan(
+        conn,
+        [_change(UID_A, entity="issue_tag")],
+        server_entities=frozenset({"issue", "issue_tag"}),
+    )
+    assert [a.kind for a in actions] == [SKIP]
+    assert "issuedb does not apply" in actions[0].reason
+
+
+def test_no_advertised_list_does_not_mean_supports_nothing(repo, conn):
+    """An older server omits the field. Defaulting to empty would mark every
+    change unsupported and silently stop applying anything."""
+    actions = plan(conn, [_change(UID_A)], server_entities=None)
+    assert [a.kind for a in actions] == [CREATE]
+
+
+def test_an_unsupported_entity_never_advances_the_cursor(repo, conn):
+    actions = plan(
+        conn, [_change(UID_A, seq=5, entity="issue_tag")], server_entities=frozenset({"issue"})
+    )
+    result = apply(conn, actions, "c:1")
+    assert result.cursor == "c:1"
+    assert result.applied == 0

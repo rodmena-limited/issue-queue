@@ -39,7 +39,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 # that error once: I reported replica_id as "fixed in 61a3b66" when it was in
 # NO committed revision at all, only in the uncommitted tree I had grepped.
 CONTRACT = REPO_ROOT / "tests" / "data" / "openapi.yaml"
-VENDORED_AT = "56215db"
+VENDORED_AT = "2012446"
 VENDORED_FAKE = REPO_ROOT / "tests" / "data" / "faketracker.py"
 
 # What this client actually puts in each request body. Kept here rather than
@@ -47,6 +47,21 @@ VENDORED_FAKE = REPO_ROOT / "tests" / "data" / "faketracker.py"
 # itself caught by review.
 CLIENT_SENDS = {
     "/v1/sync/push": {"replica_id", "entries"},
+}
+
+# Handshake response fields this client actually reads. Listed here rather than
+# introspected so that a field appearing in the contract and NOT here is
+# reported — which is precisely how `entities` would have been caught.
+CLIENT_READS_HANDSHAKE = {
+    "protocol_min",
+    "protocol_max",
+    "project_uid",
+    "symmetric_relation_types",
+    "tombstone_retention_days",
+    "uid_algorithm",
+    "authenticated",
+    "credential_rejected",
+    "entities",
 }
 
 
@@ -78,6 +93,45 @@ def declared_required(text: str, path: str) -> set[str] | None:
     if not match:
         return None
     return {f.strip().strip("'\"") for f in match.group(1).split(",") if f.strip()}
+
+
+def handshake_response_fields(text: str) -> set[str] | None:
+    """Property names the contract declares on the handshake RESPONSE.
+
+    The request-side comparison has a blind spot the manager named: it checks
+    what this client SENDS against what the contract REQUIRES, so a
+    RESPONSE-side addition is invisible to it. `entities` was added to the
+    handshake and shipped, and the drift check said "no drift" throughout —
+    correctly, and uselessly, because it was answering a different question.
+    """
+    start = text.find("\n  /v1/sync/handshake:")
+    if start == -1:
+        return None
+    end = text.find("\n  /", start + 1)
+    block = text[start : end if end != -1 else len(text)]
+    properties = block.find("properties:")
+    if properties == -1:
+        return None
+    # Anchor to the FIRST indent level under `properties:` — not "18 or more
+    # spaces", which is how the earlier version returned `type`, `description`,
+    # `enum`, `example` and `items` as if they were response fields. That is
+    # the same scraping defect I had already fixed once on the request side by
+    # reading `required:` instead of guessing, and I reproduced it one function
+    # over. A parser whose output contains obvious garbage cannot be trusted
+    # for its verdict even when the verdict looks plausible.
+    tail = block[properties:].splitlines()[1:]
+    indents = [len(ln) - len(ln.lstrip()) for ln in tail if ln.strip() and ln.lstrip()[0] != "#"]
+    if not indents:
+        return None
+    field_indent = indents[0]
+    names = [
+        ln.strip().split(":", 1)[0]
+        for ln in tail
+        if ln.strip()
+        and len(ln) - len(ln.lstrip()) == field_indent
+        and re.match(r"^[a-z_][a-z0-9_]*:", ln.strip())
+    ]
+    return set(names) or None
 
 
 def main() -> int:
@@ -117,6 +171,21 @@ def main() -> int:
         for field in missing:
             print(f"  DRIFT: the contract requires '{field}' and this client does not send it")
             drift += 1
+
+    # RESPONSE side: fields the contract declares that this client ignores.
+    # Not automatically a defect — a client may legitimately not need a field —
+    # but it is exactly how `entities` shipped and went unread for a release.
+    declared = handshake_response_fields(text)
+    print("\n/v1/sync/handshake (response)")
+    if declared is None:
+        print("  PARSE FAILED — cannot list declared response fields. Not a pass.")
+        return 2
+    print(f"  contract declares : {sorted(declared)}")
+    print(f"  client reads      : {sorted(CLIENT_READS_HANDSHAKE)}")
+    ignored = sorted(declared - CLIENT_READS_HANDSHAKE)
+    for field in ignored:
+        print(f"  UNREAD: the contract declares '{field}' and this client never reads it")
+        drift += 1
 
     if drift:
         print(

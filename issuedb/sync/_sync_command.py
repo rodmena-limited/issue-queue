@@ -74,7 +74,9 @@ def sync(
             print(f"Error: pull failed: {exc.code} — {exc}", file=sys.stderr)
             return 1
 
-        actions = _apply.plan(conn, pulled.changes)
+        # The server's advertised entity list, so "the server does not support
+        # tags yet" is distinguishable from "issuedb does not apply tags yet".
+        actions = _apply.plan(conn, pulled.changes, server_entities=shake.entities)
         print(f"Pulled {len(pulled.changes)} change(s) from cursor {state.cursor}.")
         print()
         print(_apply.render_plan(actions, applying=do_apply))

@@ -65,6 +65,10 @@ class Handshake(NamedTuple):
     raw: dict[str, Any]
     authenticated: bool | None = None
     credential_rejected: bool | None = None
+    # None when the server does not advertise it, NOT an empty tuple: "the
+    # server did not say" and "the server supports nothing" are different
+    # facts, and defaulting to empty would make every entity look unsupported.
+    entities: frozenset[str] | None = None
 
 
 class PullResult(NamedTuple):
@@ -240,6 +244,9 @@ class SyncClient:
             # facts, and only one of them is a contract answer.
             authenticated=body.get("authenticated"),
             credential_rejected=body.get("credential_rejected"),
+            entities=(
+                frozenset(body["entities"]) if isinstance(body.get("entities"), list) else None
+            ),
             protocol_min=minimum,
             protocol_max=maximum,
             project_uid=str(body.get("project_uid", "")),

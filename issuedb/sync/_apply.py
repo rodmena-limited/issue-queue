@@ -67,13 +67,36 @@ class ApplyResult(NamedTuple):
     stopped_at: str | None
 
 
-def plan(conn: sqlite3.Connection, changes: list[dict[str, Any]]) -> list[Action]:
+UNSUPPORTED = "unsupported"
+
+
+def plan(
+    conn: sqlite3.Connection,
+    changes: list[dict[str, Any]],
+    server_entities: frozenset[str] | None = None,
+) -> list[Action]:
     """Decide what each pulled change would do. MUTATES NOTHING.
 
     Separated from :func:`apply` so the dry run and the real run compute the
     same decisions from the same code. A dry run that used a different code
     path would be describing a plan the apply does not follow — which is worse
     than no dry run, because the user has been shown something and believes it.
+
+    ``server_entities`` is the ``entities`` list from the handshake. It
+    separates two causes that were previously ONE OBSERVATION:
+
+        the server does not support this entity type YET   -> UNSUPPORTED
+        this client does not apply this entity type yet    -> SKIP
+
+    Before the field existed, both arrived as an identical per-entry rejection.
+    A client that cannot tell them apart either retries forever against a
+    server that will never accept tags, or discards a genuinely malformed entry
+    as "unsupported". Same shape as the credential ambiguity: two causes, one
+    observation.
+
+    ``None`` means the server did not advertise the field — an older Tracker —
+    and is NOT treated as "supports nothing". Defaulting to empty would mark
+    every change unsupported and silently stop applying anything.
     """
     actions: list[Action] = []
 
@@ -90,12 +113,29 @@ def plan(conn: sqlite3.Connection, changes: list[dict[str, Any]]) -> list[Action
             )
             continue
 
-        if entity != "issue":
-            # Not silently ignored: an unsupported entity is reported so the
-            # user can see the sync is incomplete rather than assuming it
-            # covered everything.
+        if server_entities is not None and entity not in server_entities:
+            # The SERVER says it does not support this type. Distinct from the
+            # client not applying it: this one will not change by upgrading
+            # issuedb, and retrying it is pointless until Tracker ships it.
             actions.append(
-                Action(SKIP, uid, entity, seq, None, title, f"entity {entity!r} not applied yet")
+                Action(
+                    UNSUPPORTED, uid, entity, seq, None, title,
+                    f"the server does not support entity {entity!r} yet "
+                    f"(handshake advertises {sorted(server_entities)})",
+                )
+            )
+            continue
+
+        if entity != "issue":
+            # The CLIENT does not apply this type yet, though the server
+            # supports it. Reported rather than silently ignored, so a user can
+            # see the sync is incomplete instead of assuming it covered
+            # everything — and this one IS fixed by upgrading issuedb.
+            actions.append(
+                Action(
+                    SKIP, uid, entity, seq, None, title,
+                    f"issuedb does not apply entity {entity!r} yet",
+                )
             )
             continue
 
@@ -202,7 +242,7 @@ def apply(
     stopped_at: str | None = None
 
     for action in actions:
-        if action.kind in (SKIP, AMBIGUOUS):
+        if action.kind in (SKIP, AMBIGUOUS, UNSUPPORTED):
             # Not applied, and NOT counted as progress: advancing the cursor
             # past an ambiguous change would mean never being asked about it
             # again.

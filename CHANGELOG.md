@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.21.0]
+
+### Added
+- **The apply path reads `entities` from the handshake**, separating two causes
+  that were previously one observation: *the server has not shipped this entity
+  type* (`UNSUPPORTED`) versus *issuedb does not apply it yet* (`SKIP`). Before
+  the field existed both arrived as an identical per-entry rejection, and a
+  client that cannot tell them apart either retries forever against a server
+  that will never accept tags, or discards a genuinely malformed entry as
+  unsupported. `None` — an older server omitting the field — is **not** read as
+  "supports nothing", which would mark every change unsupported and silently
+  stop applying anything.
+- **The drift check now compares the handshake RESPONSE too.** It previously
+  compared only what the client *sends* against what the contract *requires*, so
+  a response-side addition was invisible: `entities` shipped and went unread
+  while the check said "no drift" — correctly, and uselessly, because it was
+  answering a different question.
+
+### Fixed
+- `openapi.yaml` re-vendored at Tracker `2012446`.
+
 ## [2.20.0]
 
 ### Added
