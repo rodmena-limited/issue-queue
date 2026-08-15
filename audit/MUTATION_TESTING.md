@@ -30,11 +30,21 @@ find . -name '__pycache__' -type d -not -path './venv/*' -exec rm -rf {} +
 And assert the mutation landed **on disk**, not just that the script exited 0:
 
 ```python
-p.write_text(s.replace(old, new))
-after = p.read_text()
-assert new in after,     "POSTCONDITION FAIL: replacement not in the file"
-assert old not in after, "POSTCONDITION FAIL: original still present"
+intended = s.replace(old, new)
+p.write_text(intended)
+assert p.read_text() == intended, "POSTCONDITION FAIL: file does not match the intended text"
 ```
+
+**Equality, not substring.** The weaker form —
+`assert new in after and old not in after` — breaks whenever the replacement
+legitimately contains part of the find string, which is common when a mutation
+narrows a condition rather than deleting it. Reading the file back and
+requiring it to *equal* the intended text has neither failure mode. Adopted
+from Tracker's `falsify.py`, where two of their mutations hit exactly that case.
+
+**Refuse a mutation whose find == replace.** A no-op scores as a survivor, and
+it is the purest form of the whole problem: a check that changed nothing,
+reporting that nothing broke.
 
 The postcondition catches a mutation that never applied. `PYTHONDONTWRITEBYTECODE`
 catches one that applied and was ignored. **Both are needed** — they fail in
