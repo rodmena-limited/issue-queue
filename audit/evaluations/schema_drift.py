@@ -31,7 +31,15 @@ import re
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-CONTRACT = pathlib.Path("/home/farshid/develop/Tracker/contracts/sync/openapi.yaml")
+# The VENDORED contract, not the peer's working tree.
+#
+# This pointed at /home/farshid/develop/Tracker/contracts/sync/openapi.yaml —
+# a file another agent edits mid-turn. A drift verdict measured against it
+# judges something neither committed nor deployed, and it produced exactly
+# that error once: I reported replica_id as "fixed in 61a3b66" when it was in
+# NO committed revision at all, only in the uncommitted tree I had grepped.
+CONTRACT = REPO_ROOT / "tests" / "data" / "openapi.yaml"
+VENDORED_AT = "56215db"
 VENDORED_FAKE = REPO_ROOT / "tests" / "data" / "faketracker.py"
 
 # What this client actually puts in each request body. Kept here rather than
@@ -80,6 +88,8 @@ def main() -> int:
     text = CONTRACT.read_text()
     fake = VENDORED_FAKE.read_text() if VENDORED_FAKE.exists() else ""
     print(f"contract: {CONTRACT}")
+    print(f"  vendored from Tracker commit {VENDORED_AT} "
+          f"— every verdict below judges THAT contract, not a live tree")
 
     drift = 0
     for path, sends in CLIENT_SENDS.items():

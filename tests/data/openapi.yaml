@@ -1,0 +1,396 @@
+# VENDORED from Tracker contracts/sync/openapi.yaml at COMMIT 56215db.
+# Taken with `git show <sha>:path`, NOT from the working tree — the peer's tree is
+# edited mid-turn by another agent, so reading it judges a file that is neither
+# committed nor deployed. DO NOT EDIT HERE; re-vendor from source.
+openapi: 3.1.0
+info:
+  title: Tracker sync API
+  version: "1.0.0"
+  description: |
+    The wire contract between `issuedb-cli sync` and Tracker.
+
+    **This document describes SHAPES. `PROTOCOL.md` describes BEHAVIOUR** — idempotency,
+    conflict outcomes, cursor semantics, tombstone refusal, what happens when the same uid
+    arrives twice from two replicas. None of that is expressible here, and all of it is
+    load-bearing. Read `PROTOCOL.md` first.
+
+    The frozen vectors in `vectors/` are the executable form of both. Where prose and a
+    vector disagree, **the vector wins**: it is the thing both implementations can run.
+
+    STATUS: the contract is frozen for v1; the Tracker-side implementation is in progress
+    (ticket #11). `faketracker.py` implements this document today, on the standard library
+    alone, so the client half can be built and tested against it with no server.
+
+servers:
+  - url: https://tracker.rodmena.co.uk
+    description: production
+  - url: http://127.0.0.1:8099
+    description: FakeTracker (python3 faketracker.py)
+
+security:
+  - apiKey: []
+
+paths:
+  /v1/sync/handshake:
+    get:
+      operationId: handshake
+      summary: Protocol preflight. MUST be called before anything is written locally.
+      description: |
+        Deliberately **unauthenticated**: a client must be able to discover a protocol
+        mismatch before it holds a usable credential, and before it touches `.issue.db`.
+
+        On `409 protocol_unsupported` the client **must refuse to write anything local**.
+        A sync that half-applies against a contract it does not understand is the worst
+        outcome available to either side, and it is worse than not syncing at all.
+
+        **A bad credential does NOT get a 401 here.** It gets `200` with
+        `credential_rejected: true`, so a client whose key is stale *and* whose protocol is
+        unsupported learns both facts in one round trip instead of being sent at the wrong
+        problem first. Rejection is a stated fact, never inferred from a missing
+        `project_uid`. Every rejection cause returns an identical body — distinguishing
+        unknown from revoked on an open endpoint is a key-validity oracle.
+
+        `push` and `pull` still answer `401` to a bad key. This leniency is the handshake's
+        alone and does not generalise.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Protocol'
+      responses:
+        '200':
+          description: server capabilities
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  [protocol_min, protocol_max, uid_algorithm, authenticated, credential_rejected]
+                properties:
+                  protocol_min: { type: integer, example: 1 }
+                  protocol_max: { type: integer, example: 1 }
+                  authenticated:
+                    type: boolean
+                    description: |
+                      True only when a credential was presented **and accepted**. Always
+                      present, so "not authenticated" is read from a value rather than from
+                      the absence of one.
+                  credential_rejected:
+                    type: boolean
+                    description: |
+                      True when a credential was presented and refused — unknown, malformed,
+                      revoked, expired, or not a `Bearer` token. **False when none was
+                      presented**, which is the distinction the field exists for: absent and
+                      invalid are different facts, and a client must not have to remember
+                      what it sent in order to tell them apart.
+
+                      Identical for every rejection cause, deliberately.
+                  project_uid:
+                    type: string
+                    description: |
+                      Server-minted, and **returned only to a caller presenting a PROJECT-BOUND
+                      API key**. An unscoped key names no single project and an anonymous caller
+                      names none at all, so the field is absent for both — never guessed.
+
+                      **This is the only channel in the contract that carries it, and it is
+                      FIELD 1 OF EVERY DERIVED UID** (`itag`, `idep`, `irel` — see PROTOCOL.md
+                      §2). A client cannot derive a single tag, dependency or relation uid
+                      without it, so an authenticated handshake is a prerequisite for syncing
+                      anything but issues.
+
+                      Non-secret by design: it is committed to `.issue.db` in a public
+                      repository, which is what makes it usable as a stable hash input.
+                  tombstone_retention_days: { type: integer, example: 180 }
+                  symmetric_relation_types:
+                    type: array
+                    items: { type: string }
+                    description: |
+                      **Empty in production v1** — `relation_type` is unvalidated free text
+                      in issuedb, so which types are symmetric is not answerable from the
+                      schema. FakeTracker advertises one provisional type,
+                      `x-test-symmetric`, so the vectors exercise a rule that would
+                      otherwise be unreachable and pass vacuously. A client MUST **read this
+                      list** and never hardcode either version of it.
+                  uid_algorithm:
+                    type: string
+                    enum: [s256t128]
+                    description: |
+                      Named for what it is — a 128-bit truncation of sha256 — because a
+                      label implying a full digest costs someone a day in three years.
+        '409':
+          $ref: '#/components/responses/Problem'
+
+  /v1/sync/push:
+    post:
+      operationId: push
+      summary: Upload local changes. Idempotent by (uid, content_hash).
+      description: |
+        **Never keyed on a replica sequence number.** `sync_outbox` lives inside `.issue.db`,
+        which 22 of 42 repositories in this estate commit to git, so the outbox time-travels
+        with the branch and a checkout can hand a replica rows another replica already
+        pushed. Sequence numbers are a claim about local history, and local history is
+        exactly what git rewrites.
+
+        Partial application is the **contract**, not a failure mode: an interrupted push
+        leaves everything already applied in place, and the cursor advances only to what
+        was durably applied.
+
+        Ordering is a hard constraint: issues → tags → edges. When the server returns a
+        canonical tag uid the client must rewrite it **and re-derive dependent edge uids**
+        before pushing edges.
+      parameters:
+        - $ref: '#/components/parameters/Protocol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entries, replica_id]
+              properties:
+                entries:
+                  type: array
+                  items: { $ref: '#/components/schemas/PushEntry' }
+                replica_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  example: R1
+                  description: |
+                    **Which checkout is pushing.** Required, and it was required by the server
+                    while being absent from this document and from FakeTracker — issuedb got a
+                    `422` on every push replaying the frozen vectors, because the fixture took
+                    this field from the vector STEP rather than the body.
+
+                    That is the `project_uid` incident with the sign reversed: that field was
+                    documented and absent, this one was required and undocumented. Same root
+                    cause — the document and the server drifting with nothing comparing them.
+
+                    Not decoration. A pushed issue number is recorded as an alias keyed by
+                    `(project, replica, number)`, so a push that does not say which replica it
+                    is cannot have its numbers resolved by any other checkout. Server-assigned
+                    at sign-in, stored **outside** `.issue.db` (§1) so a `git checkout` cannot
+                    hand one replica's identity to another.
+      responses:
+        '200':
+          description: |
+            Per-entry results. A 200 does **not** mean every entry was applied — read each
+            `outcome`. Treating the status as the answer is the mistake this shape exists
+            to prevent.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results, cursor]
+                properties:
+                  results:
+                    type: array
+                    items: { $ref: '#/components/schemas/PushResult' }
+                  cursor:
+                    type: string
+                    description: Opaque. Advanced only to what was durably applied.
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/sync/pull:
+    get:
+      operationId: pull
+      summary: Download server changes since a cursor.
+      parameters:
+        - $ref: '#/components/parameters/Protocol'
+        - name: cursor
+          in: query
+          schema: { type: string }
+          description: |
+            **Opaque.** Store it and return it; never parse it. It is not a timestamp and
+            not a row id, and its internal shape may change within v1.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 200 }
+      responses:
+        '200':
+          description: a page of changes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [changes, cursor, safe_horizon]
+                properties:
+                  changes:
+                    type: array
+                    items: { $ref: '#/components/schemas/Change' }
+                  cursor: { type: string }
+                  safe_horizon:
+                    type: string
+                    description: |
+                      **A client MUST NOT advance its cursor past this**, even having
+                      received rows beyond it. `WHERE seq > watermark` silently skips rows
+                      assigned a lower sequence that committed later — this has already bitten
+                      an audit export in this estate, and in a sync feed the client would
+                      believe it was caught up while the missing rows are never requested again.
+                  has_more: { type: boolean }
+        '401':
+          $ref: '#/components/responses/Problem'
+        '409':
+          description: |
+            `cursor_too_old`. The cursor predates the tombstone horizon; the client must
+            **full re-seed**, never partially apply. Refusing is the load-bearing half of
+            tombstone retention: without it, a laptop untouched for seven months comes back
+            and re-creates everything the team deleted, with no error at any point.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: |
+        `Authorization: Bearer trk_<key_id>_<secret>`
+
+        `key_id` is a lowercase ULID, 26 chars, and is **not secret** — safe to log, and it
+        is what makes "which key was that?" answerable afterwards. Only `sha256(secret)` is
+        stored server-side.
+
+  parameters:
+    Protocol:
+      name: X-IssueDB-Protocol
+      in: header
+      required: true
+      schema: { type: integer }
+
+  responses:
+    Problem:
+      description: |
+        RFC 7807, with a stable `code`. Note that **revoked, expired and unknown keys all
+        return `401 invalid_api_key` with an identical body** — distinguishing them tells an
+        unauthenticated caller which key ids exist. A valid key against a project it cannot
+        touch returns **404 `not_found`**, not 403, because a 403 confirms the project exists.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: |
+        10r/s on `/v1/sync/`, keyed on the **credential, not the IP** — an IP-keyed limit is a
+        machine limit wearing a tenant's name, and a whole office behind one NAT is one machine
+        to it. Mirrored at the nginx edge so a client never receives `429 text/html`.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: |
+            **Authoritative.** Honour it; do not layer an invented backoff on top of it.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Problem:
+      type: object
+      required: [status, code, title]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code:
+          type: string
+          description: Stable machine-readable identifier. Branch on this, never on `title`.
+          examples: [invalid_api_key, not_found, protocol_unsupported, cursor_too_old, rate_limited]
+        detail: { type: string }
+
+    PushEntry:
+      type: object
+      required: [uid, entity, op]
+      properties:
+        uid:
+          type: string
+          description: |
+            Ledgered for issues and comments; **derived** for tags, dependencies and
+            relations. The derivation is frozen in `PROTOCOL.md` §2 and is checked by the
+            `uid_derivation` block of the vectors — which re-computes rather than replaying,
+            because a vector that hardcodes the answer cannot test the function producing it.
+          example: s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3
+        entity:
+          type: string
+          enum: [issue, comment, issue_tag, issue_dependency, issue_relation, code_ref, time_entry]
+        op:
+          type: string
+          enum: [upsert, delete]
+          description: |
+            A queued delete is **re-validated against the file at push time**. Still present
+            locally? A checkout restored it → send `upsert`. A delete fires only when the
+            entity is genuinely absent from *this* file. Absence must never imply deletion.
+        content_hash:
+          type: string
+          description: |
+            The idempotency key, with `uid`. Same pair → no write, existing version returned.
+
+            **For a SYMMETRIC relation the endpoints are excluded from this hash** — they are
+            hashed sorted, exactly as in the uid. Without that, `A-rel-B` and `B-rel-A` share a
+            uid and differ in content, so a correct implementation of "known uid, new content ⇒
+            update" flips the stored direction on **every push**: the failure arriving by
+            faithfully following the idempotency rule. Excluding them makes the opposite
+            direction an ordinary replay, and the no-op falls out of the rule already frozen —
+            no special case in either codebase.
+        base_version:
+          type: [integer, "null"]
+          description: The version this edit was made against. Stale → field-level merge, losing value retained.
+        payload:
+          type: object
+          additionalProperties: true
+
+    PushResult:
+      type: object
+      required: [uid, version, outcome]
+      properties:
+        uid: { type: string }
+        version: { type: integer }
+        outcome:
+          type: string
+          enum: [created, updated, existing, conflict, deleted, gone]
+          description: |
+            - `existing` — the replay case. A different replica pushing work already applied
+              gets this. **A spurious 409 here is as broken as a duplicate**, and a test that
+              only counts rows cannot tell the two apart (vector 2 asserts it explicitly).
+            - `conflict` — field-level merge happened; the losing value is retained, never dropped.
+            - `gone` — delete won. Check `restorable`.
+        deleted:
+          type: boolean
+          description: |
+            Present on `gone`. **A push against a tombstone MUST carry the tombstone** — a bare
+            "here is the existing row" is not sufficient. A replica offline through a delete
+            pushes its own copy, reads 200, and keeps a row the server considers deleted; its
+            next pull shows no change, *because absence is not deletion*, and the row lives
+            locally forever, undeletable, with nothing erroring. This field is what lets a
+            client tell "your write is already there" from "your write is superseded".
+        tombstone:
+          type: object
+          description: The last-known payload and version, so the delete is recoverable.
+          additionalProperties: true
+        restorable:
+          type: boolean
+          description: |
+            On `gone`: the last-known payload is retained and recoverable. With N offline
+            replicas an unrecoverable delete is not a tradeoff anyone gets to make on a
+            user's behalf.
+        losing_value_retained:
+          type: boolean
+
+    Change:
+      type: object
+      required: [uid, entity, version, seq]
+      properties:
+        uid: { type: string }
+        entity: { type: string }
+        version: { type: integer }
+        seq: { type: integer }
+        deleted:
+          type: boolean
+          description: A tombstone. It carries the last-known payload; that is what makes a delete recoverable.
+        payload:
+          type: object
+          additionalProperties: true
