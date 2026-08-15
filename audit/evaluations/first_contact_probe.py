@@ -50,6 +50,7 @@ from issuedb.sync._client import (  # noqa: E402
     SyncClient,
     SyncError,
 )
+from issuedb.sync._credentials import load as load_credential  # noqa: E402
 
 DEFAULT_SERVER = "https://tracker.rodmena.co.uk"
 VECTOR_DIR = REPO_ROOT / "tests" / "data" / "vectors"
@@ -260,7 +261,13 @@ def check_vectors_present() -> tuple[bool, list[str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", default=DEFAULT_SERVER)
-    parser.add_argument("--token", default="trk_probe_probe")
+    parser.add_argument(
+        "--token",
+        default=None,
+        help="Bearer token. Omitted, the probe uses the credential stored by "
+        "`issuedb-cli signin` — the product's own interface, rather than a "
+        "placeholder that makes a real deployment look unauthenticated.",
+    )
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument(
         "--control",
@@ -305,7 +312,25 @@ def main() -> int:
     print("\n".join(surface_lines))
     print()
 
-    client = SyncClient(server, token=args.token, timeout=args.timeout)
+    # Prefer the credential the user actually signed in with. The first
+    # version defaulted to a placeholder, so a probe run on a machine WITH a
+    # valid key still reported NO CREDENTIAL — the instrument ignoring the
+    # product's own state and reporting a state the machine was not in.
+    token = args.token
+    if token is None:
+        stored = load_credential(server)
+        if stored is None:
+            print(
+                f"NO STORED CREDENTIAL for {server}.\n"
+                f"  Run: issuedb-cli signin --server {server}\n"
+                f"  Continuing unauthenticated — the round trip will be UNTESTED."
+            )
+            token = "trk_absent_absent"
+        else:
+            token = stored.token
+            print(f"Using the credential from issuedb-cli signin: {stored.redacted()}\n")
+
+    client = SyncClient(server, token=token, timeout=args.timeout)
     handshake_result, handshake_lines = exercise_handshake(client)
     print("\n".join(handshake_lines))
     print()
