@@ -49,6 +49,20 @@ place no test looks.
   evidence that normalisation works, because NFC is the identity function on
   ASCII.
 
+## The mutation angle, checked after Tracker raised it
+
+Tracker found that **0 of their 96 registered mutations** touch the
+`unicodedata.normalize("NFC", …)` call — so the falsification harness they use
+to answer "how do you know that check can fail" is itself blind here, and would
+report all 96 behaving against a canonical form that skips normalisation.
+
+The equivalent statement for this repo is different and not better: **there is
+no mutation registry here at all.** Mutations have been ad-hoc, run by hand
+against the specific code under change (see `audit/MUTATION_TESTING.md`). No
+mutation has ever been run against the NFC call, and nothing exists that would
+have noticed. "0 of 96" is at least a number; "no catalogue" cannot even produce
+one.
+
 ## Before starting
 
 Coordinate with `rodmena-tracker-c6fd66` — this must be verified against their
