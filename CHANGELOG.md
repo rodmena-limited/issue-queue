@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.20.0]
+
+### Added
+- **`issuedb-cli sync` — pull from Tracker, DRY RUN by default** (#9).
+  - Everything else in this package writes into a server with backups and an
+    audit trail. This writes into someone's **local** issue database, where a
+    defect destroys work that exists nowhere else — so the design is four
+    refusals rather than four features.
+  - **Dry run is the default.** `sync` reports what it *would* change and
+    changes nothing; `--apply` is explicit. The dry run and the real run share
+    one `plan()` call, so the plan shown is the plan executed.
+  - **Absence never deletes.** A uid missing from a pulled page means "not on
+    this page", not "deleted". Only an explicit tombstone removes a row.
+  - **The cursor advances only to what was durably committed** — not to the end
+    of the page, not to the last change examined. A cursor past a failed apply
+    skips those rows forever with nothing erroring.
+  - **A failure stops the run**; applied changes stay, the rest are not
+    attempted, and re-running retries from the last durable position.
+  - An **ambiguous** uid is never applied and never advances the cursor.
+  - Verified against the **real server**: 52 changes applied, a pre-existing
+    local issue untouched, and convergence proven three ways — a second run
+    applying nothing, and a full re-pull from cursor zero re-applying 52
+    changes with zero duplicates.
+
 ## [2.19.0]
 
 ### Added

@@ -102,6 +102,17 @@ def register_auth(subparsers: argparse._SubParsersAction[argparse.ArgumentParser
         "--all", action="store_true", dest="all_servers", help="Remove every stored credential"
     )
 
+    sync_parser = subparsers.add_parser(
+        "sync", help="Pull changes from Tracker (DRY RUN unless --apply is given)"
+    )
+    sync_parser.add_argument("--server", default=DEFAULT_SERVER, help="Tracker server URL")
+    sync_parser.add_argument(
+        "--apply",
+        action="store_true",
+        dest="do_apply",
+        help="Actually apply the changes. Without this, sync only reports what it WOULD do.",
+    )
+
     whoami_parser = subparsers.add_parser(
         "whoami", help="Show which Tracker key is stored (the secret is never printed)"
     )

@@ -97,6 +97,21 @@ def main() -> None:
             )
         sys.exit(_auth_commands.whoami(server=args.server))
 
+    if args.command == "sync":
+        # Dispatched here, before CLI(args.db), for the same reason as signin:
+        # sync must operate on an EXISTING database and must not create one in
+        # whatever directory the user is standing in.
+        from pathlib import Path as _Path
+
+        from issuedb.sync._sync_command import sync as _sync
+
+        db_path = args.db or ".issue.db"
+        if not _Path(db_path).exists():
+            print(f"Error: no issue database at {db_path}.", file=sys.stderr)
+            print("Run issuedb-cli from a project directory, or pass --db.", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(_sync(db_path, server=args.server, do_apply=args.do_apply))
+
     try:
         from issuedb.cli import CLI
 
