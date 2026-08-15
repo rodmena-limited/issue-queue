@@ -40,6 +40,7 @@ import pathlib
 import sys
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -381,24 +382,44 @@ def exercise_credential_signalling(server: str, timeout: float) -> tuple[str, li
 
 
 def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
-    """Push one entry and pull it back. The minimum that proves contact."""
-    lines = ["ROUND TRIP (push one entry, pull it back):"]
-    uid = "s256t128:" + "f" * 32
+    """Push a NOVEL entry, require it was CREATED, pull it back, then replay it.
+
+    An earlier version pushed a FIXED uid (s256t128:ffff…). After its first
+    ever run that uid already existed, so every later run got ``existing`` and
+    the pull found a row written hours before. THE ASSERTION WAS SATISFIED BY
+    HISTORY: if Tracker's push silently stopped persisting — accepted the
+    entry, returned 200, wrote nothing — this probe would still have found the
+    old row and still printed FIRST CONTACT SUCCEEDED.
+
+    A green that survives the feature being removed is not evidence about the
+    feature.
+
+    So the uid is derived FRESH PER RUN, which makes the push under test the
+    write under test, and BOTH DIRECTIONS are asserted in one pass:
+
+        novel uid  -> must be "created"   — proves the write crossed NOW
+        same uid   -> must be "existing", version unchanged — proves it does
+                      not double-write
+
+    The deny direction alone would pass against a server that never writes;
+    the permit direction alone would pass against one that writes twice.
+    """
+    lines = ["ROUND TRIP (novel entry: push, pull back, replay):"]
+
+    # Fresh per run. uuid4 rather than a timestamp: two runs inside the same
+    # second would collide on a timestamp and silently become a replay again.
+    novel = "s256t128:" + uuid.uuid4().hex[:32]
     entry = {
-        "uid": uid,
+        "uid": novel,
         "entity": "issue",
         "op": "upsert",
-        "content_hash": "s256t128:" + "e" * 32,
-        "payload": {"title": "issuedb first-contact probe"},
+        "content_hash": "s256t128:" + uuid.uuid4().hex[:32],
+        "payload": {"title": "issuedb first-contact probe (novel)"},
     }
 
     try:
         results = client.push([entry], replica_id="issuedb-first-contact-probe")
     except AuthFailedError as exc:
-        # A MISSING KEY IS NOT A SERVER DEFECT. Reporting 401 as FAILED would
-        # accuse Tracker of a bug whose entire cause is that this probe was
-        # run without a credential — the same mistake as flagging an empty
-        # project_uid, one endpoint along.
         lines.append(f"  push refused the credential: code={exc.code!r} status={exc.status}")
         lines.append("  This is the server working. The probe has no key.")
         return NO_CREDENTIAL, lines
@@ -409,19 +430,46 @@ def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
         lines.append(f"  push error: code={exc.code!r} status={exc.status}")
         return FAILED, lines
 
-    lines.append(f"  push -> {results}")
+    lines.append(f"  push (novel)  -> {results}")
     if not results:
         lines.append("  DIVERGENCE: push returned no results for one entry")
         return FAILED, lines
 
-    # A 200 is not blanket success. Tracker rejects per-uid for entities it has
-    # not implemented, and a client that read the status alone would advance
-    # its cursor past a change that never landed.
     rejected = SyncClient.rejected(results)
     if rejected:
         for item in rejected:
             lines.append(f"  REJECTED {item.get('uid')}: {item.get('reason')}")
         lines.append("  (a 200 with per-entry rejections is NOT success for those uids)")
+        return FAILED, lines
+
+    outcome = results[0].get("outcome")
+    version = results[0].get("version")
+    if outcome != "created":
+        lines.append(
+            f"  DIVERGENCE: a NOVEL uid came back {outcome!r}, expected 'created'. "
+            f"Either the server did not write it, or this uid was not novel."
+        )
+        return FAILED, lines
+
+    # Replay: the same entry again must not create a second row.
+    try:
+        replay = client.push([entry], replica_id="issuedb-first-contact-probe")
+    except SyncError as exc:
+        lines.append(f"  replay push error: code={exc.code!r} status={exc.status}")
+        return FAILED, lines
+
+    lines.append(f"  push (replay) -> {replay}")
+    if replay and replay[0].get("outcome") != "existing":
+        lines.append(
+            f"  DIVERGENCE: replaying the same entry came back "
+            f"{replay[0].get('outcome')!r}, expected 'existing'"
+        )
+        return FAILED, lines
+    if replay and replay[0].get("version") != version:
+        lines.append(
+            f"  DIVERGENCE: replay changed the version {version} -> "
+            f"{replay[0].get('version')}"
+        )
         return FAILED, lines
 
     try:
@@ -433,13 +481,15 @@ def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
         lines.append(f"  pull error: code={exc.code!r} status={exc.status}")
         return FAILED, lines
 
-    found = [c for c in pulled.changes if c.get("uid") == uid]
+    found = [c for c in pulled.changes if c.get("uid") == novel]
     lines.append(f"  pull -> {len(pulled.changes)} change(s), cursor={pulled.cursor}")
     if not found:
-        lines.append("  DIVERGENCE: the pushed entry did not come back from pull")
+        lines.append(
+            "  DIVERGENCE: the entry created by THIS RUN did not come back from pull"
+        )
         return FAILED, lines
 
-    lines.append("  the pushed entry came back.")
+    lines.append("  the entry written by THIS RUN came back.")
     return PASSED, lines
 
 
