@@ -58,6 +58,7 @@ ABSENT = "NOT IMPLEMENTED"
 FAILED = "FAILED"
 SKIPPED = "SKIPPED"
 HARNESS = "HARNESS ERROR"
+BLOCKED = "BLOCKED"
 
 
 def salt_uids(obj: Any, run_id: str) -> Any:
@@ -78,33 +79,39 @@ def salt_uids(obj: Any, run_id: str) -> Any:
     return obj
 
 
-def adapt_body(request_spec: dict[str, Any], run_id: str) -> dict[str, Any] | None:
-    """Add what the real route requires and the vectors do not carry.
+def adapt_body(request_spec: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the body as the vector wrote it. NOTHING IS INJECTED.
 
-    The vectors were written against FakeTracker, which takes ``replica_id``
-    from the STEP rather than the body. The real route requires it in the body
-    — the number alias is keyed on (project, REPLICA, number), so without it
-    two replicas' #3 collide in the table that exists to resolve them.
+    An earlier version injected a run-scoped ``replica_id`` into every push
+    that lacked one, because the real route requires the field and the vectors
+    do not carry it. That made the replay run — and it made
+    ``02-same-uid-two-replicas`` PASS WHILE TESTING ONE REPLICA.
 
-    So a vector replayed verbatim gets 422 on every push. That is the harness
-    being wrong, not the server, and it is exactly the shape that produces a
-    false accusation against another team.
+    Both of that vector's steps got the same injected value, so the scenario
+    whose entire name is TWO REPLICAS exercised one, and what it actually
+    tested was idempotency — which vector 01 already covers. It did not fail.
+    It passed and meant nothing, inside a harness whose purpose is telling
+    those apart.
+
+    ``replica_id`` is not a formality: the issue-number alias is keyed on
+    (project, REPLICA, number), so the value is the exact axis vector 02
+    exists to test. A default is never correct for a field whose VALUE carries
+    the semantics.
+
+    So the harness refuses. A push step without ``replica_id`` is reported
+    BLOCKED — the vector cannot be replayed faithfully — and the fix is to
+    re-freeze the vectors with explicit per-step values, which is a contract
+    change needing both sides.
     """
-    body = request_spec.get("body")
-    if body is None:
-        return None
-    if request_spec["path"].startswith("/v1/sync/push") and "replica_id" not in body:
-        body = dict(body)
-        body["replica_id"] = f"issuedb-replay-{run_id}"
-    return body
+    return request_spec.get("body")
 
 
 def call(
-    server: str, step: dict[str, Any], token: str, timeout: float, run_id: str
+    server: str, step: dict[str, Any], token: str, timeout: float
 ) -> tuple[int, dict[str, Any]]:
     request_spec = step["request"]
     url = f"{server}{request_spec['path']}"
-    body = adapt_body(request_spec, run_id)
+    body = adapt_body(request_spec)
     data = None if body is None else json.dumps(body).encode()
 
     request = urllib.request.Request(url, data=data, method=request_spec["method"])
@@ -217,6 +224,18 @@ def replay(path: pathlib.Path, server: str, token: str, run_id: str, timeout: fl
         # 200 where the vector expects 401, and reporting that as a server
         # defect would be a false accusation caused entirely by the harness
         # substituting a credential it happened to have.
+        # A push step with no replica_id cannot be replayed faithfully. The
+        # field's VALUE is semantically significant, so supplying one would
+        # decide the scenario's meaning on the vector's behalf.
+        request_spec = salted["request"]
+        if request_spec["path"].startswith("/v1/sync/push"):
+            if "replica_id" not in (request_spec.get("body") or {}):
+                return BLOCKED, [
+                    f"step {index}: push carries no replica_id. The vector cannot be "
+                    f"replayed faithfully and the harness will not invent one — the "
+                    f"value decides replica identity, which is what this vector tests."
+                ]
+
         step_key = salted["request"].get("key", "valid")
         if step_key not in ("valid", None):
             return SKIPPED, [
@@ -224,7 +243,7 @@ def replay(path: pathlib.Path, server: str, token: str, run_id: str, timeout: fl
                 f"does not hold — NOT run rather than run with the wrong key"
             ]
 
-        status, body = call(server, salted, token, timeout, scope)
+        status, body = call(server, salted, token, timeout)
 
         if status == 0:
             return FAILED, [f"step {index}: unreachable — {body.get('_unreachable')}"]
@@ -308,14 +327,15 @@ def main() -> int:
     print(f"Replaying {len(vectors)} frozen vectors against {server}")
     print(f"  run id {run_id} — uids are salted so this run cannot collide with the last\n")
 
-    tally: dict[str, int] = {PASS: 0, ABSENT: 0, FAILED: 0, SKIPPED: 0, HARNESS: 0}
+    tally: dict[str, int] = {PASS: 0, ABSENT: 0, FAILED: 0, SKIPPED: 0, HARNESS: 0,
+                             BLOCKED: 0}
     failures: list[tuple[str, list[str]]] = []
 
     for path in vectors:
         verdict, notes = replay(path, server, token, run_id, args.timeout)
         tally[verdict] += 1
         marker = {PASS: "PASS", ABSENT: "----", FAILED: "FAIL", SKIPPED: "skip",
-                  HARNESS: "HARN"}[verdict]
+                  HARNESS: "HARN", BLOCKED: "BLOK"}[verdict]
         detail = "" if verdict == PASS else f"   {notes[0] if notes else ''}"
         print(f"  {marker}  {path.stem:<34}{detail}")
         if verdict == FAILED:
@@ -323,9 +343,15 @@ def main() -> int:
 
     print(
         f"\n{tally[PASS]} passed, {tally[FAILED]} FAILED, "
-        f"{tally[ABSENT]} not implemented, {tally[HARNESS]} harness errors, "
-        f"{tally[SKIPPED]} skipped"
+        f"{tally[ABSENT]} not implemented, {tally[BLOCKED]} blocked, "
+        f"{tally[HARNESS]} harness errors, {tally[SKIPPED]} skipped"
     )
+    if tally[BLOCKED]:
+        print(
+            "  BLOCKED means the VECTOR omits a field the protocol requires whose value "
+            "carries meaning. Not a server defect and not a pass — the vectors need "
+            "re-freezing with explicit per-step replica_id."
+        )
     if tally[HARNESS]:
         print(
             "  HARNESS ERROR means THIS SCRIPT sent a malformed request. Not a "
@@ -343,7 +369,12 @@ def main() -> int:
         "\nNOT IMPLEMENTED is not a defect: the endpoint or entity is unbuilt. "
         "Only FAILED means the server built it and answered differently."
     )
-    return 1 if failures else 0
+    # BLOCKED is not success. The harness could not conclude, and exiting 0
+    # would let "0 FAILED" read as "nothing wrong" — which is exactly the
+    # confusion that let an invented replica_id score three false passes.
+    if failures:
+        return 1
+    return 2 if tally[BLOCKED] else 0
 
 
 if __name__ == "__main__":

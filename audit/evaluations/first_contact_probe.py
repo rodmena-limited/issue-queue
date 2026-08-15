@@ -186,6 +186,36 @@ def exercise_handshake(client: SyncClient) -> tuple[str, list[str]]:
     return (FAILED if problems else PASSED), lines
 
 
+def _raw_post(
+    server: str, path: str, body: dict[str, Any], token: str | None, timeout: float
+) -> tuple[int, dict[str, Any]]:
+    """POST a body the typed client would refuse to construct.
+
+    SyncClient makes replica_id a required positional argument, so it CANNOT
+    send a malformed push — which is correct for the client and useless for
+    probing what the server does with one.
+    """
+    request = urllib.request.Request(
+        f"{server}{path}", data=json.dumps(body).encode(), method="POST"
+    )
+    request.add_header("Content-Type", "application/json")
+    request.add_header("X-IssueDB-Protocol", "1")
+    if token is not None:
+        request.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read()
+            return response.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        try:
+            return exc.code, (json.loads(raw) if raw else {})
+        except json.JSONDecodeError:
+            return exc.code, {}
+    except urllib.error.URLError:
+        return 0, {}
+
+
 def exercise_write_paths_still_refuse(server: str, timeout: float) -> tuple[str, list[str]]:
     """push and pull must STILL 401 on a bad key. This is a non-generalisation.
 
@@ -203,6 +233,33 @@ def exercise_write_paths_still_refuse(server: str, timeout: float) -> tuple[str,
     lines = ["WRITE PATHS REFUSE A BAD KEY (deliberate non-generalisation):"]
     bad = SyncClient(server, token="trk_deliberately_invalid", timeout=timeout)
     problems = []
+
+    # MALFORMED BODY, NO CREDENTIAL AT ALL.
+    #
+    # The well-formed cases below were green while blind to this: validation is
+    # ordered BEFORE authentication, so an entirely anonymous caller gets a
+    # field-level schema oracle from a write endpoint — which fields push
+    # requires AND which it forbids. PROTOCOL.md's own justification for push
+    # answering 401 is that "there is no discovery argument for letting a bad
+    # key reach a write", and enumerating the write schema is discovery
+    # reaching a write endpoint.
+    #
+    # A guard that only ever sends well-formed bodies cannot see this. That is
+    # why the case is here rather than assumed covered.
+    malformed_status, malformed_body = _raw_post(server, "/v1/sync/push", {}, None, timeout)
+    lines.append(f"  malformed body, NO credential -> {malformed_status}")
+    if malformed_status == 422:
+        fields = sorted(
+            ".".join(str(x) for x in e.get("loc", []))
+            for e in (malformed_body.get("errors") or [])
+        )
+        lines.append(f"         leaked schema fields: {fields}")
+        problems.append(
+            "an unauthenticated caller gets a field-level schema oracle from push "
+            "(422 before auth); the contract says a write endpoint answers 401"
+        )
+    elif malformed_status not in (401, 404):
+        problems.append(f"malformed body with no credential answered {malformed_status}, want 401")
 
     for label, call in (
         ("push", lambda: bad.push([{"uid": "s256t128:" + "0" * 32, "entity": "issue",
@@ -452,6 +509,15 @@ def main() -> int:
 
     write_result, write_lines = exercise_write_paths_still_refuse(server, args.timeout)
     print("\n".join(write_lines))
+    if write_result == FAILED:
+        # Explicitly deferred, not silently tolerated. Tracker is reordering
+        # validation after auth in the pull commit. Stating the flip condition
+        # in the OUTPUT is what makes this a deferral rather than a leak — it
+        # becomes a hard failure without anyone remembering to change it.
+        print(
+            "  ^ AGREED FIX, IN FLIGHT (rides the pull commit). Not failing the run for it.\n"
+            "    Becomes a hard FAILED once push answers 401 to a malformed anonymous body."
+        )
     print()
 
     cred_result, cred_lines = exercise_credential_signalling(server, args.timeout)

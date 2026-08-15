@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Does this client send fields the frozen contract never mentions?
+
+The question this answers was asked by the manager and I could not answer it:
+my client sends ``replica_id`` on push, and ``replica_id`` appears ZERO times
+in ``openapi.yaml`` and ZERO times in ``faketracker.py``. So where did my
+client learn it?
+
+From a bus message and a live 422. Not from the schema. Which means the field
+arrived by a path NO FIXTURE CAN CHECK — the fixture accepts a body without it,
+the server requires it, and both of my suites were green throughout.
+
+That is the ``project_uid`` incident with the sign flipped: that was
+documented-and-absent, this is required-and-undocumented. Same root cause, the
+document and the server drifting with nothing comparing them.
+
+This compares MY CLIENT'S REQUEST SHAPE against the contract's declared schema
+and reports fields in one and not the other. It cannot tell which side is
+right — the manager ruled the server correct and the contract stale here — but
+it makes the drift visible instead of leaving it to be discovered by a 422 in
+production.
+
+Standard library only: the contract is YAML, and rather than take a dependency
+this reads the small, regular subset it needs.
+"""
+
+from __future__ import annotations
+
+import pathlib
+import re
+import sys
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+CONTRACT = pathlib.Path("/home/farshid/develop/Tracker/contracts/sync/openapi.yaml")
+VENDORED_FAKE = REPO_ROOT / "tests" / "data" / "faketracker.py"
+
+# What this client actually puts in each request body. Kept here rather than
+# introspected, so that adding a field to the client without adding it here is
+# itself caught by review.
+CLIENT_SENDS = {
+    "/v1/sync/push": {"replica_id", "entries"},
+}
+
+
+def declared_required(text: str, path: str) -> set[str] | None:
+    """The requestBody's `required:` list for one path, or None if not found.
+
+    Reads the REQUIRED list specifically rather than trying to enumerate
+    properties. An earlier version scraped indented `name:` keys and happily
+    returned `type`, `items` and `description` as if they were fields — a
+    parser whose output contains obvious garbage cannot be trusted for its
+    verdict, even when the verdict is accidentally right.
+
+    Returns None rather than an empty set when nothing is found, so "the parse
+    failed" stays distinguishable from "the schema requires nothing".
+    """
+    start = text.find(f"\n  {path}:")
+    if start == -1:
+        return None
+    end = text.find("\n  /", start + 1)
+    block = text[start : end if end != -1 else len(text)]
+
+    request_body = block.find("requestBody:")
+    if request_body == -1:
+        return None
+    responses = block.find("responses:", request_body)
+    body_block = block[request_body : responses if responses != -1 else len(block)]
+
+    match = re.search(r"required:\s*\[([^\]]*)\]", body_block)
+    if not match:
+        return None
+    return {f.strip().strip("'\"") for f in match.group(1).split(",") if f.strip()}
+
+
+def main() -> int:
+    if not CONTRACT.exists():
+        print(f"CONTRACT NOT FOUND at {CONTRACT} — cannot compare. Not a pass.")
+        return 2
+
+    text = CONTRACT.read_text()
+    fake = VENDORED_FAKE.read_text() if VENDORED_FAKE.exists() else ""
+    print(f"contract: {CONTRACT}")
+
+    drift = 0
+    for path, sends in CLIENT_SENDS.items():
+        required = declared_required(text, path)
+        print(f"\n{path}")
+        print(f"  client sends      : {sorted(sends)}")
+
+        # Control: a failed parse must not read as "nothing is required".
+        if required is None:
+            print("  PARSE FAILED — no requestBody `required:` list found for this path.")
+            print("  This check cannot conclude anything. Not a pass.")
+            return 2
+
+        print(f"  contract requires : {sorted(required)}")
+
+        undocumented = sorted(sends - required)
+        missing = sorted(required - sends)
+        for field in undocumented:
+            in_fake = "yes" if field in fake else "NO"
+            print(
+                f"  DRIFT: '{field}' is sent by this client and is NOT in the contract's "
+                f"required list (present in vendored faketracker: {in_fake})"
+            )
+            drift += 1
+        for field in missing:
+            print(f"  DRIFT: the contract requires '{field}' and this client does not send it")
+            drift += 1
+
+    if drift:
+        print(
+            f"\n{drift} drift(s). A field known to the client but not the contract was "
+            f"learned from prose, an example, or a live error — a path no fixture checks."
+        )
+        return 1
+
+    print("\nNo drift: what this client sends matches what the contract requires.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
