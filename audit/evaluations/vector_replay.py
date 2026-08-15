@@ -306,10 +306,17 @@ def replay(path: pathlib.Path, server: str, token: str, run_id: str, timeout: fl
             and isinstance((expected.get("body") or {}).get("changes"), list)
             and len(body.get("changes") or []) != len(expected["body"]["changes"])
         ):
+            # Say PAGE, not feed, when the server reports more. "returned 200"
+            # reads as a feed size and is in fact the page cap — the same
+            # conflation that had the first-contact probe accuse a correct
+            # server of losing a row.
+            got = len(body.get("changes") or [])
+            scope = "first page of the shared production feed" if body.get("has_more") else \
+                "shared production feed"
             return UNTESTABLE, [
                 f"step {index}: the vector expects "
                 f"{len(expected['body']['changes'])} change(s) at its own cursor and the "
-                f"shared production feed returned {len(body.get('changes') or [])} — the "
+                f"{scope} returned {got} — the "
                 f"cursor is meaningful only in a store the vector created"
             ]
 
