@@ -8,7 +8,23 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any, Optional
 
+from issuedb.database._migrations import (
+    SCHEMA_VERSION,
+    MigrationError,
+    NewerDatabaseError,
+    apply_migrations,
+    get_schema_version,
+)
 from issuedb.database._schema import initialize_schema
+
+__all__ = [
+    "SCHEMA_VERSION",
+    "Database",
+    "MigrationError",
+    "NewerDatabaseError",
+    "apply_migrations",
+    "get_schema_version",
+]
 
 
 class DatabaseMeta(type):
@@ -84,6 +100,13 @@ class Database(metaclass=DatabaseMeta):
             try:
                 with self.get_connection() as conn:
                     initialize_schema(conn)
+                    # The ladder runs after the baseline DDL: a fresh file is
+                    # created by initialize_schema and then stamped, while a
+                    # file predating the ladder is stamped without re-running
+                    # anything. NewerDatabaseError propagates deliberately —
+                    # a database from a newer issuedb must not be opened
+                    # read-write by this code.
+                    apply_migrations(conn)
                 return
             except sqlite3.OperationalError as e:
                 if "locked" not in str(e) and "busy" not in str(e):
@@ -178,6 +201,17 @@ class Database(metaclass=DatabaseMeta):
             with contextlib.suppress(Exception):
                 conn.close()
             self._local.connection = None
+
+    @property
+    def schema_version(self) -> int:
+        """The schema version recorded in this database file."""
+        with self.get_connection() as conn:
+            return get_schema_version(conn)
+
+    @property
+    def supported_schema_version(self) -> int:
+        """The highest schema version this build of issuedb understands."""
+        return SCHEMA_VERSION
 
     def clear_database(self, confirm: bool = False) -> None:
         """Clear all data from the database.

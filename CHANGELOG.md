@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.13.0]
+
+### Added
+- **Forward-only schema migration ladder** (`issuedb/database/_migrations.py`).
+  Every `.issue.db` now records its schema version in `PRAGMA user_version`.
+  Pending migrations apply on open in ascending order, each in its own
+  transaction together with the version bump, so a crash leaves the database at
+  a version that is true rather than half-applied. Databases predating this are
+  stamped to the baseline without re-running baseline DDL, so existing data is
+  untouched. A database written by a *newer* issuedb is now REFUSED
+  (`NewerDatabaseError`) instead of being opened read-write with older
+  assumptions — this matters wherever a `.issue.db` is shared through git and
+  one machine has an older install. Forward only: there are no down-migrations,
+  because a rollback path that is never exercised is one that does not work.
+  New: `Database.schema_version`, `Database.supported_schema_version`.
+  Documented in `docs/schema_versioning.rst`. Stdlib only. (#2)
+
+### Fixed
+- **The declared version disagreed with itself.** `pyproject.toml` said 2.12.0
+  while `issuedb/__init__.py` said 2.11.0, so a bug report quoting either named
+  a release that did not contain the code being reported. All declarations are
+  now aligned and `tests/test_version_consistency.py` fails if they drift again.
+
 ## [Unreleased]
 
 ### Added
