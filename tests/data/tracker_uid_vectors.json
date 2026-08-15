@@ -1,0 +1,138 @@
+{
+  "_provenance": {
+    "source": "Tracker contracts/sync/vectors/*.json",
+    "tracker_commit": "c1cb9b5",
+    "captured": "2026-08-15",
+    "why": "Vendored so the cross-implementation check RUNS rather than skipping when the Tracker checkout is absent (CI, a fresh clone). A skipped check is a check that cannot go red. Refresh deliberately when the contract version changes."
+  },
+  "derivations": [
+    {
+      "vector": "03-tag-set-convergence.json",
+      "kind": "issue_tag",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "bug"
+      ],
+      "symmetric_types": [],
+      "expect": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3"
+    },
+    {
+      "vector": "07-case-variant-tags.json",
+      "kind": "issue_tag",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "Bug"
+      ],
+      "symmetric_types": [],
+      "expect": "s256t128:55cf7696f3df71f0cfc79f1349b0f385"
+    },
+    {
+      "vector": "07-case-variant-tags.json",
+      "kind": "issue_tag",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "bug"
+      ],
+      "symmetric_types": [],
+      "expect": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3"
+    },
+    {
+      "vector": "08-symmetric-relation.json",
+      "kind": "issue_relation",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "x-test-symmetric",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+      ],
+      "symmetric_types": [
+        "x-test-symmetric"
+      ],
+      "expect": "s256t128:44bee62250caf6b41b24980597ca4fad"
+    },
+    {
+      "vector": "08-symmetric-relation.json",
+      "kind": "issue_relation",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+        "x-test-symmetric",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
+      ],
+      "symmetric_types": [
+        "x-test-symmetric"
+      ],
+      "expect": "s256t128:44bee62250caf6b41b24980597ca4fad"
+    },
+    {
+      "vector": "08-symmetric-relation.json",
+      "kind": "issue_relation",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "blocks",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+      ],
+      "symmetric_types": [
+        "x-test-symmetric"
+      ],
+      "expect": "s256t128:3bd36f342843748bd74e8231b5e131e9"
+    },
+    {
+      "vector": "08-symmetric-relation.json",
+      "kind": "issue_relation",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+        "blocks",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
+      ],
+      "symmetric_types": [
+        "x-test-symmetric"
+      ],
+      "expect": "s256t128:b7e9d268ce37c05a2933cbc8640291b0"
+    },
+    {
+      "vector": "09-symmetric-relation-stability.json",
+      "kind": "relation_content_hash",
+      "fields": [
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "x-test-symmetric",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+      ],
+      "symmetric_types": [
+        "x-test-symmetric"
+      ],
+      "expect": "s256t128:ee74c79061477c49fcbb0966a4201b12"
+    },
+    {
+      "vector": "09-symmetric-relation-stability.json",
+      "kind": "relation_content_hash",
+      "fields": [
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+        "x-test-symmetric",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
+      ],
+      "symmetric_types": [
+        "x-test-symmetric"
+      ],
+      "expect": "s256t128:ee74c79061477c49fcbb0966a4201b12"
+    },
+    {
+      "vector": "09-symmetric-relation-stability.json",
+      "kind": "relation_content_hash",
+      "fields": [
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "blocks",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+      ],
+      "symmetric_types": [
+        "x-test-symmetric"
+      ],
+      "expect": "s256t128:e381a2487780158cbbc2199485da60e2"
+    }
+  ]
+}
