@@ -1,7 +1,5 @@
-# VENDORED from Tracker contracts/sync/openapi.yaml at COMMIT 2012446.
-# Taken with `git show <sha>:path`, NOT from the working tree — the peer's tree is
-# edited mid-turn by another agent, so reading it judges a file that is neither
-# committed nor deployed. DO NOT EDIT HERE; re-vendor from source.
+# VENDORED from Tracker contracts/sync/openapi.yaml at COMMIT 29c461d.
+# Taken with `git show <sha>:path`, NOT from the working tree.
 openapi: 3.1.0
 info:
   title: Tracker sync API
@@ -117,7 +115,7 @@ paths:
                   entities:
                     type: array
                     items: { type: string }
-                    example: [issue]
+                    example: [issue, issue_tag, issue_dependency, issue_relation]
                     description: |
                       **What `push` can actually apply today.** Advertised so a client can ASK
                       rather than discover it from a batch of per-entry `rejected` outcomes —

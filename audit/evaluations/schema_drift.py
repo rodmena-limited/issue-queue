@@ -39,7 +39,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 # that error once: I reported replica_id as "fixed in 61a3b66" when it was in
 # NO committed revision at all, only in the uncommitted tree I had grepped.
 CONTRACT = REPO_ROOT / "tests" / "data" / "openapi.yaml"
-VENDORED_AT = "2012446"
+VENDORED_AT = "29c461d"
 VENDORED_FAKE = REPO_ROOT / "tests" / "data" / "faketracker.py"
 
 # What this client actually puts in each request body. Kept here rather than

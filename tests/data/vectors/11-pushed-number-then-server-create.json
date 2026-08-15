@@ -44,12 +44,13 @@
     {
       "request": {
         "method": "POST",
-        "path": "/v1/issues",
+        "path": "/v1/projects/{org}/{project}/issues",
         "project": "p1",
-        "key": "valid",
+        "key": "session",
         "headers": {
           "X-IssueDB-Protocol": "1"
-        }
+        },
+        "requires": "session"
       },
       "response": {
         "status": 200,
@@ -61,12 +62,13 @@
     {
       "request": {
         "method": "POST",
-        "path": "/v1/issues",
+        "path": "/v1/projects/{org}/{project}/issues",
         "project": "p1",
-        "key": "valid",
+        "key": "session",
         "headers": {
           "X-IssueDB-Protocol": "1"
-        }
+        },
+        "requires": "session"
       },
       "response": {
         "status": 200,
@@ -117,12 +119,13 @@
     {
       "request": {
         "method": "POST",
-        "path": "/v1/issues",
+        "path": "/v1/projects/{org}/{project}/issues",
         "project": "p1",
-        "key": "valid",
+        "key": "session",
         "headers": {
           "X-IssueDB-Protocol": "1"
-        }
+        },
+        "requires": "session"
       },
       "response": {
         "status": 200,
@@ -132,5 +135,6 @@
       }
     }
   ],
-  "multi_replica": 1
+  "multi_replica": 1,
+  "requires_note": "The steps marked `requires: session` are SERVER-SIDE CREATES -- what the web UI does. They need a BROWSER SESSION, not a trk_ API key: /v1/projects/{org}/{project}/issues authorizes a user, and a sync key carries no user. That is deliberate and must not be relaxed to make this vector runnable -- a sync key already creates issues through push, and widening a credential for a test's convenience is the thing this contract refuses everywhere else. A client holding only an API key MUST report these steps as SKIPPED with the reason, never substitute a credential, and never score them as passed. Tracker covers the same seam in its own suite, where a session is available."
 }

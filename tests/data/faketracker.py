@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# VENDORED from Tracker contracts/sync/faketracker.py at 56215db.
-# DO NOT EDIT HERE. Re-vendor from source; a vendored file you have edited
-# proves nothing about the other implementation.
+# VENDORED from Tracker contracts/sync/faketracker.py at 29c461d.
+# DO NOT EDIT HERE. Re-vendor from source.
 """FakeTracker — a reference sync server on the Python standard library alone.
 
 Ticket #11. For `issuedb-ed3d5e`, so the client half can be built and tested with
@@ -65,6 +64,21 @@ PROJECT_UID = "prj_01k1x9m4rjq7v2n8p3d5wtzqqq"
 # Tracker in production advertises the real (empty) set. A client MUST read
 # `symmetric_relation_types` from the handshake and never hardcode one.
 SYMMETRIC_RELATION_TYPES: frozenset[str] = frozenset({"x-test-symmetric"})
+
+# What `push` can apply here. Advertised on the handshake so a client can ASK
+# instead of inferring it from `rejected` outcomes, which are indistinguishable
+# from a malformed entry of a supported type.
+#
+# THIS FILE SUPPORTS MORE THAN TRACKER DOES, and that is the point of the field:
+# the fixture exists so the client half can be built ahead of the server, so the
+# two lists are EXPECTED to differ. A client that hardcodes either is wrong --
+# the same rule as `symmetric_relation_types`.
+SUPPORTED_ENTITIES: tuple[str, ...] = (
+    "issue",
+    "issue_tag",
+    "issue_dependency",
+    "issue_relation",
+)
 
 
 # --- the canonical form, which is the whole point of shipping this file -----
@@ -452,6 +466,11 @@ class Handler(BaseHTTPRequestHandler):
                 "credential_rejected": rejected,
                 "tombstone_retention_days": TOMBSTONE_RETENTION_DAYS,
                 "symmetric_relation_types": sorted(SYMMETRIC_RELATION_TYPES),
+                # What push can apply. FakeTracker implements MORE than Tracker
+                # does today, deliberately -- it exists so the client half can be
+                # built ahead of the server -- so a client MUST read this list
+                # rather than assume the two agree.
+                "entities": list(SUPPORTED_ENTITIES),
                 "uid_algorithm": "s256t128",
             }
             if presented and not rejected:
@@ -559,7 +578,13 @@ def _replay(store: Store, step: dict[str, Any]) -> tuple[int, dict[str, Any]]:
             "results": [store.apply(e) for e in req["body"]["entries"]],
             "cursor": f"c:{store.seq}",
         }
-    if req["path"].startswith("/v1/issues"):
+    if "/issues" in req["path"] and "/sync/" not in req["path"]:
+        # THE SERVER-SIDE CREATE -- what the web UI does, and the only step in
+        # the vector set that needs a SESSION rather than a trk_ key. The path is
+        # the real route, `/v1/projects/{org}/{project}/issues`, rather than a
+        # shorthand this server invented: a fixture that answers a path the real
+        # server has never had teaches a client to call it, which is the
+        # replica_id divergence in a different costume.
         # A SERVER-SIDE create -- what the web UI does. Modelled here because the
         # collision only appears at the seam between a pushed issue and a
         # locally created one, and no sync-only vector can reach that seam.

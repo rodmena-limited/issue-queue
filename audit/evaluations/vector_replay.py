@@ -239,6 +239,20 @@ def replay(path: pathlib.Path, server: str, token: str, run_id: str, timeout: fl
                 f"value decides replica identity, which is what this vector tests."
             ]
 
+        # A step declaring `requires: session` authorizes a USER, and a trk_
+        # sync key carries none. NOT RUNNABLE, and deliberately not made
+        # runnable: widening a credential for a test's convenience is what this
+        # contract refuses everywhere else, and a sync key already creates
+        # issues through push. A skip is not a pass, and an honest skip beats a
+        # pass bought with a substituted credential.
+        requires = salted["request"].get("requires")
+        if requires:
+            return SKIPPED, [
+                f"step {index} requires a '{requires}' credential — a trk_ sync key carries "
+                f"none, and this harness will not substitute one. Tracker covers this seam "
+                f"in its own suite, where a session exists."
+            ]
+
         step_key = salted["request"].get("key", "valid")
         if step_key not in ("valid", None):
             return SKIPPED, [
