@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
-from typing import Callable
+from typing import Any, Callable
 
 # A migration is (version, name, apply). ``version`` is the value written to
 # PRAGMA user_version once ``apply`` returns. Names exist for error messages
@@ -44,9 +44,25 @@ Migration = tuple[int, str, Callable[[sqlite3.Cursor], None]]
 # every baseline table, so they are stamped to 1 rather than migrated to it.
 BASELINE_VERSION = 1
 
+def _migration_002_sync_identity(cursor: Any) -> None:
+    """Add the sync_row uid ledger and the sync_outbox change feed.
+
+    Imported here rather than at module scope: the ladder is loaded during
+    database initialisation, and issuedb.sync imports nothing from the
+    database package, but a top-level import would still couple the two
+    packages' import order for no benefit.
+    """
+    from issuedb.sync._ledger import create_change_triggers, create_sync_tables
+
+    create_sync_tables(cursor)
+    create_change_triggers(cursor)
+
+
 # The ladder. Append only; never renumber and never edit an entry that has
 # shipped, because some database somewhere has already recorded that it ran.
-MIGRATIONS: list[Migration] = []
+MIGRATIONS: list[Migration] = [
+    (2, "sync identity: sync_row ledger and sync_outbox triggers", _migration_002_sync_identity),
+]
 
 # The version this code targets. Derived from the ladder so the two can never
 # disagree — a hand-maintained constant beside a list is a constant that will

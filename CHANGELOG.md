@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.14.0]
+
+### Added
+- **Sync identity: canonical uids, the `sync_row` ledger, and the `sync_outbox`
+  change feed** (`issuedb/sync/`, schema migration 2). The client half of the
+  issuedb <-> Tracker sync protocol. No network code yet.
+  - The canonical uid form is frozen and **cross-checked against Tracker's
+    independently authored expectations — 10 of 10 derivations agree**. Two
+    implementations, two repos, identical bytes; the vectors are vendored into
+    `tests/data/` so the check runs in CI rather than skipping.
+  - `sync_row` has **no foreign keys**, so a ledger entry outlives the row it
+    describes and a tombstone is never cascaded away.
+  - `sync_row.uid` is **not UNIQUE**: bidirectional `relates_to` pairs are legal
+    today and derive one uid under the symmetric rule, so a pre-existing database
+    already contains them. Collisions are reported by `find_uid_collisions()`,
+    never merged. `resolve_uid()` returns a list — an ambiguous reference
+    presents every candidate and selects none.
+  - `sync_outbox` is fed by **SQLite triggers**, so writes from the CLI, the
+    Flask UI, a raw `sqlite3` session, or an older installed issuedb are all
+    captured. Cascade-deleted children fire their triggers — verified, not
+    assumed; without it, child tombstones would never propagate.
+  - Stdlib only. (#3)
+
 ## [2.13.0]
 
 ### Added
