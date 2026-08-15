@@ -1,0 +1,122 @@
+{
+  "name": "10-push-against-a-tombstone",
+  "why": "issuedb's D4, and the seam where 'absence is not deletion' meets the direction rule. A relation is deleted while replica B is offline. B comes back and pushes its own copy -- same uid, and under D3 the same content_hash, so it looks exactly like an ordinary replay. If the server answers with a bare 'here is the existing row', B reads 200 as success and keeps a local row the server considers deleted. B's next PULL shows no change, because absence is not deletion. The row then lives locally FOREVER, undeletable, with nothing erroring anywhere. The response must therefore CARRY THE TOMBSTONE: deleted=true plus the last-known payload. That is what lets a client tell 'your write is already there' from 'your write is superseded by a delete', which it cannot otherwise distinguish. restorable=true because with N offline replicas an unrecoverable delete is not a tradeoff anyone gets to make on a user's behalf.",
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "op": "upsert",
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+              "payload": {
+                "source": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "type": "x-test-symmetric",
+                "target": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "op": "delete",
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "version": 2,
+              "outcome": "deleted"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "op": "upsert",
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+              "payload": {
+                "source": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+                "type": "x-test-symmetric",
+                "target": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "version": 2,
+              "outcome": "gone",
+              "deleted": true,
+              "restorable": true,
+              "tombstone": {
+                "payload": {
+                  "source": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                  "type": "x-test-symmetric",
+                  "target": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+                },
+                "version": 2
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "05-cursor-too-old",
+  "why": "A replica that sat untouched past the tombstone horizon is REFUSED and forced to re-seed. Serving it would let it re-create everything the team deleted with no error at any point. The refusal is the load-bearing half of tombstone retention.",
+  "setup": {
+    "horizon": 50
+  },
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/v1/sync/pull?cursor=c:3",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "code": "cursor_too_old"
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/v1/sync/pull?cursor=c:99",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        }
+      },
+      "response": {
+        "status": 200
+      }
+    }
+  ]
+}

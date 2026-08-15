@@ -1,0 +1,105 @@
+{
+  "name": "06-revoked-key-mid-sync",
+  "why": "A key is revoked between two pushes. Work already applied STAYS -- the second push is refused and the first row is still at version 1, unchanged and not rolled back. The cursor stops where it durably was. Also asserts the refusal shares the generic invalid_api_key code: a distinct 'revoked' code would tell an unauthenticated caller which key ids exist.",
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h1",
+              "payload": {
+                "title": "A"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "revoked",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h9",
+              "payload": {
+                "title": "B"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 401,
+        "body": {
+          "code": "invalid_api_key"
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h1",
+              "payload": {
+                "title": "A"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "existing"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

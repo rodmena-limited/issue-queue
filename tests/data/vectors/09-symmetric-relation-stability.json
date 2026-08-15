@@ -1,0 +1,229 @@
+{
+  "name": "09-symmetric-relation-stability",
+  "why": "THE ONE VECTOR 8 CANNOT CATCH, amended by issuedb (D1, D3). Three assertions, not one:\n(a) the SERVER's stored direction is stable across repeated opposite pushes -- outcome 'existing', version never advances. Under D3 this now falls out of the frozen idempotency clause structurally, rather than requiring both codebases to remember a special case: symmetric relations exclude their endpoints from the content hash, so an opposite-direction push IS a replay.\n(b) the two pushes carry an IDENTICAL (uid, content_hash). This is the assertion that makes (a) structural instead of incidental -- if the hashes differed, a correct implementation of the idempotency clause would UPDATE the direction on every push, which is the flip we are preventing arriving by faithfully following the other rule.\n(c) note recorded for the client half, which no server-side vector can check: PULL IS AUTHORITATIVE FOR DIRECTION. The losing replica MUST flip exactly once on pull. If it keeps its own, the two replicas agree on identity and disagree on direction FOREVER, the server is perfectly stable throughout, and (a) sees nothing. 'A replica never sees the arrow flip' is not achievable and is not promised; 'it flips at most once and never oscillates' is. NOTE: each derivation below declares `symmetric_types` explicitly. It previously depended on the reference implementation's module constant, and the server-side test derived DIFFERENT uids from the same fields -- both implementations correct, the contract silently ambiguous. The symmetric set is advertised in the handshake precisely so it is never hardcoded; the vectors must not hardcode it either.\n\nSTEP 3 ADDED AFTER issuedb RAISED IT TWICE. The first three steps are all PUSHES, and they assert the RETURNED version and outcome. Nothing read the stored row back. issuedb pointed out the exact sabotage that passes: one line in the replay branch that OVERWRITES the stored direction while still returning version 1 and outcome 'existing'. Every assertion above stays green and the stored arrow flips on every push -- the precise failure this vector was written to catch.\n\nThat is a vector asserting what the server SAYS instead of what the server DOES. A terminal PULL is the only step that reads the state rather than the response.\n\nRecording how it survived, because the mechanism matters more than the bug: it was not rejected, it was OVERTAKEN. They raised it, my next message closed a different ticket and moved on, and the finding stayed green. A real finding becomes a permanently vacuous check by being passed over, not by being argued down.\n\nAND THE PULL HAD TO MOVE. First attempt appended a single pull at the END, after push(fwd), push(rev), push(fwd). issuedb's sabotage STILL passed, because the third push rewrites the payload back to the forward direction before anything reads it -- the vector's own step order was repairing the damage before the assertion ran. A pull now follows the REVERSED push immediately, which is the only moment the flip is observable, and a second pull at the end keeps the original end-state assertion.",
+  "uid_derivation": [
+    {
+      "kind": "relation_content_hash",
+      "fields": [
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "x-test-symmetric",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+      ],
+      "expect": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+      "symmetric_types": [
+        "x-test-symmetric"
+      ]
+    },
+    {
+      "kind": "relation_content_hash",
+      "fields": [
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+        "x-test-symmetric",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
+      ],
+      "expect": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+      "symmetric_types": [
+        "x-test-symmetric"
+      ]
+    },
+    {
+      "equal": [
+        "s256t128:ee74c79061477c49fcbb0966a4201b12",
+        "s256t128:ee74c79061477c49fcbb0966a4201b12"
+      ],
+      "note": "D3: a symmetric relation's endpoints are EXCLUDED from the content hash, so opposite directions produce an identical (uid, content_hash) and the frozen idempotency clause fires unmodified. Recomputed, not replayed -- a frozen literal pair is equal to itself no matter what the hash function does."
+    },
+    {
+      "kind": "relation_content_hash",
+      "fields": [
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "blocks",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+      ],
+      "expect": "s256t128:e381a2487780158cbbc2199485da60e2",
+      "symmetric_types": [
+        "x-test-symmetric"
+      ]
+    },
+    {
+      "distinct": [
+        "s256t128:e381a2487780158cbbc2199485da60e2",
+        "s256t128:a6448b94aafaa8939329105042b29104"
+      ],
+      "note": "DIRECTIONAL relations must still hash differently, or a client that sorted every relation's endpoints would pass and silently merge blocker/blocked."
+    }
+  ],
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "op": "upsert",
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+              "payload": {
+                "source": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "type": "x-test-symmetric",
+                "target": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "op": "upsert",
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+              "payload": {
+                "source": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+                "type": "x-test-symmetric",
+                "target": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "version": 1,
+              "outcome": "existing"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/v1/sync/pull?cursor=c:0",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "changes": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "version": 1,
+              "deleted": false,
+              "seq": 1,
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+              "payload": {
+                "source": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "type": "x-test-symmetric",
+                "target": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "op": "upsert",
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+              "payload": {
+                "source": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "type": "x-test-symmetric",
+                "target": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "version": 1,
+              "outcome": "existing"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/v1/sync/pull?cursor=c:0",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "changes": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "version": 1,
+              "deleted": false,
+              "seq": 1,
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+              "payload": {
+                "source": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "type": "x-test-symmetric",
+                "target": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

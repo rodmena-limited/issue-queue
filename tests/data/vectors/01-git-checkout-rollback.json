@@ -1,0 +1,111 @@
+{
+  "name": "01-git-checkout-rollback",
+  "why": "A checkout restores outbox rows another replica already pushed. Replaying them must be a no-op, not a duplicate and not an error -- this is the whole reason push is keyed on (uid, content_hash) rather than on a replica sequence.",
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h1",
+              "payload": {
+                "title": "A"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h1",
+              "payload": {
+                "title": "A"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "existing"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h1",
+              "payload": {
+                "title": "A"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "existing"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

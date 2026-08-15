@@ -1,0 +1,105 @@
+{
+  "name": "07-case-variant-tags",
+  "why": "THE ONE THAT WOULD HAVE LOST A ROW. issuedb's tags.name is byte-exact UNIQUE with no COLLATE NOCASE and create_tag normalises nothing, so 'Bug' and 'bug' are two legal rows today and can both be on one issue. The first draft of the canonical form casefolded, collapsing them to one uid: local holds two, the server sees one, the round trip returns one, A TAG DISAPPEARS and nothing errors. These two uids MUST differ.",
+  "uid_derivation": [
+    {
+      "entity": "issue_tag",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "Bug"
+      ],
+      "expect": "s256t128:55cf7696f3df71f0cfc79f1349b0f385"
+    },
+    {
+      "entity": "issue_tag",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "bug"
+      ],
+      "expect": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3"
+    },
+    {
+      "distinct": [
+        "s256t128:55cf7696f3df71f0cfc79f1349b0f385",
+        "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3"
+      ],
+      "note": "THE ASSERTION. These two must NOT be equal. A casefolding canonicaliser makes them equal, and that is how a tag silently disappears."
+    }
+  ],
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:55cf7696f3df71f0cfc79f1349b0f385",
+              "entity": "issue_tag",
+              "op": "upsert",
+              "content_hash": "tU",
+              "payload": {
+                "issue_uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "tag_name": "Bug"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:55cf7696f3df71f0cfc79f1349b0f385",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3",
+              "entity": "issue_tag",
+              "op": "upsert",
+              "content_hash": "tL",
+              "payload": {
+                "issue_uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "tag_name": "bug"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

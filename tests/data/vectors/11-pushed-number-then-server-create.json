@@ -1,0 +1,133 @@
+{
+  "name": "11-pushed-number-then-server-create",
+  "why": "THE SEAM NO SYNC-ONLY VECTOR REACHES, and Tracker shipped it wrong. A pushed issue carries the number it had in .issue.db. The server's counter never issued that number and does not know about it, so allocating the next number from the counter alone REISSUES one that already exists -- and the insert dies on the project's (project_id, number) unique constraint. Tracker's real server returned 500 internal_error on the first request that hit it, against a database holding rows the counter had not issued. NO FIXTURE COULD HAVE CAUGHT IT: every test created issues through the counter, which keeps it in step by construction, so the suite was structurally incapable of producing the state. It is a CONTRACT fact, not an implementation detail: a client may push any local number and must be able to rely on the server never reusing it. The server's counter is an OPTIMISATION FOR FINDING THE NEXT NUMBER, NOT THE AUTHORITY ON WHICH NUMBERS EXIST. Vectors 1-10 cover uid derivation, tombstones, direction and cursors; none of them reaches this seam, because it only appears where a pushed issue meets a locally created one. The push response now REPORTS the number the server settled on, which vector 12 makes load-bearing: a client that assumed its local number was always accepted would have no way to learn otherwise.",
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:cccc2222cccc2222cccc2222cccc2222",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "n1",
+              "payload": {
+                "project": "p1",
+                "number": 7,
+                "title": "arrived by sync"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:cccc2222cccc2222cccc2222cccc2222",
+              "version": 1,
+              "outcome": "created",
+              "number": 7
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/issues",
+        "project": "p1",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "number": 8
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/issues",
+        "project": "p1",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "number": 9
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:dddd3333dddd3333dddd3333dddd3333",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "n2",
+              "payload": {
+                "project": "p1",
+                "number": 40,
+                "title": "a later sync, higher number"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:dddd3333dddd3333dddd3333dddd3333",
+              "version": 1,
+              "outcome": "created",
+              "number": 40
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/issues",
+        "project": "p1",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "number": 41
+        }
+      }
+    }
+  ]
+}

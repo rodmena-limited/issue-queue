@@ -1,0 +1,138 @@
+{
+  "name": "12-two-replicas-same-local-number",
+  "why": "issuedb's finding, with their reproduction, and it is the MAJORITY case rather than an edge. issues.id is INTEGER PRIMARY KEY AUTOINCREMENT allocated LOCALLY per file (_schema.py:44), so two clones of a repo that COMMITS .issue.db allocate from the same counter independently. Two developers working offline both mint #3 for DIFFERENT issues. Both replicas are correct; neither did anything wrong. Tracker measured 22 of 42 repositories committing .issue.db, so every one of them is one second developer, one second machine or one git worktree away from producing this. It is the FIRST thing that happens when a second person starts syncing a tracked repo. THE EARLIER CLAUSE MADE IT UNSATISFIABLE: 'the server shall never reissue a pushed number' means the second #3 can be neither accepted nor renumbered -- a hard failure the developer cannot resolve. And renumbering is closed off independently: git_utils.py:171 parse_issue_refs reads #123 out of COMMIT MESSAGES, which are immutable. Renumbering silently repoints every commit that referenced an issue at a DIFFERENT issue -- it does not break loudly, it starts pointing at someone else's work. THE REFRAME: the ambiguity already exists before any server. In that repo #3 is ALREADY ambiguous between A's and B's, so we are not obliged to preserve an invariant that was never true. What we must never do is silently repoint anything. SO: uid is identity, THE NUMBER IS A LOCAL ALIAS. A pushed number is taken as canonical when free; when taken by a different uid the server assigns the next free canonical number and records the pushed one as an alias keyed by (project, REPLICA, number) -- keyed by number alone, the alias table has the very collision it exists to resolve. A canonical number is never changed and an alias is never repointed. The response REPORTS the outcome (number_aliased + local_number) so the client can show '#3 (TRK-118)' rather than silently disagreeing with the server about what #3 means. This is the same principle already agreed twice -- uid is identity, the human-facing field is payload -- applied to the number instead of the direction.",
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "a1",
+              "payload": {
+                "project": "pz",
+                "number": 3,
+                "title": "A: fix login timeout"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+              "version": 1,
+              "outcome": "created",
+              "number": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "b1",
+              "payload": {
+                "project": "pz",
+                "number": 3,
+                "title": "B: update the changelog"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2",
+              "version": 1,
+              "outcome": "created",
+              "number": 4,
+              "number_aliased": true,
+              "local_number": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "a1",
+              "payload": {
+                "project": "pz",
+                "number": 3,
+                "title": "A: fix login timeout"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+              "version": 1,
+              "outcome": "existing"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/issues",
+        "project": "pz",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "number": 5
+        }
+      }
+    }
+  ]
+}

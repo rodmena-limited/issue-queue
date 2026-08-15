@@ -1,0 +1,148 @@
+{
+  "name": "08-symmetric-relation",
+  "why": "Two replicas record the same relation from opposite ends and converge to ONE row. Runs against the PROVISIONAL type 'x-test-symmetric', which exists only in this vector set and never in production vocabulary. issuedb asked for it and the reason is the rule this project keeps rediscovering: with a genuinely empty symmetric set these vectors exercise a path no data can reach, pass trivially, and a green suite gets read as evidence the rule works. A check that cannot go green cannot go red. The directional assertion below is the other half -- 'blocks' must NOT converge, or a client could pass this by sorting every relation's endpoints. NOTE: each derivation below declares `symmetric_types` explicitly. It previously depended on the reference implementation's module constant, and the server-side test derived DIFFERENT uids from the same fields -- both implementations correct, the contract silently ambiguous. The symmetric set is advertised in the handshake precisely so it is never hardcoded; the vectors must not hardcode it either.",
+  "uid_derivation": [
+    {
+      "entity": "issue_relation",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "x-test-symmetric",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+      ],
+      "expect": "s256t128:44bee62250caf6b41b24980597ca4fad",
+      "symmetric_types": [
+        "x-test-symmetric"
+      ]
+    },
+    {
+      "entity": "issue_relation",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+        "x-test-symmetric",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
+      ],
+      "expect": "s256t128:44bee62250caf6b41b24980597ca4fad",
+      "symmetric_types": [
+        "x-test-symmetric"
+      ]
+    },
+    {
+      "equal": [
+        "s256t128:44bee62250caf6b41b24980597ca4fad",
+        "s256t128:44bee62250caf6b41b24980597ca4fad"
+      ],
+      "note": "symmetric: sorted endpoints, one identity"
+    },
+    {
+      "entity": "issue_relation",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "blocks",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+      ],
+      "expect": "s256t128:3bd36f342843748bd74e8231b5e131e9",
+      "symmetric_types": [
+        "x-test-symmetric"
+      ]
+    },
+    {
+      "entity": "issue_relation",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+        "blocks",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
+      ],
+      "expect": "s256t128:b7e9d268ce37c05a2933cbc8640291b0",
+      "symmetric_types": [
+        "x-test-symmetric"
+      ]
+    },
+    {
+      "distinct": [
+        "s256t128:3bd36f342843748bd74e8231b5e131e9",
+        "s256t128:b7e9d268ce37c05a2933cbc8640291b0"
+      ],
+      "note": "DIRECTIONAL types must still differ. Without this a client that sorted every relation's endpoints would pass vector 8 and silently merge blocker/blocked."
+    }
+  ],
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "op": "upsert",
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+              "payload": {
+                "source": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "type": "x-test-symmetric",
+                "target": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "entity": "issue_relation",
+              "op": "upsert",
+              "content_hash": "s256t128:ee74c79061477c49fcbb0966a4201b12",
+              "payload": {
+                "source": "s256t128:bbbb1111bbbb1111bbbb1111bbbb1111",
+                "type": "x-test-symmetric",
+                "target": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:44bee62250caf6b41b24980597ca4fad",
+              "version": 1,
+              "outcome": "existing"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

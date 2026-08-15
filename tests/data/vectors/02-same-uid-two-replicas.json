@@ -1,0 +1,77 @@
+{
+  "name": "02-same-uid-two-replicas",
+  "why": "Two replicas push the same uid with the same content. Converges to ONE row at version 1. Asserts outcome=existing EXPLICITLY: a spurious 409 here is as broken as a duplicate, and a test that only counts rows cannot tell the two apart.",
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h1",
+              "payload": {
+                "title": "A"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h1",
+              "payload": {
+                "title": "A"
+              },
+              "replica": "B"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "existing"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

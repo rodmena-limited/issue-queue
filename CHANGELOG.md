@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.16.0]
+
+### Added
+- **Sync client: handshake, push, pull, and cursor state** (`issuedb/sync/_client.py`,
+  `issuedb/sync/_state.py`). `urllib` only. (#5)
+  - The handshake is a **preflight that fails closed**: if the server's protocol
+    range does not include ours, nothing is written locally. The client checks
+    the advertised range *itself*, not only the server's 409, so a server that
+    advertises without enforcing cannot wave an incompatible client through.
+  - Errors branch on the problem+json `code`, **not on the HTTP status** — two
+    different 409s mean opposite things (`protocol_unsupported` = stop,
+    `cursor_too_old` = re-seed). `Retry-After` is taken from the server rather
+    than a locally invented backoff.
+  - **Cursor and replica id live in `$XDG_CONFIG_HOME/issuedb/`, never in
+    `.issue.db`**: a cursor in a git-tracked file rolled *forward* by a checkout
+    silently skips server changes that were never applied, and a replica id in a
+    tracked file would be claimed by every clone at once. State is keyed by
+    database path and validated against the project uid, so a reused path cannot
+    inherit a foreign cursor.
+  - A replayed push (`existing`) is success, not a conflict — the normal case in
+    a repo that commits `.issue.db`.
+  - Tested against Tracker's real FakeTracker **over HTTP with no mock
+    transport**; FakeTracker and all twelve vectors are vendored into
+    `tests/data/` so the tests run rather than skip.
+
+### Note
+- **Tracker has not implemented `/v1/sync/*`.** Probed live: `/_build`,
+  `/_design`, `/healthz` and `/` all return 200 while all three sync endpoints
+  return 404. This client has never successfully talked to Tracker and cannot
+  yet. A green test run means "the fixture agrees", not "sync works".
+
 ## [2.15.0]
 
 ### Added

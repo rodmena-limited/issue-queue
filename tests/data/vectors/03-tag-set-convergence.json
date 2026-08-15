@@ -1,0 +1,89 @@
+{
+  "name": "03-tag-set-convergence",
+  "why": "Two replicas independently tag issue I1 with 'bug'. Both derive the SAME uid with no coordination -- add-wins OR-Set convergence. The uid below is the frozen canonical form; a client computing anything else produces a duplicate that nothing errors on.",
+  "uid_derivation": [
+    {
+      "entity": "issue_tag",
+      "fields": [
+        "prj_01k1x9m4rjq7v2n8p3d5wtzqqq",
+        "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+        "bug"
+      ],
+      "expect": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3"
+    }
+  ],
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3",
+              "entity": "issue_tag",
+              "op": "upsert",
+              "content_hash": "t1",
+              "payload": {
+                "issue_uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "tag_name": "bug"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3",
+              "entity": "issue_tag",
+              "op": "upsert",
+              "content_hash": "t1",
+              "payload": {
+                "issue_uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+                "tag_name": "bug"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:b12a212b0aa57eac5d2ba2e4bdb3f0e3",
+              "version": 1,
+              "outcome": "existing"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

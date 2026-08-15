@@ -1,0 +1,117 @@
+{
+  "name": "04-delete-vs-update",
+  "why": "A delete and a concurrent edit race. The tombstone wins AND the losing edit is RECOVERABLE, not discarded -- restorable:true is the assertion that matters. With N offline replicas an unrecoverable delete is not a tradeoff anyone gets to make on a user's behalf. The response CARRIES the tombstone (deleted=true plus the last-known payload) rather than a bare 'gone' -- see vector 10 for why a bare answer leaves an undeletable local row.",
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h1",
+              "payload": {
+                "title": "A"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 1,
+              "outcome": "created"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "delete",
+              "content_hash": "h1"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 2,
+              "outcome": "deleted"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {
+          "X-IssueDB-Protocol": "1"
+        },
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "h2",
+              "base_version": 1,
+              "payload": {
+                "title": "edited after the delete"
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:aaaa0000aaaa0000aaaa0000aaaa0000",
+              "version": 2,
+              "outcome": "gone",
+              "restorable": true,
+              "deleted": true,
+              "tombstone": {
+                "payload": {
+                  "title": "A"
+                },
+                "version": 2
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

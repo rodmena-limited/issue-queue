@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "issuedb"
-version = "2.15.0"
+version = "2.16.0"
 description = "A command-line issue tracking system for software development projects"
 readme = "README.md"
 # The code uses PEP 585 generics in runtime-evaluated positions (dataclass and
@@ -65,6 +65,9 @@ line-length = 100
 exclude = [
     ".git",
     "__pycache__",
+    # Vendored from Tracker's contracts/sync — reformatting it here would
+    # defeat the point of vendoring, which is to hold their bytes unchanged.
+    "tests/data/faketracker.py",
     "build",
     "dist",
     ".venv",
