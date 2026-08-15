@@ -67,9 +67,17 @@ def _migration_003_issue_number_alias(cursor: Any) -> None:
     create_alias_table(cursor)
 
 
+def _migration_004_sync_project(cursor: Any) -> None:
+    """Record the server-minted project identity. See _project.py."""
+    from issuedb.sync._project import create_project_table
+
+    create_project_table(cursor)
+
+
 MIGRATIONS: list[Migration] = [
     (2, "sync identity: sync_row ledger and sync_outbox triggers", _migration_002_sync_identity),
     (3, "issue number aliases, keyed by uid", _migration_003_issue_number_alias),
+    (4, "project identity recorded in the database", _migration_004_sync_project),
 ]
 
 # The version this code targets. Derived from the ladder so the two can never

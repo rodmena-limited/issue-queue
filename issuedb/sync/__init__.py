@@ -15,12 +15,22 @@ from issuedb.sync._canonical import (
     relation_content_hash,
     relation_uid,
 )
+from issuedb.sync._project import (
+    ProjectIdentityError,
+    get_project_uid,
+    record_project_uid,
+    require_project_uid,
+)
 
 __all__ = [
+    "ProjectIdentityError",
     "UID_PREFIX",
     "canonical_bytes",
     "derived_uid",
     "mint_uid",
     "relation_content_hash",
+    "get_project_uid",
+    "record_project_uid",
     "relation_uid",
+    "require_project_uid",
 ]

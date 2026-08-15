@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.19.0]
+
+### Added
+- **The server-minted `project_uid` is recorded immutably in `.issue.db`**
+  (`issuedb/sync/_project.py`, migration 4). (#8)
+  - It is **field 1 of every derived uid**, so deriving without it produces uids
+    the server never agrees with and the rows silently fail to converge.
+    `require_project_uid()` therefore **raises** rather than substituting an
+    empty string — `get_project_uid(conn) or ""` is the natural thing to write
+    and it is catastrophic.
+  - Write-once. A server reporting a *different* project for a database that
+    already holds one is refused: the path was reused or the key swapped, and
+    adopting the new id would merge two projects' rows under one identity.
+  - `CHECK (id = 1)` makes "one project per database" a schema constraint, so it
+    holds against a direct `sqlite3` write.
+  - Unlike the cursor, this belongs *in* the committed file: same for every
+    clone, non-secret, and it lets a fresh clone know its project with zero
+    setup.
+
+### Documentation
+- `audit/MUTATION_TESTING.md` — a mutation that appears to **survive** may be a
+  stale `.pyc`. CPython's timestamp-based invalidation has one-second
+  granularity, and a write→run→restore loop hits that window constantly. A
+  **red** result is self-proving; a **survivor** is not. Both
+  `PYTHONDONTWRITEBYTECODE=1` and an on-disk postcondition are needed, and
+  neither implies the other.
+
 ## [2.18.0]
 
 ### Changed
