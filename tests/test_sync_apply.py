@@ -533,7 +533,7 @@ def test_with_no_advertised_list_an_unappliable_type_is_skip_not_malformed(repo,
 # --- null is not a string, and str(None) is not empty ----------------------
 
 
-def test_a_null_uid_is_malformed_not_the_string_None(repo, conn):
+def test_a_null_uid_is_malformed_not_the_literal_none_string(repo, conn):
     """The exact defect Tracker's web-created issues produced.
 
     `str(change.get("uid", ""))` returns the DEFAULT only when the key is
