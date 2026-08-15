@@ -41,7 +41,20 @@ DEFAULT_TIMEOUT = 30.0
 
 
 class Handshake(NamedTuple):
-    """What the server told us before we were allowed to touch anything."""
+    """What the server told us before we were allowed to touch anything.
+
+    ``authenticated`` and ``credential_rejected`` are POSITIVE ASSERTIONS, not
+    inferences. Before they existed, a client with a bad key learned it had
+    been refused only by noticing ``project_uid`` was absent — an absence
+    carrying a meaning, which works only because the client happens to know
+    what it sent. That reasoning is correct, implicit, and exactly what a
+    second implementation gets wrong.
+
+    They are ``None`` when the server does not send them, so "the server is
+    silent" stays distinguishable from "the server said false". Collapsing
+    those two with ``bool(...)`` would rebuild the same inference this exists
+    to remove.
+    """
 
     protocol_min: int
     protocol_max: int
@@ -50,6 +63,8 @@ class Handshake(NamedTuple):
     tombstone_retention_days: int
     uid_algorithm: str
     raw: dict[str, Any]
+    authenticated: bool | None = None
+    credential_rejected: bool | None = None
 
 
 class PullResult(NamedTuple):
@@ -220,6 +235,11 @@ class SyncClient:
             )
 
         return Handshake(
+            # None, not False, when the key is absent from the response: the
+            # server being SILENT and the server saying FALSE are different
+            # facts, and only one of them is a contract answer.
+            authenticated=body.get("authenticated"),
+            credential_rejected=body.get("credential_rejected"),
             protocol_min=minimum,
             protocol_max=maximum,
             project_uid=str(body.get("project_uid", "")),

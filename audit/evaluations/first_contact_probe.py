@@ -40,6 +40,7 @@ import pathlib
 import sys
 import urllib.error
 import urllib.request
+from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -182,6 +183,66 @@ def exercise_handshake(client: SyncClient) -> tuple[str, list[str]]:
         lines.append(f"  note: {note}")
     for problem in problems:
         lines.append(f"  DIVERGENCE: {problem}")
+    return (FAILED if problems else PASSED), lines
+
+
+def exercise_credential_signalling(server: str, timeout: float) -> tuple[str, list[str]]:
+    """Three cases, not two: absent, valid, present-but-invalid.
+
+    The missing third case is what let me verify a defect as correct. With only
+    absent and valid, "no credential" and "bad credential" are
+    INDISTINGUISHABLE — both come back with project_uid missing — so a probe
+    comparing them sees nothing and reports agreement.
+
+    Rejection must be a POSITIVE ASSERTION (credential_rejected), not an absence
+    the client infers from a missing project_uid. An absence carrying a meaning
+    works only because this client knows what it sent; a second implementation
+    gets it wrong.
+    """
+    lines = ["CREDENTIAL SIGNALLING (absent / present-but-invalid / valid):"]
+    stored = load_credential(server)
+
+    def ask(token: str, label: str) -> Any:
+        try:
+            shake = SyncClient(server, token=token, timeout=timeout).handshake()
+        except SyncError as exc:
+            lines.append(f"  {label:<22} error code={exc.code!r} status={exc.status}")
+            return None
+        lines.append(
+            f"  {label:<22} project_uid={'set' if shake.project_uid else 'absent':<6} "
+            f"authenticated={shake.authenticated} "
+            f"credential_rejected={shake.credential_rejected}"
+        )
+        return shake
+
+    absent = ask("", "no credential")
+    invalid = ask("trk_deliberately_invalid", "present-but-invalid")
+    valid = ask(stored.token, "valid key") if stored else None
+    if stored is None:
+        lines.append("  valid key              skipped - not signed in")
+
+    problems = []
+    if invalid is not None and invalid.credential_rejected is None:
+        problems.append(
+            "present-but-invalid does not assert credential_rejected - rejection is "
+            "inferable only from a missing project_uid, an absence carrying a meaning"
+        )
+    if absent is not None and invalid is not None:
+        indistinguishable = (
+            absent.project_uid == invalid.project_uid
+            and absent.authenticated == invalid.authenticated
+            and absent.credential_rejected == invalid.credential_rejected
+        )
+        if indistinguishable:
+            problems.append(
+                "no credential and present-but-invalid are INDISTINGUISHABLE - a client "
+                "cannot tell 'you sent nothing' from 'what you sent was refused'"
+            )
+    if valid is not None and not valid.project_uid:
+        problems.append("a valid project-bound key did not receive project_uid")
+
+    for problem in problems:
+        lines.append(f"  GAP: {problem}")
     return (FAILED if problems else PASSED), lines
 
 
@@ -346,6 +407,20 @@ def main() -> int:
             "exchanged a byte."
         )
         return 0
+
+    cred_result, cred_lines = exercise_credential_signalling(server, args.timeout)
+    print("\n".join(cred_lines))
+    if cred_result == FAILED:
+        # Reported loudly but NOT failing the run yet: the explicit-signalling
+        # decision is agreed and in flight, and a probe that is permanently red
+        # for a known in-flight item trains people to ignore it. This becomes a
+        # hard failure the moment PROTOCOL.md states the fields.
+        print(
+            "  ^ AGREED CONTRACT CHANGE, NOT YET SHIPPED. Not failing the run for it.\n"
+            "    This becomes a hard FAILED once PROTOCOL.md states authenticated/"
+            "credential_rejected."
+        )
+    print()
 
     if handshake_result == FAILED:
         print(
