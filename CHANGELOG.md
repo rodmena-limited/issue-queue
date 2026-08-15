@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.15.0]
+
+### Added
+- **`issuedb-cli signin` / `signout` / `whoami`** — Tracker credentials, stored
+  outside the database. (#4)
+  - Credentials live in `$XDG_CONFIG_HOME/issuedb/credentials.json`, **never in
+    `.issue.db`** (which is committed to git in many repos) and never in the
+    working directory. Keyed by server URL, so two servers do not evict each
+    other.
+  - These commands **short-circuit before the database is opened**, so signing
+    in never leaves a stray `.issue.db` in whatever directory you were standing
+    in.
+  - File mode 0600, directory 0700, written via `mkstemp` + atomic rename so the
+    secret is never on disk at a wider mode even briefly. Loose permissions are
+    tightened on the next write.
+  - **`signout` removes the file**, rather than blanking the entry, and reports
+    honestly when there was nothing to remove.
+  - The secret portion of a token is never printed — not by `signin`, not by
+    `whoami`, and not in error messages. The `key_id` is not secret and is shown,
+    so "which key was that?" stays answerable.
+  - Not included, deliberately: token refresh, device flow, multi-account
+    switching. `signin` does not yet verify the key against Tracker, because
+    `/v1/sync/handshake` is not implemented — a stored credential means "a
+    well-formed key was saved", never "the key works".
+  - Stdlib only.
+
 ## [2.14.0]
 
 ### Added

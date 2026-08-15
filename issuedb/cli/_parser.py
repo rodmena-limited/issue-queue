@@ -70,8 +70,42 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_core(subparsers)
     register_advanced(subparsers)
+    register_auth(subparsers)
 
     return parser
+
+
+def register_auth(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Register signin/signout/whoami.
+
+    These are dispatched BEFORE any database is opened — see cli/_main.py.
+    They are statements about a machine, not about a project, so they must not
+    create a .issue.db in whatever directory the user is standing in.
+    """
+    from issuedb.sync._auth_commands import DEFAULT_SERVER
+
+    signin_parser = subparsers.add_parser(
+        "signin", help="Store a Tracker API key (no database is created)"
+    )
+    signin_parser.add_argument(
+        "--token",
+        help="Tracker API key (trk_...). Omit to read from stdin or be prompted; "
+        "a token on the command line lands in your shell history.",
+    )
+    signin_parser.add_argument("--server", default=DEFAULT_SERVER, help="Tracker server URL")
+
+    signout_parser = subparsers.add_parser(
+        "signout", help="Remove a stored Tracker API key (no database is created)"
+    )
+    signout_parser.add_argument("--server", default=DEFAULT_SERVER, help="Tracker server URL")
+    signout_parser.add_argument(
+        "--all", action="store_true", dest="all_servers", help="Remove every stored credential"
+    )
+
+    whoami_parser = subparsers.add_parser(
+        "whoami", help="Show which Tracker key is stored (the secret is never printed)"
+    )
+    whoami_parser.add_argument("--server", default=DEFAULT_SERVER, help="Tracker server URL")
 
 
 def register_core(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:

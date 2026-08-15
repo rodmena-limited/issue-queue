@@ -79,6 +79,24 @@ def main() -> None:
         parser.print_help()
         sys.exit(1)
 
+    # Auth commands SHORT-CIRCUIT HERE, before CLI(args.db) below. That
+    # constructor creates .issue.db in the current directory when it is
+    # absent, which is right for `create` and wrong for `signin`: signing in
+    # is a statement about this machine, not about whatever directory the user
+    # happens to be standing in. Dispatching these after it would leave a
+    # mystery database behind in a home directory or a repo the user never
+    # meant to track.
+    if args.command in ("signin", "signout", "whoami"):
+        from issuedb.sync import _auth_commands
+
+        if args.command == "signin":
+            sys.exit(_auth_commands.signin(token=args.token, server=args.server))
+        if args.command == "signout":
+            sys.exit(
+                _auth_commands.signout(server=args.server, all_servers=args.all_servers)
+            )
+        sys.exit(_auth_commands.whoami(server=args.server))
+
     try:
         from issuedb.cli import CLI
 

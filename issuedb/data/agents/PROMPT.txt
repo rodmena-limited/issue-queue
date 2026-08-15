@@ -458,6 +458,32 @@ Response: issuedb-cli bulk-close-pattern --title "*test*"
 User: "Preview what would be deleted if I delete issues matching 'temp'"
 Response: issuedb-cli bulk-delete-pattern --title "*temp*" --dry-run
 
+## TRACKER SYNC (signin / signout / whoami)
+These commands do NOT open or create an issue database. They store a Tracker
+API key in $XDG_CONFIG_HOME/issuedb/credentials.json (mode 0600), never in
+.issue.db and never in the working directory.
+
+User: "Sign in to Tracker"
+Response: issuedb-cli signin
+
+User: "Sign in to Tracker with key trk_abc_def"
+Response: issuedb-cli signin --token trk_abc_def
+
+User: "Sign in to a different Tracker server"
+Response: issuedb-cli signin --server https://tracker.example.com
+
+User: "Am I signed in to Tracker?"
+Response: issuedb-cli whoami
+
+User: "Sign out of Tracker"
+Response: issuedb-cli signout
+
+User: "Sign out of every Tracker server"
+Response: issuedb-cli signout --all
+
+NEVER print, echo, or repeat the secret portion of a trk_ token. The key_id
+(the middle segment) is not secret; the third segment is.
+
 ## QUOTING RULES
 - Use double quotes for titles, descriptions, comments with spaces
 - Example: issuedb-cli create -t "Fix bug" -d "The app crashes"
