@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.27.0]
+
+### Added
+- **Documentation for sync.** `signin` / `signout` / `whoami` / `sync` were
+  shipped in 2.13–2.26 with no README or docs coverage — a user who installed
+  the package got a headline feature with no instructions, and `--apply` writes
+  to their local database. Added a `## Sync with Tracker` section to the README,
+  a new `docs/sync.rst` page (wired into the index), and a Sync Commands section
+  in `docs/cli_reference.rst`. The known limitation — the apply path skips
+  `issue_relation` and `issue_dependency` — is stated plainly rather than left
+  to be discovered from `SKIP` lines.
+
+### Verified
+- **The multi-page apply path ran end to end against the live server.** A
+  scratch database synced from `c:0`: 314 changes over 2 pages, 237 applied,
+  cursor advanced to `c:370`. Re-running sync pulled 0 changes — convergence
+  proven, nothing re-applied. This was the one destructive path whose newest
+  code (the pagination fix in 2.26.0) had never been exercised against the real
+  server.
+
 ## [2.26.0]
 
 ### Fixed

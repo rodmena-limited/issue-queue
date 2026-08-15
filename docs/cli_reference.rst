@@ -1144,6 +1144,66 @@ Clear all issues from the database. Requires confirmation.
 
    issuedb-cli clear --confirm
 
+Sync Commands
+-------------
+
+signin
+~~~~~~
+
+Store a Tracker API key. No database is created.
+
+.. code-block:: bash
+
+   issuedb-cli signin --token trk_...
+   issuedb-cli signin --server https://tracker.example.com
+
+``--token``
+    The API key. Omit to be prompted or read from stdin; a token on the command
+    line lands in your shell history.
+``--server``
+    Tracker server URL (default: the hosted Tracker).
+
+signout
+~~~~~~~
+
+Remove a stored Tracker API key. No database is created.
+
+.. code-block:: bash
+
+   issuedb-cli signout
+   issuedb-cli signout --all
+
+``--all``
+    Remove every stored credential, not just the default server's.
+
+whoami
+~~~~~~
+
+Show which Tracker key is stored. The secret is never printed.
+
+.. code-block:: bash
+
+   issuedb-cli whoami
+
+sync
+~~~~
+
+Pull changes from Tracker. **Dry run by default** — nothing is written without
+``--apply``.
+
+.. code-block:: bash
+
+   issuedb-cli sync
+   issuedb-cli sync --apply
+
+``--apply``
+    Actually apply the changes. Without it, sync only reports what it WOULD do.
+``--server``
+    Tracker server URL.
+
+See :doc:`sync` for the full walkthrough and the known limitation on
+``issue_relation`` / ``issue_dependency``.
+
 Exit Codes
 ----------
 

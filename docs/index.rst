@@ -19,6 +19,7 @@ Welcome to the official documentation for **IssueDB**, a command-line issue trac
    bulk_operations
    audit_logging
    schema_versioning
+   sync
 
 .. toctree::
    :maxdepth: 2

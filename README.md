@@ -148,6 +148,56 @@ issuedb-cli bulk-update --filter-status open -s in-progress
 issuedb-cli audit -i 1
 ```
 
+## Sync with Tracker
+
+IssueDB can sync issues, tags, dependencies and relations with a Tracker
+server. Sync is **dry run by default** — nothing is written until you pass
+`--apply`.
+
+```bash
+# Store a Tracker API key (once, per machine; no database is created)
+issuedb-cli signin --token trk_...
+
+# See who is signed in
+issuedb-cli whoami
+
+# Pull changes and show what WOULD happen (dry run — nothing is written)
+issuedb-cli sync
+
+# Actually apply the changes
+issuedb-cli sync --apply
+
+# Remove the stored key
+issuedb-cli signout
+```
+
+What sync does, in order:
+
+1. **Handshake** — confirms the server's protocol and project before touching
+   anything local. A protocol mismatch stops the sync with the database
+   untouched.
+2. **Pull** — reads the whole feed, following pagination until the server
+   reports no more. The number printed is the full feed, not the first page.
+3. **Plan** — shows every change as `CREATE` / `UPDATE` / `DELETE` / `SKIP`,
+   with a reason. A dry run and `--apply` compute the same plan, so what you
+   are shown is what would be done.
+4. **Apply** (only with `--apply`) — applies each change in its own
+   transaction, then advances the cursor only to what was durably committed.
+   A failure mid-apply keeps the cursor before the failure, so re-running
+   retries from there.
+5. **Coverage** — states which local data has no sync entity to travel on
+   (e.g. comments, audit logs), so "everything synced" is never silently
+   assumed.
+
+The cursor and replica identity live **outside** the database, keyed to the
+project, so a fresh clone of a tracked repo knows which project it belongs to.
+
+> **Known limitation:** the apply path currently skips `issue_relation` and
+> `issue_dependency` changes — the server sends them correctly, but issuedb
+> does not consume them yet. A sync reports these as `SKIP — issuedb does not
+> apply entity '…' yet`. Issues, tags, dependencies and relations are
+> advertised by the server; only issues and tags are applied.
+
 ## LLM Agent Integration
 
 IssueDB is designed for AI agents. Use the prompt guide:
