@@ -1,0 +1,215 @@
+{
+  "name": "13-issue-dependency-lifecycle",
+  "provenance": "AUTHORED BY ISSUEDB, not vendored from Tracker. It lives outside tests/data/vectors/ for exactly that reason: that directory holds Tracker's frozen expectations, and mixing mine into it would let my guess about the protocol be mistaken later for their statement of it. The payload field names below (blocker, blocked) were LEARNED FROM THE SERVER by pushing candidate shapes and keeping the one it accepted, not invented -- the contract's openapi.yaml names the entity in an enum and gives no example.",
+  "why": "issue_dependency is ADVERTISED by the handshake and exercised by ZERO of the twelve vendored vectors. That is the precise shape of the issue_tag defect: issue_tags held SELECT/INSERT/DELETE and lacked UPDATE, which was correct until the sync work added row_version and sync_content_hash and made the row updatable -- and no test anywhere touched the path, so it surfaced as a live HTTP 500 the first time a real client pushed one. issue_dependencies has its UPDATE grant only by luck of the original migration; luck is not a control. This vector walks the entity through BOTH paths that require UPDATE -- the upsert content-hash re-stamp and the tombstone write -- and then asserts the tombstone response is derived FROM THE STORED ROW rather than echoed from the caller.",
+  "discriminating": "Step 5 pushes the endpoints REVERSED (blocker and blocked swapped). With identical endpoints the correct answer and the echo-the-caller answer are the same string and the vector would pass against broken code. Reversed, they differ, so this step can go red. That is the defect Tracker fixed in a10b9a7 for issue_relation; nothing had ever checked it for issue_dependency.",
+  "steps": [
+    {
+      "note": "PRECONDITION. No correct server accepts an edge whose endpoints it has never seen, so the two issues are pushed first. Push ordering is a hard constraint: issues, then tags, then edges.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {"X-IssueDB-Protocol": "1"},
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:dddd0000dddd0000dddd0000dddd0000",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "dep-a",
+              "payload": {"title": "dependency probe A (blocker)"}
+            },
+            {
+              "uid": "s256t128:eeee1111eeee1111eeee1111eeee1111",
+              "entity": "issue",
+              "op": "upsert",
+              "content_hash": "dep-b",
+              "payload": {"title": "dependency probe B (blocked)"}
+            }
+          ],
+          "replica_id": "R1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {"uid": "s256t128:dddd0000dddd0000dddd0000dddd0000", "version": 1, "outcome": "created"},
+            {"uid": "s256t128:eeee1111eeee1111eeee1111eeee1111", "version": 1, "outcome": "created"}
+          ]
+        }
+      }
+    },
+    {
+      "note": "CREATE. The INSERT path, which the original grant always allowed.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {"X-IssueDB-Protocol": "1"},
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:cccc2222cccc2222cccc2222cccc2222",
+              "entity": "issue_dependency",
+              "op": "upsert",
+              "content_hash": "dep-h1",
+              "payload": {
+                "blocker": "s256t128:dddd0000dddd0000dddd0000dddd0000",
+                "blocked": "s256t128:eeee1111eeee1111eeee1111eeee1111"
+              }
+            }
+          ],
+          "replica_id": "R1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {"uid": "s256t128:cccc2222cccc2222cccc2222cccc2222", "version": 1, "outcome": "created"}
+          ]
+        }
+      }
+    },
+    {
+      "note": "REPLAY. The same content_hash must NOT bump the version. Without this step, step 4's 'updated' would prove nothing -- a server that bumps on every push would satisfy it too.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {"X-IssueDB-Protocol": "1"},
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:cccc2222cccc2222cccc2222cccc2222",
+              "entity": "issue_dependency",
+              "op": "upsert",
+              "content_hash": "dep-h1",
+              "payload": {
+                "blocker": "s256t128:dddd0000dddd0000dddd0000dddd0000",
+                "blocked": "s256t128:eeee1111eeee1111eeee1111eeee1111"
+              }
+            }
+          ],
+          "replica_id": "R1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {"uid": "s256t128:cccc2222cccc2222cccc2222cccc2222", "version": 1, "outcome": "existing"}
+          ]
+        }
+      }
+    },
+    {
+      "note": "RE-STAMP. A different content_hash makes this an UPDATE. THIS IS THE STATEMENT THAT WOULD HAVE 500'd on issue_tags before a10b9a7 -- the row is modified, not inserted.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {"X-IssueDB-Protocol": "1"},
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:cccc2222cccc2222cccc2222cccc2222",
+              "entity": "issue_dependency",
+              "op": "upsert",
+              "content_hash": "dep-h2",
+              "payload": {
+                "blocker": "s256t128:dddd0000dddd0000dddd0000dddd0000",
+                "blocked": "s256t128:eeee1111eeee1111eeee1111eeee1111"
+              }
+            }
+          ],
+          "replica_id": "R1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {"uid": "s256t128:cccc2222cccc2222cccc2222cccc2222", "version": 2, "outcome": "updated"}
+          ]
+        }
+      }
+    },
+    {
+      "note": "TOMBSTONE. The second UPDATE path: a delete is a tombstone write, not a removal.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {"X-IssueDB-Protocol": "1"},
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:cccc2222cccc2222cccc2222cccc2222",
+              "entity": "issue_dependency",
+              "op": "delete",
+              "content_hash": "dep-h2",
+              "payload": null
+            }
+          ],
+          "replica_id": "R1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {"uid": "s256t128:cccc2222cccc2222cccc2222cccc2222", "version": 3, "outcome": "deleted"}
+          ]
+        }
+      }
+    },
+    {
+      "note": "PUSH AGAINST THE TOMBSTONE, ENDPOINTS REVERSED. The response must carry the tombstone built FROM THE STORED ROW -- blocker=D, blocked=E, the ORIGINAL order -- and not the reversed pair sent here. If the two were identical this step could not discriminate; reversed, it can.",
+      "request": {
+        "method": "POST",
+        "path": "/v1/sync/push",
+        "key": "valid",
+        "headers": {"X-IssueDB-Protocol": "1"},
+        "body": {
+          "entries": [
+            {
+              "uid": "s256t128:cccc2222cccc2222cccc2222cccc2222",
+              "entity": "issue_dependency",
+              "op": "upsert",
+              "content_hash": "dep-h3",
+              "payload": {
+                "blocker": "s256t128:eeee1111eeee1111eeee1111eeee1111",
+                "blocked": "s256t128:dddd0000dddd0000dddd0000dddd0000"
+              }
+            }
+          ],
+          "replica_id": "R1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "results": [
+            {
+              "uid": "s256t128:cccc2222cccc2222cccc2222cccc2222",
+              "version": 3,
+              "outcome": "gone",
+              "deleted": true,
+              "restorable": true,
+              "tombstone": {
+                "version": 3,
+                "payload": {
+                  "blocker": "s256t128:dddd0000dddd0000dddd0000dddd0000",
+                  "blocked": "s256t128:eeee1111eeee1111eeee1111eeee1111"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

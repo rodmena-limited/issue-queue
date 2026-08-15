@@ -55,6 +55,12 @@ from issuedb.sync._credentials import load as load_credential  # noqa: E402
 DEFAULT_SERVER = "https://tracker.rodmena.co.uk"
 VECTOR_DIR = REPO_ROOT / "tests" / "data" / "vectors"
 
+# Vectors issuedb wrote itself, kept in a SEPARATE directory on purpose.
+# VECTOR_DIR holds Tracker's frozen expectations; mixing ours in would let our
+# reading of the protocol be mistaken later for their statement of it. Both are
+# replayed, and the provenance of each is printed.
+OWN_VECTOR_DIR = REPO_ROOT / "tests" / "data" / "vectors_issuedb"
+
 PASS = "PASS"
 ABSENT = "NOT IMPLEMENTED"
 FAILED = "FAILED"
@@ -385,11 +391,18 @@ def main() -> int:
     args = parser.parse_args()
 
     server = args.server.rstrip("/")
-    vectors = sorted(VECTOR_DIR.glob("*.json"))
+    vendored = sorted(VECTOR_DIR.glob("*.json"))
+    own = sorted(OWN_VECTOR_DIR.glob("*.json"))
+    vectors = vendored + own
 
-    # Control: without vectors every line below would be a vacuous pass.
-    if len(vectors) < 12:
-        print(f"PROBE BROKEN: expected >=12 vectors in {VECTOR_DIR}, found {len(vectors)}")
+    # Control: without vectors every line below would be a vacuous pass. The
+    # count is checked against the VENDORED set alone, so adding our own can
+    # never satisfy a control that exists to prove Tracker's are present.
+    if len(vendored) < 12:
+        print(f"PROBE BROKEN: expected >=12 vectors in {VECTOR_DIR}, found {len(vendored)}")
+        return 2
+    if not own:
+        print(f"PROBE BROKEN: no issuedb-authored vectors in {OWN_VECTOR_DIR}")
         return 2
 
     token = args.token
@@ -407,7 +420,10 @@ def main() -> int:
 
         run_id = uuid.uuid4().hex[:12]
 
-    print(f"Replaying {len(vectors)} frozen vectors against {server}")
+    print(
+        f"Replaying {len(vendored)} vendored + {len(own)} issuedb-authored "
+        f"vectors against {server}"
+    )
     print(f"  run id {run_id} — uids are salted so this run cannot collide with the last\n")
 
     tally: dict[str, int] = {PASS: 0, ABSENT: 0, FAILED: 0, SKIPPED: 0, HARNESS: 0,
@@ -421,7 +437,8 @@ def main() -> int:
                   HARNESS: "HARN", BLOCKED: "BLOK", UNTESTABLE: "n/a ",
                   PRECONDITION: "PREC"}[verdict]
         detail = "" if verdict == PASS else f"   {notes[0] if notes else ''}"
-        print(f"  {marker}  {path.stem:<34}{detail}")
+        origin = "  [issuedb]" if path.parent == OWN_VECTOR_DIR else ""
+        print(f"  {marker}  {path.stem:<34}{origin}{detail}")
         if verdict == FAILED:
             failures.append((path.stem, notes))
 

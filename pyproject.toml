@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "issuedb"
-version = "2.24.1"
+version = "2.25.0"
 description = "A command-line issue tracking system for software development projects"
 readme = "README.md"
 # The code uses PEP 585 generics in runtime-evaluated positions (dataclass and

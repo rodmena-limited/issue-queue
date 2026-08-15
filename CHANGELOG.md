@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.25.0]
+
+### Added
+- **A thirteenth replay vector, `13-issue-dependency-lifecycle`, covering the
+  one advertised entity nothing exercised.** Tracker's handshake advertises
+  `issue_dependency` and none of the twelve vendored vectors touched it — a
+  pull of the whole feed from `c:0` found 163 `issue`, 15 `issue_relation`,
+  3 `issue_tag` and **zero** `issue_dependency` rows. That is the exact shape of
+  the `issue_tag` 500: a grant correct when written, invalidated by a later
+  schema change, and never exercised. The vector walks create → replay →
+  content-hash re-stamp → tombstone → push-against-tombstone, so both paths that
+  require an `UPDATE` privilege are on the wire, and it pushes the endpoints
+  **reversed** at the tombstone step so an echoed caller payload and a correctly
+  derived one are different strings.
+  Proven able to go red before being trusted green. Result against `b933e47`:
+  PASS.
+- **`tests/data/vectors_issuedb/` — a separate home for vectors issuedb wrote.**
+  `tests/data/vectors/` holds Tracker's frozen expectations; mixing ours in
+  would let our reading of the protocol later be mistaken for their statement of
+  it. The replay loads both and labels each line's provenance. The
+  "at least twelve vectors" control still counts the **vendored** set alone, so
+  our own files can never satisfy a control that exists to prove theirs are
+  present.
+
 ## [2.24.1]
 
 ### Changed
