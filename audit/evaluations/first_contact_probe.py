@@ -62,6 +62,7 @@ BROKEN = "PROBE BROKEN"
 ABSENT = "NOT IMPLEMENTED"
 FAILED = "FAILED"
 PASSED = "PASSED"
+NO_CREDENTIAL = "NO CREDENTIAL"
 
 
 def _status(url: str, timeout: float) -> int | str:
@@ -196,7 +197,15 @@ def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
     }
 
     try:
-        results = client.push([entry])
+        results = client.push([entry], replica_id="issuedb-first-contact-probe")
+    except AuthFailedError as exc:
+        # A MISSING KEY IS NOT A SERVER DEFECT. Reporting 401 as FAILED would
+        # accuse Tracker of a bug whose entire cause is that this probe was
+        # run without a credential — the same mistake as flagging an empty
+        # project_uid, one endpoint along.
+        lines.append(f"  push refused the credential: code={exc.code!r} status={exc.status}")
+        lines.append("  This is the server working. The probe has no key.")
+        return NO_CREDENTIAL, lines
     except SyncError as exc:
         if exc.status == 404:
             lines.append("  push absent")
@@ -207,6 +216,16 @@ def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
     lines.append(f"  push -> {results}")
     if not results:
         lines.append("  DIVERGENCE: push returned no results for one entry")
+        return FAILED, lines
+
+    # A 200 is not blanket success. Tracker rejects per-uid for entities it has
+    # not implemented, and a client that read the status alone would advance
+    # its cursor past a change that never landed.
+    rejected = SyncClient.rejected(results)
+    if rejected:
+        for item in rejected:
+            lines.append(f"  REJECTED {item.get('uid')}: {item.get('reason')}")
+        lines.append("  (a 200 with per-entry rejections is NOT success for those uids)")
         return FAILED, lines
 
     try:
@@ -341,6 +360,16 @@ def main() -> int:
 
     if round_trip_result == ABSENT:
         print(f"VERDICT: handshake exists but push/pull are {ABSENT}. Partial deployment.")
+        return 0
+
+    if round_trip_result == NO_CREDENTIAL:
+        print(
+            f"VERDICT: {NO_CREDENTIAL}. The handshake succeeded and push rejected an "
+            f"invalid key — both correct server behaviour.\n"
+            f"  The round trip is UNTESTED, not failing. Supply a real key to complete it:\n"
+            f"    issuedb-cli signin --server {server}\n"
+            f"    python3 audit/evaluations/first_contact_probe.py --token trk_..."
+        )
         return 0
 
     print(f"VERDICT: {FAILED} on the round trip. See DIVERGENCE lines above.")

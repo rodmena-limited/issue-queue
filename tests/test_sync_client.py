@@ -170,9 +170,9 @@ def test_a_revoked_key_is_indistinguishable_from_an_unknown_one(server, faketrac
     """Deliberate: distinguishing them tells a caller which key ids exist."""
     base, module = server
     with pytest.raises(AuthFailedError) as revoked:
-        SyncClient(base, token=module.REVOKED_KEY).push([_entry()])
+        SyncClient(base, token=module.REVOKED_KEY).push([_entry()], "test-replica")
     with pytest.raises(AuthFailedError) as unknown:
-        SyncClient(base, token="trk_unknown_key").push([_entry()])
+        SyncClient(base, token="trk_unknown_key").push([_entry()], "test-replica")
     assert revoked.value.code == unknown.value.code == "invalid_api_key"
 
 
@@ -196,7 +196,7 @@ def _entry(uid="s256t128:" + "a" * 32, content_hash="h1", **payload):
 
 
 def test_push_creates(client):
-    results = client.push([_entry()])
+    results = client.push([_entry()], "test-replica")
     assert [r["outcome"] for r in results] == ["created"]
     assert results[0]["version"] == 1
 
@@ -208,8 +208,8 @@ def test_a_replayed_push_is_success_not_a_conflict(client):
     look like an error the user has to resolve.
     """
     entry = _entry()
-    client.push([entry])
-    results = client.push([entry])
+    client.push([entry], "test-replica")
+    results = client.push([entry], "test-replica")
     assert results[0]["outcome"] == "existing"
     assert results[0]["version"] == 1
 
@@ -218,7 +218,7 @@ def test_push_with_a_revoked_key_raises_auth_failed(server, faketracker):
     base, module = server
     client = SyncClient(base, token=module.REVOKED_KEY)
     with pytest.raises(AuthFailedError) as excinfo:
-        client.push([_entry()])
+        client.push([_entry()], "test-replica")
     assert excinfo.value.code == "invalid_api_key"
 
 
@@ -226,11 +226,11 @@ def test_work_applied_before_a_revocation_is_not_undone(server, faketracker):
     """The contract: applied changes STAY; only the cursor stops advancing."""
     base, module = server
     good = SyncClient(base, token=module.VALID_KEY)
-    good.push([_entry()])
+    good.push([_entry()], "test-replica")
 
     revoked = SyncClient(base, token=module.REVOKED_KEY)
     with pytest.raises(AuthFailedError):
-        revoked.push([_entry(uid="s256t128:" + "b" * 32)])
+        revoked.push([_entry(uid="s256t128:" + "b" * 32)], "test-replica")
 
     # The first push is still there, seen through the product's own interface.
     assert len(good.pull("c:0").changes) == 1
@@ -240,7 +240,7 @@ def test_work_applied_before_a_revocation_is_not_undone(server, faketracker):
 
 
 def test_pull_returns_what_was_pushed(client):
-    client.push([_entry(title="pulled back")])
+    client.push([_entry(title="pulled back")], "test-replica")
     result = client.pull("c:0")
     assert len(result.changes) == 1
     assert result.changes[0]["payload"]["title"] == "pulled back"
@@ -248,7 +248,7 @@ def test_pull_returns_what_was_pushed(client):
 
 
 def test_pull_from_the_returned_cursor_is_empty(client):
-    client.push([_entry()])
+    client.push([_entry()], "test-replica")
     first = client.pull("c:0")
     assert client.pull(first.cursor).changes == []
 
@@ -259,7 +259,7 @@ def test_a_cursor_past_the_horizon_is_refused(client, faketracker):
     Without it a replica that sat untouched past the horizon silently
     resurrects everything the team deleted, erroring nowhere.
     """
-    client.push([_entry()])
+    client.push([_entry()], "test-replica")
     faketracker.Handler.store.horizon = 10_000
 
     with pytest.raises(CursorTooOldError):
@@ -281,7 +281,7 @@ def test_errors_branch_on_code_not_on_status(client, faketracker):
     protocol_unsupported means stop; cursor_too_old means re-seed. A client
     keying on the status alone would conflate them.
     """
-    client.push([_entry()])
+    client.push([_entry()], "test-replica")
     faketracker.Handler.store.horizon = 10_000
     with pytest.raises(CursorTooOldError) as excinfo:
         client.pull("c:0")
@@ -331,3 +331,69 @@ def test_a_non_json_error_body_does_not_crash_the_client(faketracker):
     with pytest.raises(SyncError) as excinfo:
         client.handshake()
     assert excinfo.value.status == 502
+
+
+# --- the replica_id requirement, found at first contact --------------------
+
+
+def test_push_sends_replica_id_in_the_body():
+    """First contact returned 422 because this field was missing.
+
+        422 {"loc": ["body", "replica_id"], "msg": "Field required"}
+
+    It matters because the issue-number alias is keyed on (project, REPLICA,
+    number). Without a replica id two replicas' #3 collide in the alias table
+    — the very collision the alias exists to resolve.
+
+    Asserted by capturing the bytes actually sent, not by trusting the
+    signature: a default value or a dropped key would satisfy a signature
+    check and still send nothing.
+    """
+    import io
+    import json as _json
+
+    captured = {}
+
+    class Capture:
+        def open(self, request, timeout=None):
+            captured["body"] = _json.loads(request.data)
+
+            class Response(io.BytesIO):
+                status = 200
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *exc):
+                    return False
+
+            return Response(b'{"results": []}')
+
+    client = SyncClient("http://example.invalid", token="t", opener=Capture())
+    client.push([_entry()], "replica-xyz")
+
+    assert captured["body"]["replica_id"] == "replica-xyz"
+    assert "entries" in captured["body"]
+
+
+def test_push_requires_replica_id_rather_than_defaulting_it():
+    """Omitting it must be a TypeError here, not a 422 from Tracker."""
+    client = SyncClient("http://example.invalid", token="t", opener=object())
+    with pytest.raises(TypeError):
+        client.push([_entry()])  # type: ignore[call-arg]
+
+
+def test_rejected_surfaces_per_entry_rejections_inside_a_200():
+    """A 200 is not blanket success.
+
+    Tracker rejects per-uid for entities it has not implemented. A client that
+    read the status alone would advance its cursor past a change that never
+    landed, and nothing would error.
+    """
+    results = [
+        {"uid": "a", "outcome": "created", "version": 1},
+        {"uid": "b", "outcome": "rejected", "reason": "unknown entity: issue_tag"},
+    ]
+    rejected = SyncClient.rejected(results)
+    assert [r["uid"] for r in rejected] == ["b"]
+    assert SyncClient.rejected(results[:1]) == []

@@ -231,17 +231,47 @@ class SyncClient:
             raw=body,
         )
 
-    def push(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def push(self, entries: list[dict[str, Any]], replica_id: str) -> list[dict[str, Any]]:
         """Push outbox entries. Returns one result per entry.
 
         An ``existing`` outcome is SUCCESS, not a conflict: a replay of an
         entry another replica already pushed is expected here, because in a
         git-tracked repo a checkout can hand this replica outbox rows that
         were already sent.
+
+        ``replica_id`` is REQUIRED by the server and is a positional argument
+        rather than an optional keyword, so omitting it is a TypeError here
+        instead of a 422 from Tracker. The first version of this client left
+        it out entirely and first contact returned::
+
+            422 {"loc": ["body", "replica_id"], "msg": "Field required"}
+
+        It matters because the issue-number alias is keyed on (project,
+        REPLICA, number). Without a replica id, two replicas' ``#3`` collide
+        in the alias table — the very collision the alias exists to resolve.
+
+        An entry whose ``entity`` the server does not implement comes back as
+        ``{"outcome": "rejected", "reason": ...}`` inside a 200, per uid. That
+        is deliberate on Tracker's side and the caller MUST NOT treat the 200
+        as blanket success: advancing a cursor past a rejected entry loses a
+        change with nothing erroring.
         """
-        _status, body = self._request("POST", "/v1/sync/push", {"entries": entries})
+        _status, body = self._request(
+            "POST", "/v1/sync/push", {"replica_id": replica_id, "entries": entries}
+        )
         results = body.get("results")
         return list(results) if isinstance(results, list) else []
+
+    @staticmethod
+    def rejected(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Entries the server declined, inside an otherwise-200 response.
+
+        Provided so callers cannot read a 200 as "everything applied". Tracker
+        rejects per-uid for entities it has not implemented yet, and a client
+        that ignored those would advance its cursor past changes that never
+        landed.
+        """
+        return [r for r in results if r.get("outcome") == "rejected"]
 
     def pull(self, cursor: str) -> PullResult:
         """Fetch changes after ``cursor``.
