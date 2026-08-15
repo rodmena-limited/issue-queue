@@ -140,14 +140,44 @@ def exercise_handshake(client: SyncClient) -> tuple[str, list[str]]:
     lines.append(f"  symmetric types     {sorted(shake.symmetric_relation_types) or '(none)'}")
     lines.append(f"  tombstone retention {shake.tombstone_retention_days} days")
 
+    # ONLY the fields openapi.yaml marks required are divergences.
+    #
+    # An earlier version of this probe flagged an empty project_uid as a
+    # defect and reported FAILED against the live server. That was wrong, and
+    # it was wrong in the way that matters: the schema's required list is
+    # [protocol_min, protocol_max, uid_algorithm], and project_uid is NOT in
+    # it. It cannot be — the handshake is unauthenticated by design, so the
+    # server does not yet know which project the caller means.
+    #
+    # A probe that invents a requirement files a defect against another team
+    # for behaviour their contract permits. That is worse than a probe that
+    # misses something, because it is confidently wrong and it costs someone
+    # else an investigation.
     problems = []
     if shake.uid_algorithm != "s256t128":
         problems.append(f"uid_algorithm is {shake.uid_algorithm!r}, contract says 's256t128'")
-    if not shake.project_uid:
-        problems.append("project_uid is empty; the server must mint it")
-    if shake.tombstone_retention_days <= 0:
-        problems.append("tombstone_retention_days must be positive")
+    if not (shake.protocol_min <= 1 <= shake.protocol_max):
+        problems.append(
+            f"advertised range {shake.protocol_min}..{shake.protocol_max} excludes protocol 1"
+        )
 
+    # Optional fields: reported so a human can see them, never asserted.
+    notes = []
+    if not shake.project_uid:
+        notes.append(
+            "project_uid absent — permitted: the handshake is unauthenticated, so the "
+            "server cannot know the project yet. Expect it on an authenticated call."
+        )
+    if not shake.symmetric_relation_types:
+        notes.append(
+            "symmetric set empty — CORRECT for production v1 per the contract; "
+            "FakeTracker's x-test-symmetric exists only so the vectors are not vacuous."
+        )
+    if shake.tombstone_retention_days <= 0:
+        notes.append("tombstone_retention_days not advertised")
+
+    for note in notes:
+        lines.append(f"  note: {note}")
     for problem in problems:
         lines.append(f"  DIVERGENCE: {problem}")
     return (FAILED if problems else PASSED), lines
@@ -274,7 +304,11 @@ def main() -> int:
         return 0
 
     if handshake_result == FAILED:
-        print(f"VERDICT: {FAILED} at the handshake. See DIVERGENCE lines above.")
+        print(
+            f"VERDICT: {FAILED} at the handshake. See the DIVERGENCE or "
+            f"'protocol refused' line above — a protocol refusal is the preflight "
+            f"working, not a field mismatch, and the two need different fixes."
+        )
         return 1
 
     round_trip_result, round_trip_lines = exercise_round_trip(client)
