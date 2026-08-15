@@ -60,8 +60,16 @@ def _migration_002_sync_identity(cursor: Any) -> None:
 
 # The ladder. Append only; never renumber and never edit an entry that has
 # shipped, because some database somewhere has already recorded that it ran.
+def _migration_003_issue_number_alias(cursor: Any) -> None:
+    """Add the issue-number alias table. See _ledger.create_alias_table."""
+    from issuedb.sync._ledger import create_alias_table
+
+    create_alias_table(cursor)
+
+
 MIGRATIONS: list[Migration] = [
     (2, "sync identity: sync_row ledger and sync_outbox triggers", _migration_002_sync_identity),
+    (3, "issue number aliases, keyed by uid", _migration_003_issue_number_alias),
 ]
 
 # The version this code targets. Derived from the ladder so the two can never

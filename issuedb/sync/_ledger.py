@@ -61,6 +61,73 @@ class UidCollision(NamedTuple):
     local_ids: list[int]
 
 
+def create_alias_table(cursor: Any) -> None:
+    """The issue-number alias table.
+
+    Two clones of a repo that commits ``.issue.db`` allocate from the same
+    AUTOINCREMENT counter independently, so both mint a different issue
+    numbered 3. When they sync, the server keeps the first as canonical and
+    records the loser's number as an alias — it cannot renumber it, because
+    ``parse_issue_refs`` resolves ``#3`` out of commit messages already
+    immutable in git history.
+
+    KEYED BY UID, not by number. Keyed by number the table would have the very
+    collision it exists to resolve. ``(replica_id, local_number)`` are
+    attributes, and lookup by number returns a SET.
+
+    No foreign keys, for the same reason as ``sync_row``: an alias must
+    outlive the row so a historical ``#3`` in a five-year-old commit still
+    resolves to something.
+    """
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS issue_number_alias (
+            uid TEXT NOT NULL,
+            local_number INTEGER NOT NULL,
+            replica_id TEXT NOT NULL,
+            canonical_number INTEGER,
+            created_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY (uid, local_number, replica_id)
+        )
+    """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alias_local_number "
+        "ON issue_number_alias(local_number)"
+    )
+
+
+def record_alias(
+    conn: sqlite3.Connection,
+    uid: str,
+    local_number: int,
+    replica_id: str,
+    canonical_number: int | None = None,
+) -> None:
+    """Record that ``uid`` was numbered ``local_number`` on ``replica_id``."""
+    conn.execute(
+        """
+        INSERT INTO issue_number_alias (uid, local_number, replica_id, canonical_number)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(uid, local_number, replica_id)
+        DO UPDATE SET canonical_number = excluded.canonical_number
+        """,
+        (uid, local_number, replica_id, canonical_number),
+    )
+
+
+def aliases_for_number(conn: sqlite3.Connection, local_number: int) -> list[Any]:
+    """Every alias claiming this local number. Deliberately a list."""
+    return list(
+        conn.execute(
+            """
+            SELECT uid, local_number, replica_id, canonical_number
+            FROM issue_number_alias WHERE local_number = ?
+            ORDER BY uid
+            """,
+            (local_number,),
+        )
+    )
+
+
 def create_sync_tables(cursor: Any) -> None:
     """Create the ledger and the outbox. Idempotent."""
     cursor.execute("""

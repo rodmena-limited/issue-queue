@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 (Note: this file was not maintained between 2.3.1 and 2.12.0; see git history
 for the intermediate releases.)
 
+## [2.17.0]
+
+### Added
+- **Ambiguous issue references: present every candidate, select none**
+  (`issuedb/sync/_references.py`, schema migration 3). (#6)
+  - Two clones of a repo that commits `.issue.db` allocate from the same
+    AUTOINCREMENT counter independently, so both mint a different issue
+    numbered 3 — reproduced, not theorised. Renumbering is not available as a
+    repair: `parse_issue_refs` resolves `#3` out of commit messages already
+    immutable in git history, so renumbering silently repoints old commits at
+    someone else's work.
+  - `resolve_reference()` returns every candidate and **never picks one**.
+    `resolved()` returns `None` when several match rather than a first-of, so
+    "just take the first" is not something a caller can write by accident.
+    Not newest-wins, not most-recently-updated-wins — a plausible tie-break is
+    the most dangerous kind, because it looks like a feature.
+  - New `issue_number_alias` table, **keyed by uid** with `(replica_id,
+    local_number)` as attributes. Keyed by number it would have the very
+    collision it exists to resolve. No foreign keys, so an alias outlives the
+    row and a five-year-old `#3` still resolves to something.
+  - Ambiguous and unknown references are reported **separately** — unknown
+    means stale, ambiguous means real and needing a human.
+  - Stdlib only.
+
 ## [2.16.0]
 
 ### Added
