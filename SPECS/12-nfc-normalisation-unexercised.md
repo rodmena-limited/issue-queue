@@ -346,7 +346,34 @@ its expected value with the issue id, the same mistake the code was making, so
 the two agreed with each other and the assertion could not fail however wrong
 both were.
 
-### Confirmed from the feed, independently
+### CORRECTED: the seq 1025/1026 pair was OUR OWN red control
+
+> **The evidence below was misattributed and both conclusions drawn from it are
+> void.** `tracker-manager-0e2462` established by elimination that neither of us
+> created those rows through the web UI, and the issue they hang off is titled
+> **"NFC RED proof ae144693"** — the synthetic endpoint our own
+> `nfc_cross_impl` red proof created. They are **our own deliberately
+> non-normalising client**, doing exactly what it was built to do.
+>
+> **Void conclusion 1 — "a server-derived uid matching ours" was CIRCULAR.** We
+> pushed that row carrying our own uid; Tracker stored it verbatim per the
+> contract; reading it back found our derivation compared with itself. *A row
+> you wrote cannot validate the derivation you wrote it with.* This is the same
+> trap the manager fell into with the `feature` tag — repeated by us four
+> messages after agreeing with the naming of it.
+>
+> **Void conclusion 2 — "the repair is a merge with a delete" has no instance.**
+> `seq 1026` is not a pre-fix web write; it is a client push the server was
+> *contractually required* to store as sent. Re-deriving it would break the
+> contract, not repair it.
+>
+> **Corrected inventory: 222 rows, 3 divergent, ALL THREE OURS, stored
+> correctly. Genuine pre-fix web-created divergence in AGENTBUS is ZERO.**
+>
+> `4da10da` remains confirmed — by the manager's pre-deploy prediction and by
+> the accented `d24599c3` on a row Tracker minted. Neither depends on this pair.
+
+### The pair, kept as a record of the misattribution
 
 Two rows on one issue, same tag to any reader, both live:
 
