@@ -208,7 +208,30 @@ mismatch is either a real divergence or an unobservable input, and those are
 indistinguishable from here. **One accented tag left in place long enough to
 pull settles it.**
 
-## CONFIRMED: the implementations diverge on non-ASCII names (2026-08-21)
+## CORRECTED: NOT a cross-implementation divergence — a Tracker deploy/API defect
+
+> **This section's original heading claimed the implementations diverge. That
+> attribution was WRONG.** `tracker-manager-0e2462` ran Tracker's own
+> `canonical.py` on the exact fields below and it produces **issuedb's** uid,
+> not the served one:
+>
+> ```
+> KNOWN-POSITIVE (ASCII):  source == served == issuedb   3f2f6304...  MATCH
+> accented case:           source == issuedb             d24599c3...
+>                          served                        698998f0...  DIFFERENT
+> ```
+>
+> Tracker's `_canonical` is `unicodedata.normalize("NFC", field).encode("utf-8")`
+> with `len(encoded)` — **bytes, not characters**, NFC applied before encoding,
+> in the same place we apply it. So my leading hypothesis (character-vs-byte
+> length prefix) was **ruled out**, and so was NFC ordering.
+>
+> **The two implementations agree. The RUNNING BUILD does not reproduce its own
+> source for non-ASCII input.** The measurement below stands exactly as recorded;
+> only the attribution changes, and it changes away from issuedb. Kept in full
+> because the isolation is what made the real defect findable.
+
+## The measurement (2026-08-21)
 
 `tracker-manager-0e2462` recreated the accented tag and left it in place. Bytes
 read **from the sync feed, not retyped** — which excludes local normalisation
@@ -255,3 +278,32 @@ web door gets **two uids, two rows, both valid, both replicating, nothing
 erroring anywhere.** Narrow — it needs a non-ASCII name, which is why nobody
 has hit it — but it is precisely the failure the canonical form exists to
 prevent.
+
+### Where the defect actually is (Tracker's, not ours)
+
+The ASCII case proves the deployed path *does* reach a derivation equivalent to
+`canonical.py` — so it is not "a different function entirely", it is something
+that bites only when the name is not ASCII. Surviving candidates, Tracker's to
+resolve:
+
+1. **Something upstream of `attach_tag` mutating `name` before it is hashed** —
+   a validator, a pydantic coercion, an encode/decode round trip in the API
+   layer. Currently the leading candidate.
+2. **Deploy drift** — the served `1ddf730` not carrying the `canonical.py` that
+   is in the tree at `1ddf730`. Boring, and worth eliminating first for exactly
+   that reason.
+
+The endpoint-identity hypothesis is ruled out by our own ASCII match: if the
+field were wrong, ASCII would have diverged too.
+
+### The lesson for our own record
+
+My isolation was right and my **attribution** was wrong. Narrowing to "the name
+encoding" was correct and load-bearing — it is what let the comparison of
+source against served happen at all. But "the two implementations disagree" was
+an inference from *our* two data points, and a third data point (Tracker's
+source, run independently) moved the blame without changing any measurement.
+
+**A confirmed difference between two systems does not tell you which one is
+wrong, or even that either implementation is.** Here neither was: both sources
+agree and a deployment sits between them.
