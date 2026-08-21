@@ -195,7 +195,7 @@ trusts the client-supplied uid" is safe *only because* the implementations
 agree — a load-bearing assumption that went unverified for the entire life of
 the protocol until this measurement.
 
-## RESOLVED: the accented case is a REAL DIVERGENCE
+## The accented case (superseded — see the correction below)
 
 Deriving against Tracker's NFC-form probe uid gave a **mismatch**, but it is
 **unusable**: the probe tags were deleted before they could be pulled, so their
@@ -208,28 +208,47 @@ mismatch is either a real divergence or an unobservable input, and those are
 indistinguishable from here. **One accented tag left in place long enough to
 pull settles it.**
 
-## CORRECTED: NOT a cross-implementation divergence — a Tracker deploy/API defect
+## CORRECTED TWICE: not cross-implementation, and not non-ASCII-specific
 
-> **This section's original heading claimed the implementations diverge. That
-> attribution was WRONG.** `tracker-manager-0e2462` ran Tracker's own
-> `canonical.py` on the exact fields below and it produces **issuedb's** uid,
-> not the served one:
+> **This section originally claimed the two implementations diverge. Then it
+> claimed the served build "does not reproduce its own source for non-ASCII
+> input". BOTH were wrong**, and the second was wrong twice over — the
+> divergence is not non-ASCII-specific, and the source was faithfully producing
+> what the code told it to.
 >
-> ```
-> KNOWN-POSITIVE (ASCII):  source == served == issuedb   3f2f6304...  MATCH
-> accented case:           source == issuedb             d24599c3...
->                          served                        698998f0...  DIFFERENT
-> ```
+> **The true statement is narrower: the web write path passed the issue PRIMARY
+> KEY where the protocol requires the issue SYNC UID.** Tracker found it
+> themselves and fixed it in `674491f`; their own
+> `test_web_created_edge_uids.py` docstring had predicted it in advance.
 >
-> Tracker's `_canonical` is `unicodedata.normalize("NFC", field).encode("utf-8")`
-> with `len(encoded)` — **bytes, not characters**, NFC applied before encoding,
-> in the same place we apply it. So my leading hypothesis (character-vs-byte
-> length prefix) was **ruled out**, and so was NFC ordering.
->
-> **The two implementations agree. The RUNNING BUILD does not reproduce its own
-> source for non-ASCII input.** The measurement below stands exactly as recorded;
-> only the attribution changes, and it changes away from issuedb. Kept in full
-> because the isolation is what made the real defect findable.
+> issuedb's derivation was correct at every step. Only the attribution moved.
+
+### Why the "non-ASCII only" conclusion was false
+
+It rested on a control that could not fail. The ASCII `feature` tag was assumed
+to be web-created (therefore server-derived) and never verified. It had almost
+certainly arrived by **sync push carrying issuedb's own uid**, which Tracker
+stores verbatim — so the control compared issuedb's derivation against
+issuedb's derivation.
+
+Confirmed independently here, over the whole feed:
+
+```
+issue_tag rows checked : 219
+  match our derivation : 216      <- sync-pushed, carrying our uid
+  diverge              :   3      <- the interesting set
+```
+
+Of the three divergent rows, **two are pure ASCII** (`plain-0867cf9e`,
+`tag2-376f69ec`). Divergence was never confined to non-ASCII.
+
+> **The rule, from `tracker-manager-0e2462`:** *a control drawn from existing
+> data must have its provenance ESTABLISHED, not assumed.* A sample of one
+> agreeing row, among many that disagreed, was treated as validation instead of
+> as the anomaly it was.
+
+Our own leading hypothesis — length prefix counting characters rather than
+bytes — was also wrong: both sides use `len(field.encode("utf-8"))`.
 
 ## The measurement (2026-08-21)
 
@@ -279,7 +298,12 @@ erroring anywhere.** Narrow — it needs a non-ASCII name, which is why nobody
 has hit it — but it is precisely the failure the canonical form exists to
 prevent.
 
-### Where the defect actually is (Tracker's, not ours)
+### Superseded candidate list (kept to show what was ruled out wrongly)
+
+> Both candidates below were **wrong**. There is no upstream name mutation and
+> no deploy drift. The real cause was the issue primary key being hashed in
+> place of the issue sync uid. Kept only because the reasoning that produced
+> them is instructive.
 
 The ASCII case proves the deployed path *does* reach a derivation equivalent to
 `canonical.py` — so it is not "a different function entirely", it is something
