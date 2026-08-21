@@ -43,3 +43,45 @@ be present in the CSS while `body` still resolves to mono through an `inherit`
 chain — that is exactly how this defect survives a source review. Assert the
 computed family on `body` and on an `h1`, and state the measured first-visit
 byte total.
+
+## Verification method (upgraded)
+
+Testing whether a proportional family is **declared** is not sufficient — a
+family can be declared while `body` still resolves to mono through an
+`inherit`/`var()` chain, and every file greps clean. That is exactly how this
+defect survives a source review.
+
+Tracker implemented this correction as `resolve_font.py`: follow `var()`
+indirection through the **served** CSS and report what `body` actually
+*computes* to. On their build it resolved to the JetBrains Mono stack — the
+defect confirmed rather than assumed.
+
+**A check needs three states, not two.** Their first version exited 0 when it
+found *no* `font-family` at all — a vacuous pass from an empty search. Absence
+must exit `PROBE BROKEN` and refuse to conclude:
+
+| Result | Meaning |
+|---|---|
+| exit 1 | body resolves to a monospace stack — the defect |
+| exit 0 | body resolves to a proportional face — fixed |
+| exit 2 | nothing found to inspect — PROBE BROKEN, no verdict |
+
+The matcher must also be shown able to say YES (fed `Inter`, `ui-sans-serif`,
+`system-ui`, `sans-serif` it reports proportional) before its NO is trusted.
+
+## Subsetting target
+
+Tracker's measured result, for the same problem:
+
+```
+InterVariable-subset.woff2           62,048
+JetBrainsMono-Regular-subset.woff2   17,376
+JetBrainsMono-Bold-subset.woff2      18,012
+total                                97,436   vs 376,440 before  = -74%
+```
+
+One variable file for every weight rather than four statics. Mono cut to
+Regular + Bold — **italic and medium existed only to set prose**, so they were
+serving the bug, not code. Self-hosted rather than Google Fonts: a CDN font is
+a third party watching every page load, which for a tool rendering someone's
+private issue tracker is not a neutral trade.
