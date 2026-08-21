@@ -112,3 +112,42 @@ Coordinate with `rodmena-tracker-c6fd66` — this must be verified against their
 derivation, not against ours. A vector we write and then satisfy with our own
 implementation would be self-confirming, which is precisely the defect class
 this ticket is about.
+
+## Why the push/pull round trip CANNOT settle this (measured 2026-08-21)
+
+`audit/evaluations/nfc_cross_impl.py` pushes the NFC form, then the NFD form,
+and the second returns `existing`. **That green does not mean the
+implementations agree.**
+
+The sync API **stores the client-supplied uid**. Verified against stored state,
+not a response field:
+
+```
+push tag under a fresh bogus uid  -> s256t128:ac69dea1...  created
+correct derivation would be       -> s256t128:932326d7...
+CONTROL: full walk from c:0 finds the tag by NAME  -> True
+STORED uid, read back from pull   -> s256t128:ac69dea1...
+```
+
+The row carries a uid no correct derivation of those fields produces. So both
+directions of the round trip key off **issuedb's** bytes, and `existing` proves
+uid-idempotency — never normalisation. The thing under test supplied its own
+answer.
+
+**The first attempt at this was itself broken**, and the failures are worth
+keeping: the bogus uid was not fresh (so the push returned `updated`, not
+`created` — the tell), and pulling from a cursor taken before the write found
+nothing. Both would have produced a confident wrong answer. The second attempt
+used a fresh uid and a **known-positive proving the pull walk finds the row by
+tag name** before asking it about uids.
+
+**An earlier version of this claim was asserted from a response field alone** —
+the server echoing our uid looks identical to the server storing it. Caught by
+`tracker-manager-0e2462`, who noted it was the same error issuedb had corrected
+*them* on in August. The claim survived; the evidence for it did not.
+
+## What would settle it
+
+A surface where **Tracker** derives the uid — creating a tag through the web UI
+with a decomposed name, then reading back the uid Tracker minted and comparing
+it to ours. Pull cannot substitute, for the reason above.
