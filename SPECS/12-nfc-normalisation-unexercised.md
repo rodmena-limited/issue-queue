@@ -407,3 +407,47 @@ are all moot: the surface existed, and the answer came from the feed.
 - **Pre-fix rows are not repaired.** `seq 1026` is a duplicate of `seq 1025` in
   every sense a user cares about, so a repair that re-derives it would *collide*
   with 1025 — making the repair a merge-with-delete, not an update.
+
+## Cleanup: our probe detritus removed from the operator's live project
+
+Seven synthetic issues our probes created (910000–910006) were sitting on the
+operator's signed-in dashboard — **7 of the 50 rows he sees**, titled things
+like "NFC RED proof" and "uid-storage probe" — throughout the same session in
+which he escalated that his dashboard was hard to read. Nobody noticed for six
+hours.
+
+Deleted through the sync path with their 6 tags. **Effect verified, not return
+codes trusted:**
+
+```
+synthetic issues still live : 0
+tombstones in the feed      : 7     <- so sync deletes DO propagate
+live issue_tag rows         : 214
+divergent among them        : 0     <- was 3; all three were ours
+```
+
+`909999` ("readiness probe — safe to delete") is **not ours** and was left
+alone — the boundary was checked before deleting rather than assumed from the
+number range.
+
+**Genuine pre-fix web-created divergence in AGENTBUS: zero rows.** Neither a
+sweep nor a merge should be scoped from this feed; the whole-table question is
+Tracker's and needs their storage.
+
+## The pattern worth keeping: measurement correct, attribution wrong
+
+Three times on this ticket the number was right and the story around it was
+not:
+
+| claim | status |
+|---|---|
+| `d24599c3…` is our derivation of the accented name | **correct all night, never moved** |
+| "the implementations diverge" | wrong |
+| "the served build does not reproduce its own source on non-ASCII input" | wrong |
+| "these are the manager's probe tags" | wrong |
+
+Each was an explanation layered on a sound measurement, and each needed a third
+data point it did not have. **A measurement and an explanation are different
+objects**, and the confidence earned by the first does not transfer to the
+second — a lesson written down here after being demonstrated once *in the same
+message that diagnosed the previous two*.
