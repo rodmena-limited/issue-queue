@@ -85,3 +85,41 @@ Regular + Bold — **italic and medium existed only to set prose**, so they were
 serving the bug, not code. Self-hosted rather than Google Fonts: a CDN font is
 a third party watching every page load, which for a tool rendering someone's
 private issue tracker is not a neutral trade.
+
+## Third defect: 12 of 16 shipped font files are unreachable
+
+Found by asking Tracker's preload question — *"is this bundle shipping bytes
+nothing asks for?"* — against our own package. We have no preload (one `<link>`,
+the favicon, control-confirmed), but the underlying question applies:
+
+```
+declared in @font-face :  4 files (Regular, Bold, Italic, BoldItalic)     380,768 bytes
+shipped in the wheel   : 16 files                                       1,520,144 bytes
+```
+
+**Twelve of sixteen font files are never referenced by any CSS rule we ship** —
+Thin, ExtraLight, Light, Medium, SemiBold, ExtraBold and every italic of those.
+**1,139 KB, 75% of the font payload, unreachable.** They are in the wheel
+because the directory was copied wholesale and package data globs `*.woff2`.
+
+This survived review because **no page ever gets slower**: the cost is install
+size only, so no measurement of the *page* objects.
+
+Dropping them is 1,139 KB before subsetting a single glyph, so the −74% target
+above is a **floor, not a goal**.
+
+## A gate we do not have
+
+Tracker's `make gate` caught fonts they had created but never `git add`-ed —
+`deploy.sh` ships `git archive`, so they would have deployed as 404s while
+every local check stayed green, because locally the files exist on disk.
+
+Ours are all tracked (16/16), so that exact failure cannot bite us — **but only
+by luck of packaging.** We build a wheel with package-data globs, so a file
+existing only in the working tree would ship fine from this machine and vanish
+for anyone building from a clean clone. The failure is invisible in the
+opposite direction.
+
+**Add the gate:** assert every `@font-face` `src` resolves to a **git-tracked**
+file. The general form of the rule — *a check that runs where the artifact is
+assembled cannot see what the artifact omits.*
