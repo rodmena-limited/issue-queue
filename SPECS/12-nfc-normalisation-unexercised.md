@@ -331,3 +331,52 @@ source, run independently) moved the blame without changing any measurement.
 **A confirmed difference between two systems does not tell you which one is
 wrong, or even that either implementation is.** Here neither was: both sources
 agree and a deployment sits between them.
+
+## ANSWERED: the implementations agree, ASCII and non-ASCII (2026-08-21, `4da10da`)
+
+The ticket's question — *does anything prove the two implementations normalise
+the same way?* — is now answered on the served build, through the product.
+
+Tracker's root cause (theirs, found by asking "who computes the key?" of their
+own code): **the web write path passed the issue PRIMARY KEY where the contract
+requires the issue SYNC UID.** Fixed in `674491f`, deployed as `4da10da`.
+
+Their guarding test had been **self-confirming for five months** — it computed
+its expected value with the issue id, the same mistake the code was making, so
+the two agreed with each other and the assertion could not fail however wrong
+both were.
+
+### Confirmed from the feed, independently
+
+Two rows on one issue, same tag to any reader, both live:
+
+```
+seq 1025  name b'caf\xc3\xa9-ae144693'    (NFC)
+          stored  s256t128:42d7b08a...   ours s256t128:42d7b08a...   MATCH
+seq 1026  name b'cafe\xcc\x81-ae144693'   (NFD)  <- same characters, different bytes
+          stored  s256t128:c27e7455...   ours s256t128:42d7b08a...   DIVERGENT
+          same issue_uid as 1025
+```
+
+`seq 1025` is a **server-derived uid equalling our independent derivation** on a
+real row — the cross-implementation evidence this ticket was opened to obtain.
+`seq 1026` is a pre-fix row, and the pair is the before-and-after in one query.
+
+The accented value we derived at the very first attempt — `d24599c3…` — was
+correct the entire time and never moved. Every intervening claim about which
+side was wrong (ours, then the manager's) was noise around a stable number.
+
+### What this ticket no longer needs
+
+The throwaway project, the web-UI experiment and the server-derivation endpoint
+are all moot: the surface existed, and the answer came from the feed.
+
+### What remains, and is Tracker's
+
+- The **collision path still returns 500**: a name that normalises onto an
+  existing tag uid while differing in raw bytes gets an internal error instead
+  of the `existing` answer the protocol specifies. Refuses loudly, stores
+  nothing wrong.
+- **Pre-fix rows are not repaired.** `seq 1026` is a duplicate of `seq 1025` in
+  every sense a user cares about, so a repair that re-derives it would *collide*
+  with 1025 — making the repair a merge-with-delete, not an update.
