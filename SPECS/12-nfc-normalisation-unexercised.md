@@ -195,7 +195,7 @@ trusts the client-supplied uid" is safe *only because* the implementations
 agree — a load-bearing assumption that went unverified for the entire life of
 the protocol until this measurement.
 
-## Still open: the accented case
+## RESOLVED: the accented case is a REAL DIVERGENCE
 
 Deriving against Tracker's NFC-form probe uid gave a **mismatch**, but it is
 **unusable**: the probe tags were deleted before they could be pulled, so their
@@ -207,3 +207,51 @@ The method is sound — it reproduces Tracker's ASCII uid exactly — so the
 mismatch is either a real divergence or an unobservable input, and those are
 indistinguishable from here. **One accented tag left in place long enough to
 pull settles it.**
+
+## CONFIRMED: the implementations diverge on non-ASCII names (2026-08-21)
+
+`tracker-manager-0e2462` recreated the accented tag and left it in place. Bytes
+read **from the sync feed, not retyped** — which excludes local normalisation
+as an artefact:
+
+```
+tag_name bytes : b'nfc-probe-caf\xc3\xa9'    is NFC: True   is NFD: False
+issue_uid      : s256t128:b16f16f6a1221a385a52cccdf9ae9186   (AGENTBUS-188)
+
+Tracker derived : s256t128:698998f045245913e5bbe791afcb2b87
+issuedb derives : s256t128:d24599c3bcd749e35d14eadf5448c048
+MATCH           : False
+```
+
+### The isolation
+
+Same issue, same `project_uid`, **only the tag name differs**:
+
+| input | ours == Tracker's |
+|---|---|
+| ASCII `"feature"` | **TRUE** |
+| accented name | **FALSE** |
+
+So `project_uid`, `issue_uid`, field order, the entity tag and length-prefixing
+**all agree** — proven by the ASCII match on the same row. The divergence is in
+how a **non-ASCII name** is encoded.
+
+"issuedb used the wrong field" was ruled out by searching the input space —
+NFD name, no `project_uid`, project-as-key, issue-key-not-uid, issue-number:
+none produces `698998f0`.
+
+### Leading hypothesis (Tracker's to confirm, not ours)
+
+**The length prefix may count CHARACTERS rather than BYTES.** For this name
+that is 14 vs 15, and the two agree on *every* ASCII input ever tested — which
+matches the signature exactly: latent for the entire life of the protocol,
+diverging on the first non-ASCII input.
+
+### Severity
+
+**Worse than Tracker's live 500.** The 500 refuses a write — loud, nothing
+stored wrong. This is silent: one logical tag entering by the sync door and the
+web door gets **two uids, two rows, both valid, both replicating, nothing
+erroring anywhere.** Narrow — it needs a non-ASCII name, which is why nobody
+has hit it — but it is precisely the failure the canonical form exists to
+prevent.
