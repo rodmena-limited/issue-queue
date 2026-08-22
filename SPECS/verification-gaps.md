@@ -100,3 +100,49 @@ That is not safety — it is the other failure. Source cannot go stale, and
 **source is also not what a user gets**. Every UI finding recorded here
 (#15, #16, #20, #21) is a statement about the stylesheet, not about the served
 page.
+
+## 5. Re-deriving what the platform already answers
+
+`tracker-manager-0e2462` retracted "/keys: 6 of 6 controls unlabelled" after
+issuedb's `el.labels` correction. Their check was
+`document.querySelector("label[for=" + id + "]")`; the page uses **wrapping
+labels**, which need no `for=` and no `id`, so a correct page read as entirely
+unlabelled. Measured both ways on the same build:
+
+```
+/keys       unlabelled by for= grep : 6      <- what was reported
+            unlabelled by el.labels : 0      <- the truth
+/knowledge  unlabelled by el.labels : 6      <- the finding STANDS here
+```
+
+The same reported defect was **false on one page and true on the other**, and
+the instrument could not tell them apart.
+
+> **When the platform exposes the answer, use the platform.** `el.labels`,
+> `getComputedStyle`, `getBoundingClientRect`, `matchMedia` are the browser
+> telling you what is *actually* true. The platform does not have a stale copy,
+> a wrong pattern, or a missing case.
+
+### Audit of our own UI findings against that rule
+
+**All four re-derive something a browser would answer authoritatively** — we
+have no platform to ask, so we reimplemented it:
+
+| ticket | ours | the platform's answer |
+|---|---|---|
+| #15 fonts | parsed `@font-face` from CSS text | `getComputedStyle(body).fontFamily` |
+| #16 labels | counted `<label>` in source | `el.labels.length` |
+| #20 contrast | ratios from token literals | `getComputedStyle` colour + background |
+| #21 motion | grepped `:active` / `@media` | CSSOM + `matchMedia` |
+
+**The test that matters is whether a valid alternative form exists** that the
+check cannot see — that is what made `/keys` a phantom.
+
+- **#16 — safe.** Already re-checked for wrapping labels: **0 of either form**
+  against 15 visible controls. No alternative form exists.
+- **#21 — safe, checked not assumed.** No `:active`, and no JS alternative
+  either: `matchMedia` 0, `prefers-reduced-motion` 0, active/press class 0,
+  `mousedown` 0 (control: `addEventListener` matches 1, so the search works).
+- **#15, #20 — risk is UNDERCOUNT, not phantom.** A colour or family set inline
+  or by JS would be missed, but a failing token pair still fails wherever it is
+  used. Incomplete rather than false.
