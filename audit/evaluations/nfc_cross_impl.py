@@ -32,6 +32,15 @@ It does NOT prove Tracker's own derivation normalises. That can only be settled
 by a surface where the SERVER derives the uid — the web UI creating a tag, or a
 server-side derivation endpoint — and comparing that uid against ours.
 
+THE PROBE WRITES TO A PEER'S PRODUCTION DATABASE, SO IT CLEANS UP ON EVERY
+PATH. The rows it needs cannot be reused between runs: the NFC test requires a
+uid the server has never seen, so a fresh endpoint issue and two fresh tag rows
+are created per run. Earlier versions deleted none of them on ANY path — six
+rows were left in Tracker's feed and a peer removed them for us. Cleanup now
+runs in a ``finally``, so the PROBE BROKEN exit sheds its rows exactly like the
+two verdicts do; `tracker-fbe1b4` found the same asymmetry in their browser
+probes, where only the honest exit leaked.
+
 THREE STATES, not two:
     exit 0  both forms converge to one row via push     — no duplicate here
     exit 1  the second push created a second row        — a real defect
@@ -44,6 +53,7 @@ import pathlib
 import sys
 import unicodedata
 import uuid
+from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -73,13 +83,14 @@ def naive_uid(entity: str, *fields: str) -> str:
     return "s256t128:" + hashlib.sha256(raw).hexdigest()[:32]
 
 
-def main() -> int:
+def _probe(created: list[tuple[str, str]], box: list[SyncClient]) -> int:
     server = (sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SERVER).rstrip("/")
     cred = load_credential(server)
     if cred is None:
         print(f"PROBE BROKEN: not signed in to {server}")
         return BROKEN
     client = SyncClient(server, token=cred.token)
+    box.append(client)
 
     try:
         shake = client.handshake()
@@ -120,6 +131,7 @@ def main() -> int:
     if not res or res[0].get("outcome") != "created":
         print(f"PROBE BROKEN: endpoint issue not created: {res}")
         return BROKEN
+    created.append(("issue", issue_uid))
     print(f"precondition: endpoint issue created ({res[0].get('number')})\n")
 
     uid_nfc = derived_uid("issue_tag", project, issue_uid, nfc)
@@ -144,7 +156,7 @@ def main() -> int:
         return BROKEN
     print("  differ: YES — so this input CAN expose a non-normalising implementation\n")
 
-    def push_tag(uid: str, tag_name: str, label: str) -> dict | None:
+    def push_tag(uid: str, tag_name: str, label: str) -> dict[str, Any] | None:
         try:
             out = client.push(
                 [{"uid": uid, "entity": "issue_tag", "op": "upsert",
@@ -155,6 +167,8 @@ def main() -> int:
         except SyncError as exc:
             print(f"  {label}: push failed: {exc}")
             return None
+        if out and out[0].get("outcome") in ("created", "existing"):
+            created.append(("issue_tag", uid))
         return out[0] if out else None
 
     print("THE SERVER'S ANSWER — only it can settle this:")
@@ -190,6 +204,47 @@ def main() -> int:
         return DISAGREE
     print(f"PROBE BROKEN: unexpected outcome {outcome!r}")
     return BROKEN
+
+
+def _shed(box: list[SyncClient], created: list[tuple[str, str]]) -> None:
+    """Delete every row this run created, whatever the verdict was.
+
+    Verified against a known-positive before being relied on: ``op: "delete"``
+    returns ``outcome: "deleted"`` and the row appears tombstoned in a
+    subsequent pull. ``op: "tombstone"`` and ``op: "remove"`` are rejected with
+    ``invalid_request``, so a typo here fails loudly rather than silently
+    skipping the cleanup.
+    """
+    if not box or not created:
+        return
+    client = box[0]
+    failed = []
+    for entity, uid in reversed(created):
+        try:
+            out = client.push(
+                [{"uid": uid, "entity": entity, "op": "delete",
+                  "content_hash": uuid.uuid4().hex, "payload": {}}],
+                replica_id="issuedb-nfc-probe",
+            )
+        except SyncError as exc:
+            failed.append(f"{entity} {uid}: {exc}")
+            continue
+        if not out or out[0].get("outcome") != "deleted":
+            failed.append(f"{entity} {uid}: {out}")
+    print(f"\ncleanup: {len(created) - len(failed)}/{len(created)} probe rows deleted")
+    for line in failed:
+        # Loud, because a silent cleanup failure is how the debris accumulated
+        # in the first place.
+        print(f"  CLEANUP FAILED: {line}", file=sys.stderr)
+
+
+def main() -> int:
+    created: list[tuple[str, str]] = []
+    box: list[SyncClient] = []
+    try:
+        return _probe(created, box)
+    finally:
+        _shed(box, created)
 
 
 if __name__ == "__main__":
