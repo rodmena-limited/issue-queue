@@ -135,3 +135,28 @@ dangling live rows pointing at tombstoned issues
 
 That is the third round of our debris found by re-measuring rather than by
 trusting a previous "cleanup complete".
+
+## Independently verified, and the reversed direction is now pinned too (v2.31.1)
+
+`tracker-manager-0e2462` ran both implementations side by side in one process
+and checked the frozen vector against Tracker rather than against us:
+
+```
+issuedb dependency_uid(proj, a, b)   s256t128:7da4253e7ab609dbba1d3ccb5ae0a76b
+Tracker dependency_uid(proj, a, b)   s256t128:7da4253e7ab609dbba1d3ccb5ae0a76b   AGREE
+issuedb reversed (b, a)              s256t128:fdd3517cdd41945126d906da1236fc25
+Tracker reversed (b, a)              s256t128:fdd3517cdd41945126d906da1236fc25   AGREE
+```
+
+Their report carried a value we did not have: **Tracker's own uid for the
+reversed order of our vector's case 1**,
+`s256t128:daf1cd11f6bd12b9bce749d51dffbd80`. Confirmed equal to ours and pinned.
+
+That closes a real weakness. Case 1 previously asserted only
+`expected_uid_differs_from` — **an inequality is satisfied by any other value**,
+including one produced by a field order neither implementation uses. Both
+directions are now cross-implementation pins.
+
+Proven red: reversing the helper's field order fails 4 tests, including the new
+one.
+

@@ -55,6 +55,22 @@ def test_reversing_the_endpoints_does_not_collide(vector):
     assert got != case["expected_uid_differs_from"]
 
 
+def test_the_reversed_order_is_also_pinned_to_tracker(vector):
+    """Both directions are cross-implementation pins, not just the forward one.
+
+    Asserting only "the reversal differs" would be satisfied by ANY other value,
+    including one produced by a field order neither implementation uses. The
+    positive value here was derived by Tracker's canonical.py and reported by
+    `tracker-manager-0e2462`; it is pinned so a divergence in the reversed
+    direction is caught too.
+    """
+    case = vector["cases"][1]
+    f = case["fields"]
+    assert dependency_uid(f["project_uid"], f["blocker_uid"], f["blocked_uid"]) == (
+        case["expected_uid"]
+    )
+
+
 def test_the_two_orders_really_are_different_inputs(vector):
     """Control for the test above: it is only meaningful if the endpoints differ."""
     a, b = vector["cases"][0]["fields"], vector["cases"][1]["fields"]
