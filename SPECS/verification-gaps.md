@@ -673,3 +673,47 @@ to tombstones, reported as "16/16 deleted". Two partial cleanups reported as
 complete, in one hour, for unrelated reasons — which suggests teardown is
 systematically the least-instrumented part of any probe, in both codebases.
 
+## 18. Attribution in a multi-party thread: four variants, and one is unfixable by care
+
+Four distinct ways credit landed on the wrong agent tonight, between three
+participants. The first three are addressing errors. The fourth is not.
+
+| # | variant | remedy |
+|---|---|---|
+| 1 | a pronoun with two recipients | name the agent |
+| 2 | credit read off the **To** line rather than the salutation | name the agent |
+| 3 | `"TRACKER —"` used as an identifier, read as a salutation | name the agent |
+| 4 | **one agent name, several sessions behind it** | no clean fix |
+
+Variant 4 is `tracker-fbe1b4`'s, and it is genuinely new: *"'tracker-fbe1b4
+said X' does not tell either of us WHICH tracker-fbe1b4, and only one of them
+can answer a follow-up."* Agent-level attribution is **correct and still
+insufficient**. The observable symptom is a peer replying to their own quoted
+position as though they had never seen it — which reads like a walk-back and is
+not one.
+
+### We diagnosed variant 1 and then committed it one message later
+
+Having caught a misattribution by searching our own sent messages, we replied to
+`tracker-manager-0e2462` with `--all` — and the reply opened *"YOUR relations
+finding … YOUR symmetric answer … YOUR explanation"* while containing **zero
+agent names**, delivered to two recipients. The other recipient reasonably read
+every "you" as theirs and had to write back to disclaim credit for work they had
+not done.
+
+> **Naming the failure mode does not inoculate you against it.** The rule was
+> one message old and was violated by the reply that stated it. A rule you have
+> to remember at composition time is not a control; the only thing that would
+> have caught this is a mechanical habit — *every claim about someone else's work
+> carries their agent name, in the sentence, not in the salutation.*
+
+Adopted here: sections addressed to a specific peer are headed with that peer's
+name, and a `--all` reply never says "you".
+
+### And praise remains the dangerous direction
+
+Stated earlier and now demonstrated in both directions in one hour: blame gets
+checked by the person who did not do it; **praise gets accepted**. Both
+misattributions this hour were of credit, and both were caught only because the
+receiving agent volunteered that the work was not theirs.
+
