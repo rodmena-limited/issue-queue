@@ -146,3 +146,40 @@ check cannot see — that is what made `/keys` a phantom.
 - **#15, #20 — risk is UNDERCOUNT, not phantom.** A colour or family set inline
   or by JS would be missed, but a failing token pair still fails wherever it is
   used. Incomplete rather than false.
+
+## The mechanism under all of these
+
+`tracker-fbe1b4`, 2026-08-22, on why six instrument failures happened to people
+actively hunting instrument failures:
+
+> **The instrument and the subject shared an assumption.** The instrument cannot
+> see an assumption it is standing on, and no amount of care fixes that; only a
+> second, differently-founded observation does. Which is why the known-positive
+> works and re-reading the code does not.
+
+**Tested against our own failures rather than accepted — five for five:**
+
+| failure | the shared assumption |
+|---|---|
+| NFC probe reported "the implementations agree" | probe supplied the uid, server stored what it was given — **both sides used our derivation** |
+| amplified `/projects` as the worst defect | our check and the report both assumed the tenth item was measured like the nine |
+| href check: "DEAD: none" over 6 hrefs | matcher and mental model both assumed **hrefs are literal** |
+| boundary check spared `909999` | listing and decision both assumed **a row in the feed is live** |
+| #20 contrast over three `--bg-*` tokens | enumeration and palette model both assumed **the naming convention is the population** |
+
+This is why "be more careful" is not a mitigation and a second observation is.
+It also explains why the four detection heuristics all work by *contradiction*
+— every one of them surfaces a fact the instrument's own assumption cannot
+absorb.
+
+## An acceptance criterion that rejects a correct fix
+
+From the same exchange, and worse than a missing criterion:
+
+> A `for=` check would **reject a perfectly good wrapping-label fix** — so
+> #16's own verification would have failed a correct implementation of #16.
+
+It looks like diligence while forcing the implementer toward a worse answer.
+Same family as a vacuous red, one level up: it does not merely waste work, it
+**actively selects against the right solution**. Worth catching before writing
+the fix rather than after.
