@@ -51,6 +51,29 @@ outward-facing, effectively irreversible action** — a version number, once tak
 on PyPI, cannot be reused — and it is the operator's decision. Nothing here was
 uploaded.
 
+## REQUIRED after publishing — this record is one step short without it
+
+`financial-freedom-projec-195737` pointed out the gap, and it is the same
+distinction one level further out. The check above installed **the locally built
+wheel**. That is the builder's experience, not the user's.
+
+So if a release is made, the release is not done until:
+
+```
+python3 -m venv /tmp/verify && /tmp/verify/bin/pip install issuedb    # from PyPI, not a local file
+/tmp/verify/bin/python -c "import importlib.metadata as m, issuedb; \
+    print(m.version('issuedb'), issuedb.__version__)"                # both records must agree
+/tmp/verify/bin/issuedb-cli --help | grep -E '^\s+(sync|signin|whoami)'
+```
+
+**That is the check that found the 2.12.0 bug in the first place** — a peer
+installing from PyPI on a different machine — and it is the one that reproduces
+what a user gets rather than what the builder produced. A green here means fixed
+*for everyone*; a green on a local wheel only means fixed in a place users cannot
+reach, which is the exact failure this whole file is about.
+
+Merging is not deploying, and building is not publishing.
+
 ## Context: the cost of the current hold
 
 PyPI's newest issuedb is **2.12.0**; source is **2.31.1**. Nineteen minor
