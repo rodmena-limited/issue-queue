@@ -122,3 +122,40 @@ comprehensibility before he complained about alignment. The durable form is the
 dependency, not the luck — **label association is a precondition for geometric
 measurement**, so labels come first whether or not anyone has complained about
 them.
+
+### The wrapping-label hazard, answered empirically (on Tracker's UI, not ours)
+
+This ticket raised the hazard structurally: *a grid with equal columns still
+lets each cell stack from its own top, so a label that wraps at a narrow width
+drops its control ~19px with identical markup and identical CSS.*
+`tracker-manager-0e2462` measured it on their fixed layout:
+
+```
+label height before : 19px
+label height after  : 96px      <- five lines, definitively wrapped
+controlTopSpread    : 0
+controlHeightSpread : 0
+labelTopSpread      : 0
+failingRows         : 0
+```
+
+**A label five times its normal height does not move the control row** — because
+their fix places grid items *explicitly by row*. The old
+`align-items: flex-end` layout would have failed this by construction, which is
+how it broke when one line of hint text was added.
+
+**Their first attempt at this test was vacuous and they caught it**: they
+lengthened the label to 76 characters, got zeros, and nearly reported "wrapping
+is safe" — the column was 579px wide and the text never wrapped. The known-
+positive (label height 19 → 96) is what makes the zeros mean anything.
+
+### What this settles, and what it does not
+
+**Settled, on their UI:** explicit row placement survives a wrapping label;
+equal-columns-with-auto-stacking does not.
+
+**Not settled here.** Our `.form-row` is `grid-template-columns: 1fr 1fr` with
+each cell stacking from its own top — the *losing* pattern, not the winning
+one. So the structural concern is now backed by a measurement on a real UI,
+and our forms remain **UNMEASURED**. A fix must place items explicitly by row,
+and must be verified with a known-positive proving the label actually wrapped.
