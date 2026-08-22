@@ -10,6 +10,7 @@ Standard library only, per the project's zero-dependency rule.
 from issuedb.sync._canonical import (
     UID_PREFIX,
     canonical_bytes,
+    dependency_uid,
     derived_uid,
     mint_uid,
     relation_content_hash,
@@ -26,6 +27,7 @@ __all__ = [
     "ProjectIdentityError",
     "UID_PREFIX",
     "canonical_bytes",
+    "dependency_uid",
     "derived_uid",
     "mint_uid",
     "relation_content_hash",

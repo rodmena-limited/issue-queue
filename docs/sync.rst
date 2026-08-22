@@ -63,6 +63,40 @@ with zero setup. The project id itself is recorded inside the database and is
 write-once: if the server ever reports a different project for a database that
 already holds one, sync refuses rather than merge two projects' rows.
 
+Derived identity
+----------------
+
+Rows that have no identity of their own — a tag on an issue, a dependency
+between two issues — get a **derived** uid, so two replicas that independently
+record the same fact converge with no conflict machinery. Issues get a
+**minted** uid (a random one), because two replicas writing "the same" issue
+have genuinely written two.
+
+.. code-block:: python
+
+   from issuedb.sync import derived_uid, dependency_uid, relation_uid, mint_uid
+
+   derived_uid("issue_tag", project_uid, issue_uid, tag_name)
+   dependency_uid(project_uid, blocker_uid, blocked_uid)
+   relation_uid(project_uid, source_uid, rel_type, target_uid, symmetric_types)
+
+``symmetric_types`` is read from the handshake rather than hardcoded: if a
+relation type means the same thing both ways round, its endpoints are sorted so
+both directions derive one uid. Dependencies are never sorted — they are
+directional, and reversing them must give a different uid or a cycle could not
+be represented.
+
+.. note::
+
+   The ``dependency_uid`` field order is **measured, not specified.**
+   ``PROTOCOL.md`` does not yet pin it. It was established against Tracker's
+   live feed (all 16 server-derived dependencies matched
+   ``(project, blocker, blocked)``, none matched the reverse) and is frozen in
+   ``tests/data/vectors_issuedb/14-dependency-uid-derivation.json`` against the
+   uid **the server produced**, not against issuedb's own output. An observed
+   order is not the contract; the vector exists so a future divergence is
+   visible instead of silent.
+
 Known limitation
 ----------------
 

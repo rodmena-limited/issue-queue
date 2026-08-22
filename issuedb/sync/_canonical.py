@@ -153,6 +153,33 @@ def relation_uid(
     return derived_uid("issue_relation", project_uid, source_uid, relation_type, target_uid)
 
 
+def dependency_uid(project_uid: str, blocker_uid: str, blocked_uid: str) -> str:
+    """Derive a dependency's uid: ``(project_uid, blocker_uid, blocked_uid)``.
+
+    A dependency is directional and stays directional — "A blocks B" is not
+    "B blocks A" — so unlike :func:`relation_uid` the endpoints are never
+    sorted. Reversing them must produce a different uid, and a test asserts
+    that rather than leaving it implied.
+
+    THE FIELD ORDER HERE IS **MEASURED, NOT SPECIFIED**, and the distinction
+    matters. Until this function existed, nothing in issuedb derived a
+    dependency uid at all: ``idep`` sat in :data:`ENTITY_TAGS` unused, with no
+    helper, no call site and no vector. The order below was established
+    empirically against Tracker's live feed — all 16 server-derived
+    dependencies matched ``(project, blocker, blocked)`` and none matched the
+    reverse — and `tracker-fbe1b4` has correctly noted that **an observed order
+    does not become the contract until PROTOCOL.md says so.**
+
+    So: this reproduces what the counterpart does today, and the frozen vector
+    pins it against the value THE SERVER produced rather than against our own
+    output. If PROTOCOL.md later specifies a different order, this is the
+    defect and the vector is the evidence of when it diverged — which is the
+    situation the whole canonical form exists to make visible instead of
+    silent.
+    """
+    return derived_uid("issue_dependency", project_uid, blocker_uid, blocked_uid)
+
+
 def relation_content_hash(
     source_uid: str,
     relation_type: str,

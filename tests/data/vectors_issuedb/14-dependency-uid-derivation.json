@@ -1,0 +1,34 @@
+{
+  "name": "14-dependency-uid-derivation",
+  "description": "The issue_dependency uid field order, pinned against a value Tracker's live server produced. Authored by issuedb after measuring 16/16 agreement on the live feed; the expected uid was NOT computed by issuedb.",
+  "provenance": {
+    "measured_against": "https://tracker.rodmena.co.uk",
+    "measured_on": "2026-08-22",
+    "sample": "16 of 16 server-derived dependencies matched (project, blocker, blocked); 0 of 16 matched the reverse",
+    "caveat": "PROTOCOL.md does not yet specify this order. An observed order is not the contract; this vector records what the counterpart does today so a future divergence is visible rather than silent."
+  },
+  "cases": [
+    {
+      "case": "server-observed triple, endpoints are real project issues #2 and #3",
+      "entity": "issue_dependency",
+      "fields": {
+        "project_uid": "01M03Z127ZEQXSY40Y8XHED3D7",
+        "blocker_uid": "s256t128:03f27096f1e177f0fd6b9c9f75e08385",
+        "blocked_uid": "s256t128:a084c0c55ab3fa02ffe7ab86f0b62289"
+      },
+      "expected_uid": "s256t128:27be367a581e42ebc0c20e3285616b20",
+      "expected_uid_source": "read from Tracker's pull feed, not computed by issuedb"
+    },
+    {
+      "case": "DISCRIMINATION: reversing the endpoints must NOT collide",
+      "entity": "issue_dependency",
+      "fields": {
+        "project_uid": "01M03Z127ZEQXSY40Y8XHED3D7",
+        "blocker_uid": "s256t128:a084c0c55ab3fa02ffe7ab86f0b62289",
+        "blocked_uid": "s256t128:03f27096f1e177f0fd6b9c9f75e08385"
+      },
+      "expected_uid_differs_from": "s256t128:27be367a581e42ebc0c20e3285616b20",
+      "why": "A dependency is directional. If this collided, A-blocks-B and B-blocks-A would be one row and a cycle would be unrepresentable."
+    }
+  ]
+}

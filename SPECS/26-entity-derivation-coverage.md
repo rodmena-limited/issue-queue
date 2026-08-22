@@ -1,6 +1,10 @@
 # 26 — Derivation agreement for the three entities #12 did not cover
 
-Tickets: issuedb #12 (closed, tags) · #26 (new, the missing helper).
+Tickets: issuedb #12 (closed, tags) · **#25** (the missing helper — closed in v2.30.0).
+
+> Numbering note: this file is `SPECS/26` but the ticket is **#25**. The spec files
+> and the ticket ids drifted apart earlier and are not expected to match; the ticket
+> id above is the authoritative one.
 
 `tracker-manager-0e2462` asked for `issue`, `issue_relation` and
 `issue_dependency`, since each has a different field tuple and nothing about
@@ -30,11 +34,26 @@ the same tautology the tag round trip hit.
 Reversing the endpoints matching **zero** is what rules out a degenerate
 derivation. Cross-implementation agreement for `issue_dependency` is measured.
 
-**And issuedb has no helper for it.** Nothing in the entire repo derives a
-dependency uid — no `dependency_uid`, no call site, no vector pinning one. The
-`idep` tag is reserved and unused. The field order above works and is written
-down nowhere, so whoever builds the push direction (#14) has to guess it.
-Filed as #26.
+**And issuedb had no helper for it.** Nothing in the repo derived a dependency
+uid — no `dependency_uid`, no call site, no vector pinning one. The `idep` tag
+was reserved and unused, so whoever built the push direction (#14) would have
+had to guess the order.
+
+**Fixed in v2.30.0.** `dependency_uid(project_uid, blocker_uid, blocked_uid)`,
+exported from `issuedb.sync`, with
+`tests/data/vectors_issuedb/14-dependency-uid-derivation.json` pinning it
+against **the uid the server produced** rather than against our own output — a
+vector expecting our own value would pass against any field order, including a
+wrong one, because both sides of the comparison move together.
+
+Re-verified against the live server after shipping: the released helper
+reproduces **16/16** stored uids, the reversed order **0/16**. Proven red by
+reversing the order (3 tests fail) and by dropping `project_uid` (3 tests fail).
+
+Scope, honouring `tracker-fbe1b4`: **PROTOCOL.md does not specify this order.**
+An observed order is not the contract. The vector records what the counterpart
+does today so a divergence becomes visible rather than silent.
+Filed as **#25**, and fixed in v2.30.0 — see the closing note below.
 
 ## `issue_relation` — INCONCLUSIVE, and it is our debris
 

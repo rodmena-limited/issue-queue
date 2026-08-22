@@ -259,6 +259,16 @@ issuedb-cli --json context ISSUE_ID [--compact]
   - Suggested actions
 - Use --compact for minimal context
 
+### Sync: derived vs minted uids
+- Tags, dependencies and relations get DERIVED uids so two replicas converge:
+  issuedb.sync.derived_uid / dependency_uid / relation_uid
+- Issues get MINTED uids (random) -- two replicas writing "the same" issue
+  wrote two issues.
+- dependency_uid is (project_uid, blocker_uid, blocked_uid), never sorted.
+  Reversing the endpoints MUST give a different uid.
+- The dependency field order is MEASURED against the live server, not yet
+  specified in PROTOCOL.md. See docs/sync.rst.
+
 ## DUPLICATE DETECTION
 
 ### Find Similar Issues
