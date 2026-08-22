@@ -159,3 +159,34 @@ each cell stacking from its own top — the *losing* pattern, not the winning
 one. So the structural concern is now backed by a measurement on a real UI,
 and our forms remain **UNMEASURED**. A fix must place items explicitly by row,
 and must be verified with a known-positive proving the label actually wrapped.
+
+### A hazard we are immune to for the wrong reason
+
+`tracker-manager-0e2462` root-caused a horizontal-overflow defect on their
+`/members` page at 375px: `.sr-only` spans using `clip` + `width:1px` and
+`position:absolute`, sitting inside a table inside a scroller whose containing
+block they escape. At `left:580px` they extend the **document** scroll width
+while nothing in the body flow overflows.
+
+Confirmed by a reversible experiment — `docScrollW` 580, with `.sr-only`
+`display:none` 375, restored 580.
+
+**Checked here: we have zero `sr-only` / visually-hidden elements and zero
+horizontal scrollers**, so the mechanism cannot occur.
+
+**That is not safety, it is the same absence this ticket is about.** We have no
+visually-hidden labels because we have no labels on the detail page at all. An
+accessibility feature never built cannot break a layout — the same shape as our
+copy check passing because the UI explains nothing.
+
+**Consequence for the fix:** whatever closes #16 will *introduce* this hazard,
+because visually-hidden labels are one of the standard ways to satisfy it. Use
+the modern pattern from the start —
+
+```css
+clip-path: inset(50%); width: 1px; height: 1px;
+overflow: hidden; white-space: nowrap; position: absolute;
+```
+
+— and give any scrolled container `position: relative` so absolutely-positioned
+descendants are contained by it.
