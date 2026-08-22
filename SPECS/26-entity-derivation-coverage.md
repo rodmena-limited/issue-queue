@@ -49,21 +49,59 @@ For the record, none of six candidate tuples reproduced the stored uid, and
 either** — consistent with rows written by something that was not implementing
 this contract.
 
+The manager suggested the misses were explained by our candidates assuming
+sorting for `x-test-symmetric`. **They were not**: the six covered both
+orderings explicitly —
+
+```
+(P, src, type, tgt)        unsorted        (P, type, src, tgt)
+(P, lo,  type, hi)         sorted          (P, src, tgt, type)
+(src, type, tgt) no proj   unsorted        (lo, type, hi) no proj   sorted
+```
+
+The likelier explanation is simpler and fits the content hash missing too:
+**those rows carry uids that were invented rather than derived**, pushed by our
+own throwaway apply-verification scripts — the same scripts that produced the 16
+orphan issues. Nothing can reconstruct an arbitrary value, so no tuple could
+have matched.
+
 Per the manager's own rule, this is **PROBE BROKEN, not a pass**: an entity we
 could not test is not an entity that agreed. Settling it needs a relation
 created through Tracker's own write surface, where the server derives the uid —
 the same move that settled tags, and one only they can make.
 
-### A live trap noticed on the way
+### The empty symmetric set: ANSWERED, and it is intentional
 
-`symmetric_relation_types` comes back **empty** from the handshake, while both
-existing relations are typed `x-test-symmetric`. `relation_uid` sorts endpoints
-only for types in that set, so if the server treats a type as symmetric and the
-handshake does not advertise it, the two sides derive different uids for the
-same fact. The contract docstring warns about exactly this — *"one side's
-symmetric set contained a test type and the other's did not"* — and the
-handshake is currently advertising nothing at all. Worth confirming that empty
-is intentional before push is built.
+We flagged `symmetric_relation_types: []` as a possible trap.
+`tracker-manager-0e2462` answered it from their source:
+
+```
+canonical.py:47   SYMMETRIC_RELATION_TYPES: Final[frozenset[str]] = frozenset()
+live handshake    "symmetric_relation_types": []
+```
+
+**Production's symmetric set is deliberately empty**, and `x-test-symmetric` is
+symmetric only in the fixtures — the vectors use a provisional type precisely so
+they do not exercise a path no production data can reach. Source and served
+agree. Closed, not a defect.
+
+### Relations are advertised on the wire and cannot be created
+
+Verified here independently, from the handshake this repo actually receives:
+
+```
+entities: ["issue", "issue_tag", "issue_dependency", "issue_relation"]
+```
+
+Four advertised. `tracker-manager-0e2462` enumerated all 28 POST/DELETE paths in
+their product and found **no relations route** — dependencies have one
+(`POST /issues/{key}/dependencies`, the control proving the grep works), relations
+do not. The only way a relation can exist in Tracker is a sync push.
+
+That is why the only live relations were our probe rows, and it makes the
+`issue_relation` verdict **unresolvable from either side today** rather than
+merely untested. Theirs to close; recorded here because it bounds what our
+coverage can ever claim.
 
 ## Cleanup
 
