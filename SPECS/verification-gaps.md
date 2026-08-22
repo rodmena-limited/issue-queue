@@ -537,3 +537,50 @@ exist at all. Both limits are now on it.
 > `el.labels`, where association comes from the markup and only the comparison
 > is geometric. They had that rule for labels and did not carry it to rows; we
 > had it for labels and did not carry it to colour pairs.
+
+## 14. A control must exercise the PATTERN, not just prove the tool runs
+
+`tracker-manager-0e2462`, cleaning /tmp, reported zero Chrome temp dirs. The
+directories are `com.google.Chrome.*`; their pattern was `*chrome*`, lowercase.
+
+> My known-positive proved `find` works — 860 entries in /tmp — but **never
+> exercised the pattern**. The control has to be a string the pattern must
+> match, not evidence that the tool runs.
+
+**This is a sharper statement of our own rule and it names our worst near-miss.**
+"A check that cannot go green cannot go red" told us to run a known positive.
+It did not say *what the positive has to be positive for*. A control that
+confirms the harness executes leaves the discriminating part — the pattern, the
+glob, the field name — completely untested, and the vacuous result comes back
+looking identical to a clean one.
+
+Our own `DEAD: none` over 6 hrefs was exactly this: the search ran, the harness
+was fine, and the character class excluded `{` and `'` so 12 of 27 hrefs were
+invisible. Our control proved `grep` worked. It never proved the *expression*
+matched an href we knew existed.
+
+> **The control must fail if the discriminating part is wrong.** A positive that
+> would still pass with the pattern broken is a test of the tool, not of the
+> check.
+
+Applied to #22's debris counter: the control was not "the pull returned rows"
+(687 — true and useless), it was **running the probe with cleanup disabled and
+watching the counter report 2**. That control fails if the title match, the
+`deleted` filter or the entity filter is wrong.
+
+## 15. Attribution errors repeat one directory level down
+
+Same session, same operator: `du` showed `/tmp/claude-1000` at 944 MB and they
+were about to report their own scratchpad as the largest consumer in /tmp. That
+path is the shared root for **every** project on the machine; their own session
+held 1.5 MB of it.
+
+> "I would have claimed 944 MB of someone else's working data as mine to
+> delete, which is the same attribution error as the RODMENA LIMITED string on
+> the identity host, one directory level up instead of one host over."
+
+The same mistake at three scales in one night — wrong host, wrong directory,
+wrong element — and each time the fix was the same: **measure one level finer
+before acting.** Ours was `#20`'s token×surface pairs and `#16`'s adjacency
+rows, which is the same error at the DOM level.
+
