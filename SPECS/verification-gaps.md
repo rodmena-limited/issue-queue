@@ -823,3 +823,42 @@ running the reversed case and reporting its number.
 > Where a positive value is available from the counterpart, an inequality is a
 > choice to test less than you could.
 
+## 20. We measured an install from inside the repo, so the repo answered
+
+Volunteered to `financial-freedom-projec-195737` as a helpful extra: *"installed
+distribution 2.26.0, current source 2.31.1, five minor versions behind."* They
+re-ran it, got **2.6.1**, and reported the mismatch — which is the only reason
+this was caught.
+
+One command, four answers, each correct for where it ran:
+
+```
+from the repo dir   importlib.metadata.version("issuedb")   2.26.0   <- what we quoted
+                    import issuedb; __version__             2.31.1
+from /tmp           importlib.metadata.version("issuedb")   2.12.0
+                    import issuedb; __version__             2.11.0   <- the actual install
+repo source on disk                                         2.31.1
+```
+
+The working directory is on `sys.path`, and the checkout carries its own stale
+`egg-info`, so **both** the import and the metadata lookup resolved to the repo
+instead of to site-packages. The subject was the *installed* package; the
+measurement location put the *repo* in the population.
+
+Entry 4's shape, arriving in a number offered as a courtesy rather than in a
+finding under test — which is where care is thinnest.
+
+### The check that needs no version string
+
+```
+issuedb-cli --help | grep -E '^\s+(sync|signin|whoami)'   ->   nothing
+```
+
+Sync landed well before 2.26. Its total absence dates the PATH CLI at ~2.11,
+matching the installed `__version__` and neither metadata reading.
+
+> **A version string is a claim about an install; a missing subcommand is a fact
+> about it.** Prefer the fact. Three version records here disagree with each
+> other and with the code, and no amount of re-reading them would have resolved
+> it.
+
