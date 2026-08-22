@@ -190,3 +190,40 @@ overflow: hidden; white-space: nowrap; position: absolute;
 
 — and give any scrolled container `position: relative` so absolutely-positioned
 descendants are contained by it.
+
+## The label check must ask the browser, not grep for `for=`
+
+`tracker-fbe1b4` found that the manager's "/keys: 6 of 6 controls unlabelled"
+was a **false positive**. Their labels *wrap* their controls:
+
+```html
+<label>Label <input class="form-control" name="label"></label>
+```
+
+That is valid implicit association — the spec supports it and screen readers
+announce it. Asked the browser instead of a regex:
+
+```
+total 6    associated 6    withForAttr 0
+```
+
+`element.labels` counts an ancestor `<label>` as well as a `for=`/`id=` pair, so
+**a correctly-labelled page reads as entirely unlabelled** to a `for=` checker.
+Acting on it would have rewritten correct markup.
+
+**This ticket's claim was re-checked under the corrected rule and stands:**
+
+```
+<label> elements of ANY form on the detail page : 0
+   of those with a for= attribute               : 0
+visible controls (hidden inputs excluded)       : 15
+CONTROL: the same pattern finds 9 labels in _pages2.py
+```
+
+Zero wrapping labels *and* zero `for=` labels — there is nothing for
+`el.labels` to associate. The correction cannot rescue this page.
+
+**But it changes how the fix is verified.** The acceptance check must be
+`el.labels.length > 0`, evaluated in a browser — not a `for=` grep. That is the
+browser's own answer and it cannot disagree with what a screen reader does. A
+`for=` check would also reject a perfectly good wrapping-label fix.
