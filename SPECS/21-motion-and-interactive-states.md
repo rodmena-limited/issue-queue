@@ -62,3 +62,46 @@ so a block with nested rules never matched, once from a literal
 contain. The tell was **two of their own measurements disagreeing**, one of
 which was right. Running only the extractor would have shipped a false
 accusation against a thorough implementation.
+
+## Pointer target size — related, and UNMEASURED here
+
+`tracker-manager-0e2462` measured Tracker's five unstyled checkboxes and raised
+their own rating:
+
+```
+appearance   auto        <- the native widget, no theming at all
+accent-color auto
+size         13 x 13 px
+styled       FALSE, all five
+```
+
+WCAG 2.2 **SC 2.5.8** sets a 24×24 CSS px minimum for pointer targets. 13×13 is
+a little over a quarter of that area.
+
+**The finding that makes it one change rather than two:** SC 2.5.8 has a
+user-agent-control exception, and a genuinely unstyled native checkbox plausibly
+sits inside it — **but that exception is lost the moment you style them.**
+Theming the checkbox *inherits* a 24×24 obligation that does not exist today.
+So *"just add `accent-color`"* is the wrong fix: it takes on the obligation
+while leaving the target at 13px.
+
+### Checked here — with a control, after the first attempt failed
+
+The first search returned 0 for everything **including the control**, which
+means the search was broken, not the UI. Corrected:
+
+```
+files read 14 · 131,325 chars
+CONTROL  .form-control occurrences : 24    <- non-zero, the search works
+checkbox inputs in markup          : 0
+appearance / accent-color / checkbox CSS : 0 / 0 / 0
+```
+
+**No checkboxes at all**, so their exact defect cannot occur here.
+
+**But SC 2.5.8 applies to every pointer target, not just checkboxes**, and the
+smallest declared here is `.btn-sm` at `padding: 6px 12px; font-size: 12px`.
+Rendered size cannot be computed from padding and font-size without a browser.
+
+> Target size in this UI is **UNMEASURED**, not clean — the same status as the
+> alignment criterion on #16, and for the same reason.
