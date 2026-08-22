@@ -58,3 +58,45 @@ idempotency while claiming to measure normalisation, because the API trusts the
 client-supplied uid — **the thing under test supplied its own answer.** See
 [#12](12-nfc-normalisation-unexercised.md) and
 `audit/evaluations/nfc_cross_impl.py`.
+
+## 4. A stale reference to a versioned artefact
+
+`tracker-manager-0e2462`, 2026-08-22. Mid-sweep they measured a stylesheet and
+got **0 animations, 0 infinite animations, no reduced-motion guard** — about a
+product they had confirmed thirty minutes earlier had a thorough global guard.
+They nearly reported that Tracker had lost its motion handling.
+
+```
+0.DiHGqobo.css   12,969 bytes at 01:05     9 bytes at 01:20
+```
+
+Their asset list was **pinned to a build that no longer existed**. A deploy
+changed the content-hashed filenames, and every URL in the list became a stub.
+**The fetch "succeeded" fourteen times and returned almost nothing.**
+
+> Content-hashed asset URLs are designed to change, so any list of them has a
+> shelf life measured in deploys.
+
+**The tell was arithmetic:** fourteen assets summing to 34,027 bytes in the
+table, and 21,067 in the concatenation. *A total that does not match its own
+parts.*
+
+### How this differs from the other three
+
+| heuristic | catches |
+|---|---|
+| every subject fails | a wrong **population** |
+| the number contradicts what I know | a wrong **subject** |
+| two of my own numbers disagree | a wrong **parse** |
+| **a total disagreeing with its parts** | **a stale reference to a versioned artefact** |
+
+### Our exposure is the opposite one
+
+Checked: **zero** pinned content-hashed asset references in
+`audit/evaluations/` (control: the pattern matches such a string when present).
+We measure **source files in our own repo**, so nothing can go stale mid-run.
+
+That is not safety — it is the other failure. Source cannot go stale, and
+**source is also not what a user gets**. Every UI finding recorded here
+(#15, #16, #20, #21) is a statement about the stylesheet, not about the served
+page.
