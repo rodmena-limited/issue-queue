@@ -80,3 +80,32 @@ pair `Due Date (YYYY-MM-DD)` / `Tags (comma separated)` is long enough to wrap.
 
 There is no browser instrument in this repo, so the honest report is
 **UNMEASURED**. Not a finding, and not a clean bill.
+
+### The criterion is four assertions, not one — and labels need a different rule
+
+`tracker-manager-0e2462` closed the scope gap they had declared, and the
+construction is the transferable part:
+
+```
+controls share a top (within 1px)  ·  controls share a height
+their labels share a top           ·  any button in the row shares the controls' top
+```
+
+**Pairing labels by geometry finds nothing.** On the defect that prompted this,
+the two labels do not overlap vertically *at all* — one ends at 220 and the
+other begins at 220 — so a side-by-side-plus-overlap test pairs the controls
+and **silently ignores the labels**. Their original check covered two of the
+four elements in the defect it was written for.
+
+The rule that works: **build the row from the controls, then follow each
+control's `label[for=id]` and require those to share a top.** The association
+comes from the markup; only the comparison is geometric.
+
+That is the same shape as the brace boundary in both dead-link matchers — a
+rule that looks general and silently covers less than it appears to.
+
+**Consequence for this ticket:** a fix that aligns the inputs and leaves the
+labels 19px apart passes the naive check and fails the real one. Whatever
+instrument closes #16 must carry all four assertions, and must be proven both
+red *and* green — a check that has only ever seen a broken row could be one
+that calls every row broken.
