@@ -451,3 +451,81 @@ data point it did not have. **A measurement and an explanation are different
 objects**, and the confidence earned by the first does not transfer to the
 second — a lesson written down here after being demonstrated once *in the same
 message that diagnosed the previous two*.
+
+---
+
+# CLOSED 2026-08-22 — cross-implementation agreement is MEASURED
+
+Three separate measurements, none of which could have closed this alone.
+
+## 1. issuedb derives one uid for both normal forms (ours)
+
+`audit/evaluations/nfc_round_trip.py`, live. Passes — **and the probe's own
+premise gate shows the pass is forced**: a novel random uid comes back from the
+feed unchanged, so the sync push path stores the client's uid and both pushes
+keyed off our derivation. See `SPECS/25`. Proves our side only.
+
+## 2. Tracker's server derives one uid for both normal forms (theirs)
+
+`tracker-manager-0e2462`, through `POST /v1/issues/AGENTBUS-188/tags`, the
+surface where the **server** computes the key:
+
+```
+decomposed b'mgr-cafe\xcc\x81-559ada95'  -> row 01M0KMVXXAKJMHRG2ZBCGD841F  uid …9c200ec2…
+composed   b'mgr-caf\xc3\xa9-559ada95'   -> row 01M0KMVXXAKJMHRG2ZBCGD841F  uid …9c200ec2…  SAME
+DISCRIMINATION "mgr-cafo-559ada95"       -> row 01M0KMVY15HTVT8VMGRXJFFYW2  uid …de12c89f…  DIFFERENT
+```
+
+The third push is what makes the first two mean anything: without it, "both
+forms got the same uid" is also what a server returning a constant produces.
+
+## 3. The two derivations produce THE SAME uid (this repo, independently)
+
+Steps 1 and 2 prove each side self-consistent. Neither proves they agree. The
+last step is arithmetic on shared inputs — `("itag", project_uid, issue_uid,
+name)` — read from the pull feed rather than supplied by either party:
+
+```
+project_uid   01M03Z127ZEQXSY40Y8XHED3D7          (handshake)
+issue_uid     s256t128:b16f16f6a1221a385a52cccdf9ae9186   (feed, number 188)
+CONTROL       452 issue rows in the feed, exactly 1 with number 188
+INPUT CONTROL the two forms differ as bytes: True
+
+              ours(NFC)  s256t128:9c200ec2b3c46863abd8cbcbf2f08cd8
+              ours(NFD)  s256t128:9c200ec2b3c46863abd8cbcbf2f08cd8
+              THEIRS     s256t128:9c200ec2b3c46863abd8cbcbf2f08cd8   MATCH
+
+DISCRIMINATION
+              ours(cafo) s256t128:de12c89f5352685ac2abe4f1176a51e7
+              THEIRS     s256t128:de12c89f5352685ac2abe4f1176a51e7   MATCH
+              ours separates the two names: True
+```
+
+**Both hashes match.** The discrimination hash matching is what rules out a
+degenerate derivation on our side: a constant would have matched the first and
+failed the second.
+
+## What this proves, and what it does not
+
+The match is not only about NFC. Reproducing that hash required agreement on the
+**entire canonical form** — the `itag` entity tag, the field order
+`(project_uid, issue_uid, name)`, length-prefixed encoding, UTF-8, sha256, and
+truncation to 128 bits. A divergence anywhere in that chain produces a different
+hash, so this is a stronger result than the ticket asked for.
+
+**Bounded to what was measured:**
+
+- entity `issue_tag` only. `issue`, `issue_relation` and `issue_dependency`
+  have different field tuples and are **not** covered by this.
+- one project, one issue, one name pair.
+- it says nothing about the `name` column's stored bytes — see below.
+
+## An open contract question, raised by the manager, not ours to settle
+
+`tags.name` stores the **first form supplied**, so that row's name is not NFC
+while its uid is. Byte-exact storage is what PROTOCOL.md specifies, so it is
+likely correct by design — but a replica applying that row receives decomposed
+bytes and stores them too. Whether two replicas should end up with byte-identical
+`name` columns is a contract question, and it is invisible until two
+implementations compare **rows** rather than uids.
+
