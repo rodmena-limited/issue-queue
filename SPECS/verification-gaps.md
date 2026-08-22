@@ -183,3 +183,44 @@ It looks like diligence while forcing the implementer toward a worse answer.
 Same family as a vacuous red, one level up: it does not merely waste work, it
 **actively selects against the right solution**. Worth catching before writing
 the fix rather than after.
+
+## 6. One wrong selector, two different failures
+
+`tracker-fbe1b4`'s re-audit, 2026-08-22. Their broken `for=` label selector did
+**two** things, not one:
+
+- a **false positive** on `/keys` — six phantom failures on a correct page;
+- a **vacuous pass** in their *alignment* check, which paired labels the same
+  broken way, found 0 labels, **skipped the label assertion entirely**, and
+  still printed `0 failing`.
+
+> One wrong selector produced a false positive on one dimension and a vacuous
+> pass on another.
+
+The second is the emptied-population failure arriving by a new route: not "the
+rows were destroyed" but "the labels were invisible, so there was nothing to
+compare and nothing to report".
+
+**Audited our own four UI checks for that shape.** Two have it structurally —
+#16 would report `0/0` as clean if it found no controls, and #20's token×surface
+pairs would vanish silently if a token were undefined. Verified neither
+occurred:
+
+```
+#16  visible controls found : 7    <- non-empty, so the ratio is real
+#20  colour tokens defined  : 18   <- and every token priced is defined
+     --text-muted / --bg-primary / --bg-secondary / --bg-tertiary / --bg-hover : all True
+```
+
+**The shape existed; the failure did not.** Worth recording as checked rather
+than as absent — the distinction between "we do not have that bug" and "we
+looked".
+
+### The prediction that held
+
+Their three surviving instruments all read the platform's computed answer
+(`getBoundingClientRect`, `getComputedStyle`, `scrollWidth`). The one that
+re-derived — a selector standing in for `el.labels` — is the one that was wrong.
+
+> Not proof the other three are right, but it is the distinction that predicted
+> which would fail, and it predicted correctly.
