@@ -79,9 +79,53 @@ real run, verdict AGREE                       0                     225   cleanu
 **The counter was shown to go red before it was trusted to say zero.** With
 cleanup disabled it reports 2; with it enabled, 0.
 
-## What this does not cover
+## The scope of this ticket was wrong when first written, twice
 
-`first_contact_probe.py`, `schema_drift.py` and `vector_replay.py` were checked
-for `push` calls and create nothing server-side, so they have nothing to shed.
-That is a **read of the code**, not a measured zero — the counter above would
-catch them if it were run around each, and it has not been.
+**Correction 1 — `first_contact_probe.py` does write to the server.** The first
+version of this file said the other three probes "create nothing server-side",
+hedged as a read of the code rather than a measured zero. The hedge did not save
+it: the claim was simply false. `first_contact_probe.py:427` pushes a real issue
+titled *"issuedb first-contact probe (novel)"* and **nine of the twelve exits
+after that point are early returns**, none of which removed it.
+
+No debris had accumulated — the feed holds zero such rows — but only because
+that section had not been completing. That is luck, not teardown. Fixed with
+the same ledger-and-`finally` shape and verified on a live run:
+
+```
+push (novel)  -> created, number 910028
+push (replay) -> existing
+pull afterwards -> 910028 deleted=True
+live issues before 209 -> after 209
+```
+
+**Correction 2 — the debris was much wider than this probe, and our own survey
+missed it.** `tracker-manager-0e2462` reported that **16 of the 50 rows on the
+operator's dashboard** were probe fixtures. Our survey an hour earlier had
+reported *live probe debris: 0* — because its filter matched only
+`"NFC cross-impl probe"` and `caf`. The 16 rows are titled `A`, `B`,
+`arrived by sync`, `dependency probe A (blocker)`. **The population excluded the
+subject**, again, and the number was reported with a control that could not see
+past it.
+
+Attribution before deleting anything on a peer's server, using a discriminator
+independent of the title:
+
+```
+genuine issues (209)   content_hash length 41, all "s256t128:…"
+probe rows      (16)   content_hash length 2-5: a1 b1 h1 ha hb n1 dep-a dep-b
+rows where the two discriminators disagree: 0
+```
+
+Clean separation, no overlap — those stubs are our fixture style. Deleted all
+16; live issues 225 -> 209, matching the genuine count exactly.
+
+**And none of the 16 came from a committed probe.** They were created by
+throwaway heredoc scripts during the live-apply verification, which no file
+records. Auditing `audit/evaluations/` could never have found them — which is
+why the counter, not the code read, is the thing that has to be run.
+
+## Still not covered
+
+`schema_drift.py` and `vector_replay.py`. This time that is stated as what it
+is: **unchecked**, not clean.

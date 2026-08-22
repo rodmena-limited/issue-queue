@@ -387,7 +387,7 @@ def exercise_credential_signalling(server: str, timeout: float) -> tuple[str, li
     return (FAILED if problems else PASSED), lines
 
 
-def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
+def _round_trip_body(client: SyncClient, created: list[str]) -> tuple[str, list[str]]:
     """Push a NOVEL entry, require it was CREATED, pull it back, then replay it.
 
     An earlier version pushed a FIXED uid (s256t128:ffff…). After its first
@@ -425,6 +425,7 @@ def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
 
     try:
         results = client.push([entry], replica_id="issuedb-first-contact-probe")
+        created.append(novel)
     except AuthFailedError as exc:
         lines.append(f"  push refused the credential: code={exc.code!r} status={exc.status}")
         lines.append("  This is the server working. The probe has no key.")
@@ -532,6 +533,33 @@ def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
 
     lines.append(f"  the entry written by THIS RUN came back (page {pages}).")
     return PASSED, lines
+
+
+def exercise_round_trip(client: SyncClient) -> tuple[str, list[str]]:
+    """Run the round trip, then delete the row it created — on every path.
+
+    The probe writes a real issue to a real server. Nine of the twelve exits
+    below are early returns, and none of them removed it; the row survived only
+    because the write path has been answering 401 all night. That is luck, not
+    teardown. See SPECS/22 — the NFC probe had the same absence and its debris
+    reached Tracker's dashboard.
+    """
+    created: list[str] = []
+    try:
+        return _round_trip_body(client, created)
+    finally:
+        for uid in created:
+            try:
+                out = client.push(
+                    [{"uid": uid, "entity": "issue", "op": "delete",
+                      "content_hash": uuid.uuid4().hex, "payload": {}}],
+                    replica_id="issuedb-first-contact-probe",
+                )
+            except SyncError as exc:
+                print(f"  CLEANUP FAILED: {uid}: {exc}", file=sys.stderr)
+                continue
+            if not out or out[0].get("outcome") != "deleted":
+                print(f"  CLEANUP FAILED: {uid}: {out}", file=sys.stderr)
 
 
 def check_vectors_present() -> tuple[bool, list[str]]:
