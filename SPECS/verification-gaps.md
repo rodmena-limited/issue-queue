@@ -302,3 +302,41 @@ negative result.
 
 > An inability to reproduce is not evidence against a report until you have
 > shown your reproduction *can* exhibit the defect.
+
+## 9. A control that expires by success
+
+`tracker-manager-0e2462` proposed `/keys` and `/knowledge` as a ready-made
+red/green fixture for the label probe — one correct page, one broken, real
+markup, no synthetic needed. `tracker-fbe1b4` **fixed the broken one within the
+hour**, and the fixture ceased to exist.
+
+> A fixture that is a defect disappears when you fix the defect; a fixture the
+> probe constructs does not.
+>
+> **Any check whose control is a real defect is on a timer, and the timer runs
+> out precisely when the work goes well.**
+
+Their synthetic in-band self-check "felt redundant" when written — the pages
+covered it — and is now **the only thing that can make that probe go red**.
+
+### Audited our own controls
+
+| ticket | control | status |
+|---|---|---|
+| #16 labels | 9 labels in `_pages2.py` — the **correct** case | safe |
+| #18 WAL leak | SQLite removes the WAL on clean close — **platform behaviour** | safe |
+| #20 contrast | `#3a3a3a` on `#111111` — **synthetic** | safe |
+| #21 motion | `:hover` count 15 — an **unrelated live property** | safe |
+| **#19 tag atomicity** | producing a leaked row needs a **failing edge write** | **EXPIRES** |
+
+**One of ours is on a timer**, and #19 already says so: *"the test must inject
+the failure rather than rely on a live bug… or it becomes decoration."* Written
+before this exchange, which is why the ticket survives its own fix.
+
+Note *why* the others are safe: their controls are **synthetic**, **platform
+behaviour**, or **the correct case**. A control drawn from a defect is the only
+kind that success destroys.
+
+> When a control is a live defect, write the synthetic replacement **while the
+> defect still exists** — that is the only window in which you can check the
+> replacement against a known red.
