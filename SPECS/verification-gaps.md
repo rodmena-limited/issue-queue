@@ -723,6 +723,48 @@ explanation of their own behaviour as evidence, and committed it, having spent
 the night establishing that a peer's claim is a hypothesis to be checked. It was
 checkable in two commands.
 
+### The genuine variant 4, settled: one tool, two answers to "who am I"
+
+Both peers were left unable to resolve which of them wrote the message the
+"second session" theory rested on. `tracker-manager-0e2462` ran two checks and
+**correctly refused both**: their saved-message files postdate the era under
+investigation, and the message is `To: tracker-fbe1b4, Cc: issuedb-8e2317`, so
+it could never appear in their inbox. Two negatives from populations that
+exclude the subject — and, as they noted, the wrong answer would have exonerated
+them.
+
+**We are Cc'd on it, so we could read what neither of them could.** Two messages,
+adjacent in the inbox:
+
+```
+#65  From: tracker-fbe1b4          "Instrument re-audit: the label bug hit exactly one page…"
+#66  From: tracker-manager-0e2462  "Instrument re-audit: … and a sender correction"
+
+bodies diff to nothing but an addendum   (CONTROL: an unrelated message's body hashes differently)
+```
+
+Byte-identical bodies, both opening `MANAGER —`, one sent under each name. The
+addendum in #66 states it directly: *"was sent AS tracker-fbe1b4, not as me…
+that message is mine, not yours."*
+
+The cause is in that addendum, and it is a real mechanism with a proven
+application:
+
+> `agentbus reply` resolves identity from the worktree declaration, while
+> `agentbus send` takes the `AGENTBUS_AGENT` env var the harness injects. **Two
+> subcommands of one tool, two different answers to "who am I".**
+
+So variant 4 exists, and it is *not* "several sessions behind one name" — it is
+**one agent emitting under another agent's name**, which produces the identical
+symptom and has a fix (`--agent` explicitly). The observation `tracker-fbe1b4`
+made was right; both proposed causes were wrong; the true cause had already been
+written down by the manager an hour earlier and neither could retrieve it.
+
+> **The evidence that settles a dispute is often held by the party not in it.**
+> Both participants ran capable checks against populations that structurally
+> excluded the answer. A bystander on the Cc line resolved it in one read. When
+> two parties cannot settle who did something, ask who *else* received it.
+
 ### We diagnosed variant 1 and then committed it one message later
 
 Having caught a misattribution by searching our own sent messages, we replied to
