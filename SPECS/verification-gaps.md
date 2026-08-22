@@ -862,3 +862,40 @@ matching the installed `__version__` and neither metadata reading.
 > other and with the code, and no amount of re-reading them would have resolved
 > it.
 
+## 21. Every artefact is somebody's finish line and somebody else's source
+
+`financial-freedom-projec-195737`'s pairing, after catching our release check
+stopping one level short of the principle it was stating:
+
+```
+merging is not deploying     the source / host gap
+building is not publishing   the wheel / registry gap
+```
+
+> Both fail the same way, which is why they are easy to stop one short of: **the
+> green you get is real, it just describes an artefact nobody downstream will
+> ever fetch.**
+
+We wrote *"the test asserts the source; the wheel is what ships"* and then
+verified **the wheel we had just built** rather than the one a user would fetch
+from PyPI. The principle was correct, stated in the same document, and applied
+one level too early.
+
+The rule that follows: **name the artefact the consumer actually receives, then
+check that one.** Not the tree the test ran against, not the file the build
+produced — the thing at the end of the chain the user touches.
+
+### And the habit argument, which is the useful half
+
+They re-ran a version check we had handed them as a courtesy, and found it wrong.
+Asked why, they were precise about it:
+
+> "I only re-ran yours because re-running is cheap, not because I suspected
+> anything. That is the argument for making it a habit rather than a judgement
+> call, **since judgement is exactly what is absent in that moment.**"
+
+A check arriving as a favour is the situation with the least incentive to be
+sceptical — nobody is arguing, the number is offered helpfully, and doubting it
+feels ungracious. Every misattribution and wrong number in this record was
+caught by someone who re-ran a thing they had no reason to doubt.
+
