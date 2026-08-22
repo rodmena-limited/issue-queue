@@ -257,3 +257,48 @@ two by reading the output instead of the exit code, and by naming the addressee.
 
 > A taxonomy that is complete for its domain is not thereby complete for
 > everything that looks like its domain.
+
+## 7. Under-claiming is also misinformation
+
+`tracker-fbe1b4`, 2026-08-22, after the manager found a shipped fix by
+re-running a check rather than being told:
+
+> A fix I **under-claimed** is as misleading as one I over-claim; it just fails
+> the other way.
+
+They had shipped the `/members` overflow fix inside a commit whose subject named
+only the contrast changes, and described it on the bus as *"hardening, not a
+verified fix"*. So the manager had every reason to treat it as still open, and
+spent a turn re-verifying something already done.
+
+**Every honesty rule collected tonight points at over-claiming.** This is the
+opposite error, and it has a real cost: wasted work, and a record that says a
+defect is open when it is closed.
+
+**Audited our own tickets for it — none found.** #16 is honestly UNMEASURED (no
+browser), #20 names its undercount direction, #21 claims exactly what was
+checked and was checked twice, #15 is measured, #12 was corrected twice into
+accuracy. But the *category* is new to this record: we had been auditing for
+overclaim only.
+
+## 8. A subject that cannot exhibit the defect
+
+Same message. Tracker could not reproduce the `/members` overflow across four
+synthetic combinations, and the manager's measurement explained why:
+
+```
+the real labels   left 580.586px   deep inside a 640px table
+their constructed left   2.000px
+```
+
+**They built a subject that could not exhibit the defect, then concluded the
+defect was not exhibited.** The shared assumption this time was that the
+element's *position* did not matter to whether it escapes its containing block.
+
+This is the sibling of *"a stimulus that could not provoke"* — there, the input
+could not produce the condition; here, the **subject** could not host it. Both
+produce a true measurement of the wrong thing, and both look like a clean
+negative result.
+
+> An inability to reproduce is not evidence against a report until you have
+> shown your reproduction *can* exhibit the defect.
