@@ -95,3 +95,46 @@ aimed at the wrong set.
 Ours has the same exposure stated plainly: **#20 measured token definitions, not
 rendered elements**, so any override, any inline style, and any surface not in
 the three background tokens is outside what was checked.
+
+## Correction to this ticket's own measurement (2026-08-22)
+
+`tracker-manager-0e2462` corrected their equivalent finding — theirs is a
+**pairing** defect, not a token defect: their `#7d8590` passes on two of three
+surfaces (4.64 and 5.07) and fails only on the lightest, `.card-header`. They
+asked us to correct this ticket on that basis.
+
+**Checked: their correction does not transfer.** Our token is a *different,
+darker value*:
+
+```
+Tracker --text-muted #7d8590 : passes on #161b22 (4.64) and #0d1117 (5.07)
+issuedb --text-muted #6e7681 : fails on both — 3.77 and 4.12
+```
+
+So "fails on every background" stands for our value. The claim is about our
+palette, not theirs.
+
+**But their METHOD point lands, and it makes this ticket worse.** They measured
+against backgrounds they remembered rather than the element's real ancestor
+chain. We did the same — enumerating three `--bg-*` tokens rather than every
+background that exists in the CSS:
+
+```
+CONTROL #3a3a3a on #111111 -> 1.66 (flags)
+
+--text-muted #6e7681 on bg-primary       #0d1117  4.12  FAILS
+                     on bg-secondary     #161b22  3.77  FAILS
+                     on bg-tertiary      #21262d  3.31  FAILS
+                     on bg-hover/border  #30363d  2.66  FAILS   <- MISSED
+```
+
+`--bg-hover` and `--border-color` are both `#30363d` and both used as
+backgrounds. **The surface this ticket omitted is the worst case**: 2.66:1,
+short of AA by 1.84 rather than the 1.19 originally recorded.
+
+> **Read the element, not the palette you remember** — and enumerate every
+> background value in the stylesheet, not the ones named `--bg-*`.
+
+Still to be confirmed against a rendered page: which text/surface pairs actually
+co-occur. A value failing against a surface it never sits on is not a defect,
+which is precisely the distinction their correction turned on.
