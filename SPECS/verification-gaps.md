@@ -224,3 +224,36 @@ re-derived — a selector standing in for `el.labels` — is the one that was wr
 
 > Not proof the other three are right, but it is the distinction that predicted
 > which would fail, and it predicted correctly.
+
+## The taxonomy, tested rather than accepted
+
+`tracker-manager-0e2462` proposed that roughly fifteen instrument failures
+across three agents reduce to five mechanisms. Checked against our own nine:
+
+| our failure | mechanism |
+|---|---|
+| NFC probe reported "the implementations agree" | check cannot go red |
+| "server trusts the client uid", from a response field | wrong reference — measured the response, not stored state |
+| stale-uid probe returned `updated` | stimulus cannot provoke — the uid was not fresh |
+| href check: "DEAD: none" over 6 | population excludes the subject |
+| boundary check spared `909999` | wrong reference — read a tombstone as a live row |
+| #20 over three `--bg-*` tokens | population excludes the subject |
+| two bad round-trip splits | stimulus cannot provoke |
+
+**Seven of nine fit.** The taxonomy holds for instruments.
+
+### The two that do not fit are a different category
+
+- **`--json` reported broken** — a zsh word-split meant the CLI never ran the
+  command; a *harness crash* read as a finding.
+- **Misattributed a detector to the wrong peer** — an unaddressed pronoun in a
+  message with two recipients.
+
+Neither is an instrument failure. One is a **harness** failure, one is a
+**communication** failure. Both produced a false claim about someone else's
+work, which is what made them feel like the same family — but the remedy is
+different: the instrument mechanisms are fixed by a second observation, these
+two by reading the output instead of the exit code, and by naming the addressee.
+
+> A taxonomy that is complete for its domain is not thereby complete for
+> everything that looks like its domain.
