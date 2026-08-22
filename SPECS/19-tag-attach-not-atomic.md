@@ -88,3 +88,45 @@ still apply.
 **Do not conflate the two counts.** A number that mixes "rows a bug leaked"
 with "tags nobody is using today" alarms without informing, and grows with
 normal use while never shrinking on its own.
+
+### We cannot adopt the leaked/unused taxonomy without a tombstone first
+
+Tracker can distinguish the two because their detach writes a **tombstone**, so
+a registry row with no *live* edge still has a *deleted* edge behind it.
+Verified in our schema:
+
+```
+issue_tags columns : ['issue_id', 'tag_id', 'created_at']
+rows after detach  : 0
+```
+
+**No `deleted_at`, and the row is gone — our detach is a hard delete.** So in
+issuedb "a tag with no edge" cannot distinguish:
+
+| | |
+|---|---|
+| **LEAKED** | the edge write failed and never existed |
+| **UNUSED** | the edge existed and was deleted |
+
+That is a real dependency: adopting the taxonomy here requires adopting the
+tombstone first. Their `331d3a1` was written to fix *replication* and turned out
+to be what makes the distinction representable at all.
+
+### A `leaked` count is only meaningful if the condition can be manufactured
+
+Tracker reports `leaked: 0` and correctly flagged it as **unfalsifiable from
+outside** — their attach is now atomic, so no leaked row can be produced through
+the product to prove the bucket can ever be non-zero.
+
+We can still produce one, because this ticket is unfixed:
+
+```
+normal attach          -> tag with 1 edge          (in_use)
+normal detach          -> tag with 0 edges         (unused, on their schema)
+attach with the edge write forced to fail -> tag with 0 edges   (leaked)
+```
+
+**The test must inject the failure** — drop or deny the edge write — rather than
+rely on a live bug, because the fix removes the only natural way to reach the
+state. A bucket whose condition disappears when the bug is fixed needs a
+synthetic provocation or it becomes decoration.
