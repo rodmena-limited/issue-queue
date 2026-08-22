@@ -79,3 +79,43 @@ So this repo's guard must:
    theirs and found `probe_design_tokens` uses `git ls-files` **correctly**,
    because there tracked-ness is the property under test: `deploy.sh` ships
    `git archive`, so an untracked font ships as a 404.
+
+---
+
+## Guard SHIPPED in v2.31.0 — `tests/test_file_size_cap.py`
+
+The nine refactors remain scoped work for the operator. The **ratchet** is in
+place now, so the list cannot grow while that decision waits.
+
+```
+16 tests
+  new file over 550, not grandfathered   -> FAIL
+  grandfathered file grows               -> FAIL
+  baseline names a file that no longer exists -> FAIL   (a rename would silently un-guard it)
+  baseline entry that is not actually over the cap -> FAIL  (padding the amnesty)
+  exemption naming a missing file        -> FAIL
+  soft cap 500-550                       -> reported, not enforced
+```
+
+`tests/data/faketracker.py` (922 lines) is the single named exemption, with its
+reason recorded in the file: it is a test double standing in for the Tracker
+server — a fixture, not a source file.
+
+### Proven red, three ways
+
+```
+new untracked 800-line file in issuedb/   -> test_no_new_file_breaches_the_hard_cap FAILED
+20 lines appended to cli/_main.py          -> test_grandfathered_files_do_not_grow  FAILED
+membership control vs a git-index walk     -> test_an_arriving_file_is_seen         FAILED
+```
+
+The third is the one that matters, and it was run **control-first**: the same
+assertion passes against the filesystem walk and fails against a `git ls-files`
+walk, so it is demonstrably capable of both answers. That is `tracker-fbe1b4`'s
+exact shipped defect, reproduced against our guard to prove ours detects it.
+
+> A padded file tests **growth**. Only a created file tests **arrival**, and
+> arrival is the case that matters, because the normal order of work — write,
+> run the gate, `git add` — runs the gate at the one moment a new file is
+> invisible to a git-index enumeration.
+
