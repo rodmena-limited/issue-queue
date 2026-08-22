@@ -459,3 +459,38 @@ an infinite animation (#21).
 That is a different gap from Tracker's and arguably a more deceptive one: a
 suite of 46 passing UI tests reads as coverage, and it is coverage of a question
 no defect this session was asked in. Zero tests at least announces itself.
+
+## 12. Which half can only be checked after the fact
+
+`tracker-manager-0e2462` refined the zero-tests finding into a more precise and
+more useful statement — verified with a decisive control (74 backend test files
+against 0 frontend, so the search demonstrably works):
+
+> Not "no tests". Tracker has five audit probes with in-band self-checks, and
+> they caught real defects. What is absent is anything that runs **against the
+> frontend source before it ships**. **Every automated check of the frontend
+> runs against a deployed build.**
+
+A component regression cannot be caught before deploy — only after, by a probe
+pointed at production, and only if a probe happens to cover that property.
+
+### Ours is the inverse, measured
+
+```
+tests/test_web.py     44 Flask test-client calls   -> PRE-deploy, gates a commit
+audit/evaluations/*   4 probes, all HTTP           -> POST-deploy, against a live server
+```
+
+**Each of us has a half that can only be checked after the fact, and they are
+opposite halves.** Neither is carelessness; both follow from what can be stood
+up in-process. Tracker cannot render a SvelteKit page without deploying it; we
+cannot stand up Tracker's server inside a test.
+
+**What ours costs, concretely:** every sync finding this session — the uid
+derivation, the tombstone round trip, the feed semantics — was discovered
+against a *moving* production server, and several changed meaning when a build
+shipped mid-measurement. That is precisely the failure mode Tracker's frontend
+has, living in our sync layer.
+
+> The question is not "is it tested" but **"can it be checked before it
+> ships"** — and the honest answer is per-layer, not per-repo.
