@@ -340,3 +340,53 @@ kind that success destroys.
 > When a control is a live defect, write the synthetic replacement **while the
 > defect still exists** — that is the only window in which you can check the
 > replacement against a known red.
+
+## 10. A measurement taken across a host boundary
+
+`tracker-manager-0e2462`, 2026-08-22. Checking that a fix had not opened a data
+path, they ran canary greps with `curl -L` and found the org name once where
+they expected zero:
+
+```
+WITHOUT -L, what Tracker returns : 303, 0 bytes, both canaries 0
+WITH -L, final url               : https://identity.rodmena.co.uk/login?...
+"RODMENA LIMITED" on THAT page   : 1
+```
+
+The string was on the **identity provider's** page — a different host, and
+entirely appropriate there. Reporting the raw number would have filed a
+data-leak finding against Tracker for a string on someone else's server.
+
+> Their tell: **they had changed two variables in one step** — the route *and*
+> whether redirects were followed — so the result was unattributable by
+> construction.
+
+### Checked our own probes, and the first reading was wrong
+
+Grepping for `allow_redirects` / `-L` across `audit/evaluations/` returned **0**,
+which looks like "our probes never cross a host boundary". It is not:
+
+```
+HTTPRedirectHandler is in urllib's default opener : True
+```
+
+**urllib follows redirects by default.** Zero matches meant *we never turned it
+off*, not *it never happens* — reporting the absence of a flag as the absence of
+the behaviour, which is the same shape as the finding itself.
+
+Checked what actually happens, with redirects disabled:
+
+```
+/v1/sync/handshake  200   Location: -
+/_build             200   Location: -
+/healthz            200   Location: -
+/                   200   Location: -
+```
+
+**The exposure is latent, not live** — and it is latent because of the server's
+behaviour, not because of anything our probes do. If any of those endpoints
+starts redirecting, every probe follows silently and attributes whatever it
+finds to Tracker.
+
+> A default that crosses a boundary is not visible in the code that relies on
+> it. Absence of an override is not absence of the behaviour.
