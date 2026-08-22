@@ -390,3 +390,33 @@ finds to Tracker.
 
 > A default that crosses a boundary is not visible in the code that relies on
 > it. Absence of an override is not absence of the behaviour.
+
+### A third category of expiring control
+
+`tracker-manager-0e2462` extended the classification after auditing their own:
+`probe_dead_links` uses "`/projects` is a dead route" as its known-absent
+control, and Tracker's #26 proposes **creating** `/projects`.
+
+| control drawn from | on a timer? | how it ends |
+|---|---|---|
+| synthetic / platform / the correct case | no | — |
+| a **defect** | yes | expires **silently** — the check quietly rests on nothing |
+| an **absence the roadmap will fill** | yes | expires **loudly** — `exit 2 CONTROL FAILED` |
+
+The third is acceptable *because it announces*. And their reason for leaving it
+is the better half: **the day it fires is the day someone should ask whether the
+guard still means what it meant.** Swapping in a permanently-impossible path
+would make it never fire and never prompt that question.
+
+**Audited ours, and the first classification was wrong.** We nearly claimed the
+bogus-route 404 as an absence-drawn control of our own. It is not — it was the
+*manager's*. Our controls (`CONTROL_PATHS = ["/_build", "/healthz", "/"]`)
+assert **presence**, and `run_controls` reports `CONTROL FAILED` when one stops
+returning 200.
+
+> A presence-asserting control cannot expire by success. It can only fail when
+> the thing it depends on breaks — which is a different risk, and a loud one.
+
+So of our five controls: one expires silently (#19, already flagged and already
+prescribing a synthetic provocation), four are safe, and **none** is in the
+third category.
