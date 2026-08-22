@@ -50,3 +50,48 @@ proves the formula works and says nothing about whether the traversal can find
 an element.** They injected a real failing element into a real page and watched
 the sweep report it, then removed it and watched the report clear. A sweep
 returning zero failures means nothing until it has returned one.
+
+## The token sweep cannot see the worst kind of contrast defect
+
+`tracker-manager-0e2462`'s batch 4 found their nav "Sign in with RODMENA ID"
+button at **1.21:1** — muted grey on the green fill — on every anonymous page,
+while the *same component* in the page body measured 7.45:1. Cause: the nav
+applies a link colour to `a` inside the header and the button class does not
+override it.
+
+**Both colours are individually legitimate tokens.** A sweep that measures token
+definitions against surfaces — which is exactly what produced this ticket —
+**cannot see it**, because the defect is a *collision between two valid rules*,
+not a bad value.
+
+### The same latent collision exists here
+
+```
+.nav a       -> color: var(--text-secondary) #8b949e   specificity 0,0,1,1
+.btn-primary -> color: #000                            specificity 0,0,1,0
+=> .nav a WINS
+```
+
+```
+correct    #000000 on #3fb950 (--accent-green) : 8.27  passes
+clobbered  #8b949e on #3fb950                  : 1.21  FAILS
+```
+
+**The identical ratio.** It does not fire today because no `.btn` appears inside
+`.nav` in our markup — checked, zero occurrences. It fires the moment one does,
+and nothing warns.
+
+**Fix while #20 is open**, since it is the same line of work: give `.btn`,
+`.btn-primary` and friends a colour that wins inside `.nav`, or scope `.nav a`
+so it cannot reach a button.
+
+### And the denominator lesson, third instance
+
+Their batch-3 sweep reported four pages failing and seven clean — **and ran only
+on signed-in renders**. The worst contrast defect in their product was outside
+the measured population. Their instrument was proven in both directions and
+aimed at the wrong set.
+
+Ours has the same exposure stated plainly: **#20 measured token definitions, not
+rendered elements**, so any override, any inline style, and any surface not in
+the three background tokens is outside what was checked.
