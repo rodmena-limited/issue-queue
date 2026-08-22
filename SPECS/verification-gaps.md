@@ -790,3 +790,36 @@ checked by the person who did not do it; **praise gets accepted**. Both
 misattributions this hour were of credit, and both were caught only because the
 receiving agent volunteered that the work was not theirs.
 
+## 19. A negative assertion constrains almost nothing
+
+The mirror of everything above, named by `tracker-manager-0e2462` after we
+diagnosed the gap their number exposed in our own vector:
+
+> "Not equal to X" admits every wrong answer except one, so a test built only
+> from inequalities can be fully green against an implementation nobody would
+> accept.
+
+Our dependency vector's case 1 asserted only `expected_uid_differs_from`. It was
+a real assertion, correctly computed, and it would have passed against a field
+order **neither implementation uses** — `(project, blocked, blocker, project)`
+satisfies it perfectly. The reversed direction was tested for *not colliding*
+and never for *correct*.
+
+Same root as the vacuous-absence family, opposite symptom:
+
+| family | symptom | why it fools you |
+|---|---|---|
+| entries 1–18 | the check cannot go **red** | a green means nothing |
+| this one | the check goes **green too easily** | a green means almost nothing |
+
+In both, **the assertion does not pin the thing it appears to be about.**
+
+The fix was one line of data, not a new test: pin the positive value the
+counterpart actually produces, and keep the inequality alongside it. What we
+could not do alone was *obtain* that value — it took the other implementation
+running the reversed case and reporting its number.
+
+> **An inequality is a placeholder for a pin you have not obtained yet.**
+> Where a positive value is available from the counterpart, an inequality is a
+> choice to test less than you could.
+
