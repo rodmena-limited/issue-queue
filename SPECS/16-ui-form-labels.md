@@ -227,3 +227,38 @@ Zero wrapping labels *and* zero `for=` labels — there is nothing for
 `el.labels.length > 0`, evaluated in a browser — not a `for=` grep. That is the
 browser's own answer and it cannot disagree with what a screen reader does. A
 `for=` check would also reject a perfectly good wrapping-label fix.
+
+### The criterion inherits a grouping flaw — record it before implementing
+
+This ticket says *"build the row from the controls, then follow each control's
+`label[for=id]`"*. That groups by **geometry** — side by side, vertical extents
+overlapping — and `tracker-manager-0e2462` found the limit of exactly that rule
+on their `/members` override row:
+
+```
+control "role"     top 497   form .row
+control "project"  top 508   form .row.override-form
+control "role"     top 508   form .row.override-form
+```
+
+**Two separate `<form>` elements in two separate `<td>` cells**, each centring
+its own contents perfectly, 11px apart *across a cell boundary*. Their check
+reported a misalignment; there may not be one. Their own statement of it:
+
+> My row-grouping is purely geometric. It cannot tell "one row of controls" from
+> "two unrelated controls that happen to be adjacent".
+
+It also computed a label spread of 11px for **three `sr-only` labels** — a
+number with no user-visible meaning at all.
+
+**Checked our own markup:** no multi-form rows; the `quick-actions` cell holds a
+single form. **We do not have the shape today** — but the criterion would
+inherit the flaw the moment we did.
+
+**So the rule needs a structural guard before it is implemented:** group by a
+shared *ancestor* (the same `<form>`, the same row container) and not merely by
+adjacency, and skip label comparison entirely when the labels are visually
+hidden — aligning invisible things is not a user-facing property.
+
+> Adjacency is not membership. A geometric grouper cannot see a boundary the
+> markup declares.
