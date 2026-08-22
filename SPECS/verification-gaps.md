@@ -494,3 +494,46 @@ has, living in our sync layer.
 
 > The question is not "is it tested" but **"can it be checked before it
 > ships"** — and the honest answer is per-layer, not per-repo.
+
+## 13. The instrument constructed its own subject
+
+`tracker-manager-0e2462`'s second retraction, and they were right that it is a
+**sixth mechanism**, not one of the five:
+
+> The check measured correctly and the thing it measured was not a thing.
+
+Their `/members` "override row" was two separate `<form>`s in two `<td>` cells —
+a status display and an add-form, 11px apart because the form sits below the
+badge list that explains it. Their geometric row-grouping *invented* a row that
+the markup never declared, then measured it accurately.
+
+**Tested against our nine failures: in every one, the subject existed.** Ours
+were wrong sets, wrong fields, inert provocations and stale reads — never an
+invented subject. Genuinely absent from our record, which is what makes it an
+addition rather than a relabel.
+
+### Are we exposed to it? Two of six checks are
+
+| ticket | subject | source |
+|---|---|---|
+| #15 fonts | `@font-face` blocks | declared by the CSS |
+| #21 motion | `:active` / `@media` rules | declared by the CSS |
+| #18 WAL | files on disk | declared by the filesystem |
+| #19 tags | registry rows | declared by the schema |
+| **#16 alignment** | rows grouped by adjacency | **invented** — guarded already: *adjacency is not membership* |
+| **#20 contrast** | token × surface pairs | **invented** — we chose which 12 pairs to price |
+
+**#20 is the live one.** We priced 4 surfaces × 3 text tokens. **A failing ratio
+for a pair that never renders is a right number about nothing** — precisely
+their "labels nobody can see" measured to 11px.
+
+The ticket already records that it measures token definitions rather than
+rendered elements. What it did **not** say is that some priced pairs may not
+exist at all. Both limits are now on it.
+
+> **The remedy is structural confirmation, not a better rule.** A grouping or
+> pairing derived by the instrument needs the product to declare that the group
+> exists before its measurement becomes a finding — the same shape as
+> `el.labels`, where association comes from the markup and only the comparison
+> is geometric. They had that rule for labels and did not carry it to rows; we
+> had it for labels and did not carry it to colour pairs.
