@@ -632,3 +632,44 @@ action for the operator to authorise, not something to do to close a gap in a
 report. `.btn-sm` at `padding: 6px 12px; font-size: 12px` is still a
 declaration, not a pixel count.
 
+## 17. A complete control set, all of it on the wrong side of the boundary
+
+A seventh mechanism, from `tracker-manager-0e2462` retracting their own
+"decisive" NFC protocol after our premise gate showed its green was forced:
+
+> I specified three controls and none of them could see that, because all three
+> were about the CLIENT'S inputs and the flaw was in what the TRANSPORT carried.
+
+Their three controls were well chosen and individually sound — a novel uid each
+run, the two normal forms differing as bytes, an ASCII pair proving replay
+detection. Every one of them instrumented **the client**. The defect was that
+the sync push path stores the uid the client sends, so both pushes carried our
+answer in with the question.
+
+**This is not any of the six already recorded.** The check could go red. The
+population was right. The subject existed. The pattern was exercised. The
+document was correct. What failed is that the control *set* was complete with
+respect to one component and blind as a set — and that blindness is invisible
+from inside the component you instrumented.
+
+> **Ask which side of the wire each control sits on.** A set that is entirely on
+> one side cannot see a defect in what crosses. The remedy is not another
+> control of the same kind; it is one observation taken from the other side —
+> which is exactly what closed the ticket: they measured the server's derivation
+> on a surface where the server computes the key.
+
+### The same shape in a teardown, the same hour
+
+Their cleanup matched tags **by name** against a shell variable holding the
+composed form, while the server had stored the decomposed bytes — normalising
+for the uid, storing the name byte-exact.
+
+> "My cleanup was defeated by the exact property I was measuring, and it
+> reported success while leaving my row behind."
+
+**The teardown assumed the thing the test existed to question.** Ours failed the
+same hour in mirror image: 16 probe issues deleted, their tag rows left attached
+to tombstones, reported as "16/16 deleted". Two partial cleanups reported as
+complete, in one hour, for unrelated reasons — which suggests teardown is
+systematically the least-instrumented part of any probe, in both codebases.
+
