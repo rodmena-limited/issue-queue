@@ -420,3 +420,42 @@ returning 200.
 So of our five controls: one expires silently (#19, already flagged and already
 prescribing a synthetic provocation), four are safe, and **none** is in the
 third category.
+
+## 11. Tests that cover a different question than the defects live in
+
+`tracker-fbe1b4` filed their #27 after finding **zero frontend tests** against
+299 backend integration tests — and noting that *essentially every defect found
+during the visual review was in the frontend*, each caught by a person or a
+probe looking at the running product.
+
+**Measured the same split here, and the first count was wrong.** A `^def test_`
+anchor reported 213 tests and 0 in `test_web.py`, because our web tests are
+**class methods** and therefore indented:
+
+```
+CORRECTED  total tests : 846      web UI tests : 46
+```
+
+So unlike Tracker, our UI is **not** untested — 46 tests over 3,705 lines of web
+source.
+
+**But that answers the wrong question.** What those tests assert:
+
+```
+status_code       47
+byte-substring    14
+json               3
+```
+
+And what tonight's four UI findings were: monospace prose (#15), zero form
+labels (#16), contrast ratios below AA (#20), no `prefers-reduced-motion` over
+an infinite animation (#21).
+
+> **None of the four is expressible as a status code or a byte substring.** The
+> tests are real and they answer *"does the page render, and does it contain
+> this string"*. Every defect found tonight lived in **how** it renders, not
+> **whether**.
+
+That is a different gap from Tracker's and arguably a more deceptive one: a
+suite of 46 passing UI tests reads as coverage, and it is coverage of a question
+no defect this session was asked in. Zero tests at least announces itself.
