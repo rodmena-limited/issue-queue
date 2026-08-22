@@ -132,7 +132,12 @@ def _get_git_info(self: CLI, issue_id: int) -> dict[str, Any] | None:
             text=True,
             timeout=2,
         )
-        if commit_result.returncode == 0 and commit_result.stdout.strip():
+        # An empty list must not be readable as "no commit mentions this
+        # issue" when the search never ran. `git log` exits 128 in a
+        # repository with no commits yet, so the exit code is part of the
+        # signal and not only the exceptions the outer handler catches.
+        commits_lookup_ok = commit_result.returncode == 0
+        if commits_lookup_ok and commit_result.stdout.strip():
             commits = commit_result.stdout.strip().split("\n")
             for commit in commits:
                 if commit and commit not in recent_commits:
@@ -142,6 +147,7 @@ def _get_git_info(self: CLI, issue_id: int) -> dict[str, Any] | None:
             "current_branch": current_branch,
             "related_commits": recent_commits[:5],  # Limit to 5 commits
             "related_commits_count": len(recent_commits[:5]),
+            "related_commits_lookup_ok": commits_lookup_ok,
         }
 
         return git_info

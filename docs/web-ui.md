@@ -121,6 +121,39 @@ All endpoints support JSON for programmatic access.
 |--------|----------|-------------|
 | GET | `/api/summary` | Get summary statistics |
 | GET | `/api/next` | Get next issue to work on |
+| GET | `/api/issues/<id>/context` | Git context, related issues and suggested actions |
+
+#### Reading `/api/issues/<id>/context`
+
+The `git` block is `null` outside a work tree. Inside one it reports the branch
+and any recent commits whose message mentions the issue:
+
+```json
+{
+  "git": {
+    "branch": "main",
+    "branch_matches_issue": false,
+    "commits_mentioning_issue": [{"hash": "4152819", "message": "fix #3"}],
+    "commits_lookup_ok": true
+  }
+}
+```
+
+**Check `commits_lookup_ok` before treating an empty list as an answer.** The
+commit search shells out to `git log` with a timeout; if that call fails, times
+out, or exits non-zero, the endpoint still returns the branch, so the response
+looks complete while `commits_mentioning_issue` is `[]`. The flag is the only
+thing that separates *"no commit mentions this issue"* from *"the search did
+not run"*.
+
+A freshly initialised repository is the common case: `git log` exits 128 on an
+unborn branch, so `commits_lookup_ok` is `false` there.
+
+The CLI reports the same signal under a different name — `git_info`'s
+`related_commits_lookup_ok` in `issuedb-cli --json context <id>`. The two are
+not always equal, and deliberately so: the CLI searches with `git log --all`,
+which exits 0 on an unborn branch because it really did search every ref, so it
+reports `true` where the API reports `false`.
 
 ## Examples
 

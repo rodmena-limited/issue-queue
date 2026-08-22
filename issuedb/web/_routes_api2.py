@@ -44,6 +44,7 @@ def api_get_context(issue_id: int) -> Any:
 
             # Get recent commits mentioning this issue
             commits = []
+            commits_lookup_ok = True
             try:
                 log_result = subprocess.run(
                     # Non-digit boundary so issue 1 does not match #10..#19x.
@@ -52,7 +53,13 @@ def api_get_context(issue_id: int) -> Any:
                     text=True,
                     timeout=5,
                 )
-                if log_result.returncode == 0 and log_result.stdout.strip():
+                # A non-zero exit is a failed lookup too, not an empty
+                # result: `git log` exits 128 in a repository with no commits
+                # yet, and the first version of this flag reported that as a
+                # successful search returning nothing.
+                if log_result.returncode != 0:
+                    commits_lookup_ok = False
+                elif log_result.stdout.strip():
                     for line in log_result.stdout.strip().split("\n")[:5]:
                         if line:
                             parts = line.split(" ", 1)
@@ -63,7 +70,10 @@ def api_get_context(issue_id: int) -> Any:
                                 }
                             )
             except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-                pass
+                # An empty list here would be indistinguishable from "no commit
+                # mentions this issue", so the failure is reported rather than
+                # swallowed: the caller sees an absence it cannot verify.
+                commits_lookup_ok = False
 
             # Check if branch matches issue
             branch_matches = current_branch and str(issue_id) in current_branch
@@ -72,6 +82,7 @@ def api_get_context(issue_id: int) -> Any:
                 "branch": current_branch,
                 "branch_matches_issue": branch_matches,
                 "commits_mentioning_issue": commits,
+                "commits_lookup_ok": commits_lookup_ok,
             }
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
         pass
