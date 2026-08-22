@@ -49,3 +49,42 @@ write*, so the test passed with **and** without the transaction. They found out
 only by reverting the fix to check it went red. The provocation has to fail the
 **second** write specifically — validation rejecting the input never exercises
 the path.
+
+## A SECOND, larger defect in the same area: a normal detach also leaves the tag
+
+`tracker-manager-0e2462` measured this on Tracker after we predicted it from
+our own seven tombstoned-but-still-registered tags:
+
+```
+1. create + attach "orphan-semantics-5d1c"   issue_count 1
+2. detach — a normal, successful 204
+3. registry row still present : TRUE   issue_count 0   orphans 7 -> 8
+4. removed it again           : orphans back to 7
+```
+
+**A plain attach-then-detach leaves a registry row.** No 500, no failed write,
+no bug — just ordinary use. So two different things wear one label:
+
+| | |
+|---|---|
+| **LEAKED** | a registry row whose edge write *failed* — the defect this ticket is about |
+| **UNUSED** | a tag legitimately on no issue right now — normal, and possibly *wanted*, since tags are project-scoped and reusable |
+
+Of their ten orphans, exactly **one** came from a failed attach. The other nine
+were residue of successful create-then-detach cycles.
+
+### What this means for issuedb
+
+We have the same shape: `remove_issue_tag` deletes the edge and leaves the
+`tags` row, and there is no CLI command that removes a tag from the registry.
+So issuedb also accumulates unused tags through ordinary use, and `tag list`
+will show them forever.
+
+**That is arguably correct** — a reusable project-scoped tag should survive
+losing its last issue — but it must be a *decision*, not an accident, and there
+must be a way to remove one. Both halves of this ticket's third EARS clause
+still apply.
+
+**Do not conflate the two counts.** A number that mixes "rows a bug leaked"
+with "tags nobody is using today" alarms without informing, and grows with
+normal use while never shrinking on its own.
