@@ -584,3 +584,51 @@ wrong element — and each time the fix was the same: **measure one level finer
 before acting.** Ours was `#20`'s token×surface pairs and `#16`'s adjacency
 rows, which is the same error at the DOM level.
 
+## 16. The control passed and the page was Chrome's error page
+
+Recorded twenty minutes after writing entry 14, which is the point.
+
+`tracker-manager-0e2462` measured their checkbox labels at 19px tall and I set
+out to run the same measurement here, so that "target size is unmeasured" could
+become a number. The probe enumerated every visible pointer target, split them
+into pass and fail, and carried a control:
+
+```
+CONTROL_pass_count : 2      <- non-zero, so the measurement works
+fail_count         : 1      <- an <a> at 241 x 18
+```
+
+**Every part of that is true and none of it is about issuedb.** Chrome could not
+reach `127.0.0.1:7761` — its localhost is not this shell's — so the document was
+`ERR_CONNECTION_REFUSED`, and I measured the "Reload" and "Details" buttons on
+Chrome's own error page. The failing 18px anchor was *"Checking the proxy and
+the firewall"*.
+
+The server was genuinely up: `curl` returned 200 from the same machine, one
+second earlier. That is what made it convincing.
+
+### Why the control did not catch it
+
+It answered *"does the measurement machinery work?"* — and it did, perfectly.
+It never answered *"is this the right document?"* Entry 14 says the control must
+fail if **the discriminating part** is wrong. Here the discriminating part was
+not the selector or the arithmetic; it was **which page was loaded**, and
+nothing in the check was a function of that.
+
+> A subject control has to assert something **only the intended page can
+> produce**. `document.title`, an app-specific element, a known fixture string.
+> "Some elements were found" is satisfied by every page on the web, including
+> the one that says your page is missing.
+
+Two fixture issues had been seeded specifically so the page would have content
+to measure — and asserting that one of their titles appeared in the DOM would
+have cost one line and caught it instantly.
+
+### Status of the measurement
+
+**Target size in this UI remains UNMEASURED, not clean.** Chrome cannot reach a
+local port here, and the alternative — a public tunnel — is an outward-facing
+action for the operator to authorise, not something to do to close a gap in a
+report. `.btn-sm` at `padding: 6px 12px; font-size: 12px` is still a
+declaration, not a pixel count.
+
