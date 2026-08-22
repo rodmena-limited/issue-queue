@@ -109,3 +109,16 @@ labels 19px apart passes the naive check and fails the real one. Whatever
 instrument closes #16 must carry all four assertions, and must be proven both
 red *and* green — a check that has only ever seen a broken row could be one
 that calls every row broken.
+
+### Ordering: labels come before alignment, always
+
+Fixing the labels does not merely satisfy the labelling criterion — **it makes
+the alignment criterion expressible.** With no `for=` association there is
+nothing to pair a label to and no row to check, so alignment work done first
+would have had nothing to measure.
+
+On Tracker this order happened by accident: the operator complained about
+comprehensibility before he complained about alignment. The durable form is the
+dependency, not the luck — **label association is a precondition for geometric
+measurement**, so labels come first whether or not anyone has complained about
+them.
