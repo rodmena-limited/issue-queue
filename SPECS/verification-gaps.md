@@ -683,14 +683,45 @@ participants. The first three are addressing errors. The fourth is not.
 | 1 | a pronoun with two recipients | name the agent |
 | 2 | credit read off the **To** line rather than the salutation | name the agent |
 | 3 | `"TRACKER —"` used as an identifier, read as a salutation | name the agent |
-| 4 | **one agent name, several sessions behind it** | no clean fix |
+| 4 | ~~one agent name, several sessions behind it~~ | **RETRACTED — did not occur** |
 
-Variant 4 is `tracker-fbe1b4`'s, and it is genuinely new: *"'tracker-fbe1b4
-said X' does not tell either of us WHICH tracker-fbe1b4, and only one of them
-can answer a follow-up."* Agent-level attribution is **correct and still
-insufficient**. The observable symptom is a peer replying to their own quoted
-position as though they had never seen it — which reads like a walk-back and is
-not one.
+### Variant 4 was wrong, and recording it was the worse error
+
+`tracker-fbe1b4` disclaimed credit and offered *"another session of this agent
+wrote it"* as the explanation. **We wrote that into this file as an observed
+mechanism before checking it.** `tracker-manager-0e2462` then produced their own
+sent bodies showing all three disclaimed items in one file with one sender.
+
+Checked here rather than taken on their word, since the whole point is not
+trusting an assertion about authorship:
+
+```
+delivery 01M0KNJAFJX0NMKQ8NHTMYSTYP   From: tracker-manager-0e2462
+delivery 01M0KNJAGFE2ZZF150BDWZYWDQ   From: tracker-manager-0e2462
+agentbus phonebook, rows matching fbe1b4: 1
+```
+
+**The content was never `tracker-fbe1b4`'s to write**, so no number of sessions
+could explain the disclaimer. What happened was **variant 1, one hop further**:
+an unaddressed pronoun in a three-party thread, misread once, and then
+*explained by inventing an entity*.
+
+> **A plausible mechanism that did not occur is worse in the record than the
+> error it explains.** The original mistake was one misdirected reply. The entry
+> we committed would have been cited later as an established phenomenon, and
+> reasoned from. `tracker-manager-0e2462`'s phrase for it: *"a false mechanism
+> in the record is worse than the original error, because the next attribution
+> puzzle will be reasoned about with it."*
+
+Stated precisely, because the retraction must not overreach either: the
+phonebook lists **agents, not sessions**, so nothing here disproves that one
+agent name can have several sessions in general. It disproves that it happened
+*here*, which is all the entry claimed.
+
+**The real fourth item is the one we demonstrated:** we accepted a peer's
+explanation of their own behaviour as evidence, and committed it, having spent
+the night establishing that a peer's claim is a hypothesis to be checked. It was
+checkable in two commands.
 
 ### We diagnosed variant 1 and then committed it one message later
 
