@@ -88,14 +88,17 @@ be represented.
 
 .. note::
 
-   The ``dependency_uid`` field order is **measured, not specified.**
-   ``PROTOCOL.md`` does not yet pin it. It was established against Tracker's
-   live feed (all 16 server-derived dependencies matched
-   ``(project, blocker, blocked)``, none matched the reverse) and is frozen in
-   ``tests/data/vectors_issuedb/14-dependency-uid-derivation.json`` against the
-   uid **the server produced**, not against issuedb's own output. An observed
-   order is not the contract; the vector exists so a future divergence is
-   visible instead of silent.
+   The ``dependency_uid`` field order is **specified** by
+   ``contracts/sync/PROTOCOL.md`` line 150 --
+   ``"idep", project_uid, blocker_uid, blocked_uid`` -- committed 2026-08-15,
+   a week before issuedb derived its first dependency uid.
+
+   It is independently confirmed: all 16 server-derived dependencies in
+   Tracker's live feed match that order and none match the reverse. The frozen
+   vector at ``tests/data/vectors_issuedb/14-dependency-uid-derivation.json``
+   pins the uid **the server produced**, not issuedb's own output, so a
+   divergence from the specified order fails a test rather than silently
+   forking a row.
 
 Known limitation
 ----------------

@@ -5,7 +5,8 @@
     "measured_against": "https://tracker.rodmena.co.uk",
     "measured_on": "2026-08-22",
     "sample": "16 of 16 server-derived dependencies matched (project, blocker, blocked); 0 of 16 matched the reverse",
-    "caveat": "PROTOCOL.md does not yet specify this order. An observed order is not the contract; this vector records what the counterpart does today so a future divergence is visible rather than silent."
+    "caveat": "SUPERSEDED 2026-08-22: the earlier note here claimed PROTOCOL.md did not specify this order. That was false when written and was asserted without reading the file. contracts/sync/PROTOCOL.md line 150 specifies `issue_dependency` = \"idep\", project_uid, blocker_uid, blocked_uid, committed 2026-08-15 (git blame 0fdcbabc) -- seven days before issuedb derived a dependency uid. This vector records what the counterpart actually produces, so a future divergence from the specified order is visible rather than silent.",
+    "specified_by": "contracts/sync/PROTOCOL.md line 150, dated 2026-08-15, verified by direct read"
   },
   "cases": [
     {

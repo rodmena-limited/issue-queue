@@ -899,3 +899,43 @@ sceptical — nobody is arguing, the number is offered helpfully, and doubting i
 feels ungracious. Every misattribution and wrong number in this record was
 caught by someone who re-ran a thing they had no reason to doubt.
 
+## 22. We asserted what a document did not say, without opening the document
+
+Our dependency vector, our `_canonical.py` docstring and `docs/sync.rst` all
+carried this:
+
+> "PROTOCOL.md does not yet specify this order."
+
+**Nobody had read PROTOCOL.md.** It is not in this repo — it lives in Tracker's
+`contracts/sync/PROTOCOL.md`, which this codebase references by name in seven
+places while holding no copy. The claim was repeated into three artefacts and a
+peer message.
+
+`tracker-manager-0e2462` checked and it says the opposite:
+
+```
+line 150  | `issue_dependency` | `"idep"`, project_uid, blocker_uid, blocked_uid |
+git blame   0fdcbabc  2026-08-15   -- seven days before we derived anything
+```
+
+Confirmed here by direct read rather than adopted, with controls: 573 lines,
+three `issue_dependency` matches, zero for a nonsense string. **The file was on
+this machine the entire time**, one `find` away.
+
+### Why this is worse than the negatives already recorded
+
+Entry 19 is about inequalities admitting too much. This is a step further down:
+**a negative claim about a document nobody consulted.** There was no check to be
+vacuous, because there was no check. "It is not specified" felt like the humble,
+conservative thing to write — under-claiming rather than over-claiming — and
+that is exactly why it went unexamined through three files and a review.
+
+> **Humility is not evidence.** "We do not have this in writing" is a factual
+> claim about a document and needs the document, precisely like "we do have it"
+> would. A cautious-sounding assertion earns no discount.
+
+And it inverted the result. What we recorded as *"an order we measured, which
+the contract may later contradict"* is really *"a specified contract this side
+had never implemented"* — with the spec fixed **first**, so it cannot have been
+fitted to either implementation. The true story was stronger than the hedge.
+

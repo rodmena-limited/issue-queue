@@ -50,9 +50,20 @@ Re-verified against the live server after shipping: the released helper
 reproduces **16/16** stored uids, the reversed order **0/16**. Proven red by
 reversing the order (3 tests fail) and by dropping `project_uid` (3 tests fail).
 
-Scope, honouring `tracker-fbe1b4`: **PROTOCOL.md does not specify this order.**
-An observed order is not the contract. The vector records what the counterpart
-does today so a divergence becomes visible rather than silent.
+**CORRECTED 2026-08-22 — the order IS specified, and we claimed otherwise
+without reading the file.** `contracts/sync/PROTOCOL.md` line 150 gives
+``"idep", project_uid, blocker_uid, blocked_uid``, committed **2026-08-15**
+(`git blame 0fdcbabc`), a week before this repo derived its first dependency
+uid. Verified by direct read, with controls: the file is 573 lines, matches
+`issue_dependency` three times, and a nonsense string zero times.
+
+That makes the result **stronger**, and the order in which the three were fixed
+is why: specification first, then Tracker's implementation, then ours. **The
+spec cannot have been fitted to the measurement**, and neither implementation
+could have inferred it from the other.
+
+What `idep` actually was, then, is not "an unspecified order we discovered" but
+**a specified contract this side had never implemented**.
 Filed as **#25**, and fixed in v2.30.0 — see the closing note below.
 
 ## `issue_relation` — INCONCLUSIVE, and it is our debris
