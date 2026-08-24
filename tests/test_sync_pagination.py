@@ -17,6 +17,7 @@ server, produced by a check that had been passing for hours.
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 import pytest
 
@@ -49,6 +50,7 @@ class FakePagingClient:
         self.feed = [_change(i) for i in range(1, total + 1)]
         self.size = size
         self.pulls: list[str] = []
+        self.served_pages: list[list[dict[str, Any]]] = []
 
     def handshake(self) -> Handshake:
         return Handshake(
@@ -69,6 +71,7 @@ class FakePagingClient:
         after = int(cursor.split(":")[1])
         remaining = [c for c in self.feed if int(c["seq"]) > after]  # type: ignore[call-overload]
         page = remaining[: self.size]
+        self.served_pages.append(page)
         last = int(page[-1]["seq"]) if page else after  # type: ignore[call-overload]
         return PullResult(
             changes=page,
@@ -146,6 +149,62 @@ def test_apply_lands_every_page_and_the_cursor_reaches_the_end(db, wired, monkey
 
     out = capsys.readouterr().out
     assert "Cursor now c:450" in out, out
+
+
+def test_a_uid_repeated_across_pages_lands_exactly_once(db, wired, monkeypatch, capsys):
+    """Distinctness, not just arrival — a row on two pages must not become two rows.
+
+    `tracker-manager-0e2462`, reviewing their own pagination fix: a count-based
+    assertion cannot see repeats, because "a client that reads every page and
+    applies only the first still gets the count right" — and the mirror is that
+    a client which double-applies a straddling row also gets it right. Our other
+    tests assert that specific rows ARRIVE; none of them asserted that a row
+    arrives ONCE.
+
+    A uid appearing on two pages is a real server behaviour, not a hypothetical:
+    the feed is ordered by seq and a row whose seq changes mid-walk can be
+    served on both sides of a page boundary.
+    """
+    client = FakePagingClient(total=450, size=200)
+    # The row from page 1 is TOUCHED mid-walk, so the server serves it again on
+    # a later page under a NEW seq. That is the documented feed semantics —
+    # one row per uid, seq advances on change — and it is the only way a uid
+    # can legitimately appear twice in one walk.
+    #
+    # An earlier version of this test copied the row at the same seq, which
+    # `pull` (filtering `seq > cursor`) never served a second time. The control
+    # below asserts on what PULL DELIVERS, not on the fixture list, because
+    # that is what the earlier control got wrong.
+    touched = dict(client.feed[199])
+    touched["seq"] = 451
+    client.feed.append(touched)
+    monkeypatch.setattr(_sync_command, "SyncClient", lambda *a, **k: client)
+
+    assert _sync_command.sync(db, "https://example.invalid", do_apply=True, env=wired) == 0
+
+    served = [c["uid"] for page in client.served_pages for c in page]
+
+    conn = sqlite3.connect(db)
+    try:
+        rows = [r[0] for r in conn.execute("SELECT title FROM issues WHERE title = 'issue 200'")]
+        total = conn.execute("SELECT COUNT(*) FROM issues").fetchone()[0]
+        distinct = conn.execute("SELECT COUNT(DISTINCT title) FROM issues").fetchone()[0]
+        ledger = conn.execute(
+            "SELECT COUNT(*) FROM sync_row WHERE uid = ?", (touched["uid"],)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    # THE CONTROL, on what pull actually DELIVERED rather than on the fixture:
+    # if the walk never served the uid twice, this test proves nothing.
+    assert served.count(touched["uid"]) == 2, (
+        f"the walk delivered the uid {served.count(touched['uid'])} time(s); "
+        "the duplicate was never served, so the assertions below are vacuous"
+    )
+
+    assert len(rows) == 1, f"a uid served on two pages landed {len(rows)} times"
+    assert total == distinct, f"{total} rows but only {distinct} distinct titles"
+    assert ledger == 1, f"the ledger holds {ledger} rows for one uid; identity is no longer 1:1"
 
 
 def test_a_server_that_never_lowers_has_more_is_bounded_and_says_so(

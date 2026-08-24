@@ -40,11 +40,16 @@ EXEMPT = {
 
 # The nine files already over the hard cap when #24 was filed. Each entry is the
 # line count AT THAT MOMENT: a grandfathered file may shrink, never grow.
+#
+# TIGHTEN AN ENTRY WHEN ITS FILE SHRINKS. Leaving the old, larger number would
+# hand back the slack that was just recovered — `_apply.py` went 598 -> 577 when
+# the feed and endpoint helpers were extracted, and a stale 598 here would let
+# it creep straight back. The ratchet only ratchets if it is re-tightened.
 BASELINE = {
     "audit/evaluations/first_contact_probe.py": 746,
     "tests/test_git_integration.py": 676,
     "tests/test_similarity.py": 615,
-    "issuedb/sync/_apply.py": 598,
+    "issuedb/sync/_apply.py": 577,
     "issuedb/cli/_main.py": 593,
     "tests/test_sync_apply.py": 591,
     "tests/test_web.py": 575,
