@@ -139,3 +139,58 @@ This is independent of the release decision and cheaper to resolve: `git push`
 releases nothing (the repo has no CI workflows to trigger) and removes the
 single-copy risk. Both remain operator decisions and neither has been taken here.
 
+---
+
+# PUBLISHED — 2.32.0 is live on PyPI (operator-authorised 2026-08-24)
+
+Farshid authorised the release explicitly. Uploaded with `twine` using the
+existing `~/.pypirc` credential; no secret was read, printed or handled.
+
+## Pre-flight
+
+```
+tree clean · 903 tests pass · ruff clean · mypy clean
+version agreement   pyproject 2.32.0 == __version__ 2.32.0 == docs release 2.32.0
+2.32.0 already on PyPI?   False        <- a taken version cannot be reused
+twine check               both artifacts PASSED
+local wheel, clean venv   metadata == __version__, sync/signin/whoami, wont-do
+```
+
+## The post-publish check earned its place immediately
+
+The required step from the section above is *install from PyPI, not from the
+local wheel*. Run straight after upload it **reported the old release**:
+
+```
+t+0 (immediately after upload)   latest=2.12.0   2.32.0 in releases: False
+pip install issuedb              -> 2.12.0, metadata 2.12.0 / __version__ 2.11.0
+```
+
+Upload had printed `View at: https://pypi.org/project/issuedb/2.32.0/` while the
+index still served 2.12.0. **A "successful" upload is not a fetchable release** —
+there is a propagation window, and stopping at the upload's own success message
+would have meant announcing a release that nobody could yet install. Polled to
+resolution rather than assumed either way.
+
+## Verified from PyPI, with a control
+
+```
+                              metadata / __version__   consistent   sync,signin,whoami   wont-do
+  2.32.0  (pip, no cache)     2.32.0 / 2.32.0          True         present              present
+  2.12.0  (control)           2.12.0 / 2.11.0          False        0 subcommands        —
+```
+
+Both checks report the defect on the old release and its absence on the new one,
+so neither is a check that can only say yes. **The version-record bug frozen in
+2.12.0 is now fixed in a release users can actually reach**, and `sync` is
+published for the first time.
+
+## Still outstanding: the source is not public
+
+```
+main...origin/main [ahead 112]
+```
+
+A published package whose source is 112 commits ahead of its public repository.
+`git push` remains an operator decision and has not been taken.
+
