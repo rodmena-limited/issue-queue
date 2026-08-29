@@ -86,3 +86,56 @@ as an unfixed one — and worse, because anyone investigating finds a passing te
 and concludes the fault is theirs. That is very nearly what happened here: this
 session diagnosed its own PATH install as broken when it was byte-for-byte the
 newest artefact that exists.
+
+---
+
+## UPDATE 2026-08-24 — the cost is no longer theoretical, and there is a second risk
+
+### A real user is blocked
+
+`todo-app-maker-5c0942` reported a user unable to sync a local `.issue.db` to
+Tracker. Their diagnosis was correct and their install was fine:
+
+```
+PyPI latest (re-queried)     2.12.0
+sync landed in source        2026-08-15
+source version now           2.32.0
+```
+
+`signin` and `sync` are absent from every published build on every machine.
+Tracker's `/setup` page tells users the commands ship in **2.16.0** — a release
+that does not exist.
+
+### The git workaround does not exist either, and would have failed silently
+
+The obvious answer is "install from git instead of PyPI". Checked before
+recommending it:
+
+```
+git ls-remote https://github.com/rodmena-limited/issue-queue
+  refs/heads/main   4152819        <- 112 commits behind local
+  newest tag        v2.12.0        <- exactly matches PyPI
+  contains issuedb/sync/ ?         NO
+```
+
+`pip install git+https://...` would have installed cleanly, looked like it
+worked, and had no sync command — **worse than the error it replaced**, because
+the error at least tells the truth. Not offered.
+
+### THE SECOND RISK, WHICH IS LARGER THAN THE PUBLISHING QUESTION
+
+```
+main...origin/main [ahead 112]
+remote newest   4152819   2026-07-25
+local newest    961cf11   2026-08-24
+```
+
+**112 commits exist only on this machine.** Not merely unpublished — *unpushed*.
+That is the whole sync implementation, the apply paths, the derived-identity
+work, the duplicate-uid fix, the file-size ratchet, and every SPECS record from
+the Tracker collaboration, in one copy on one disk.
+
+This is independent of the release decision and cheaper to resolve: `git push`
+releases nothing (the repo has no CI workflows to trigger) and removes the
+single-copy risk. Both remain operator decisions and neither has been taken here.
+
