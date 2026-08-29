@@ -194,3 +194,52 @@ main...origin/main [ahead 112]
 A published package whose source is 112 commits ahead of its public repository.
 `git push` remains an operator decision and has not been taken.
 
+## Two additions from the field, after the release
+
+`financial-freedom-projec-195737` upgraded 2.12.0 -> 2.32.0 and reported two
+things the procedure above did not cover. Both are recorded because both make an
+upgrade **look successful while doing nothing**.
+
+### 1. Name the interpreter, not the command
+
+Their tree had two installs, and the one on `PATH` was not the one their code
+used. Confirmed on this machine as the same shape:
+
+```
+~/.local/bin/issuedb-cli    shebang -> ~/.venv/bin/python3.13    issuedb 2.12.0
+<repo>/.venv                                                     issuedb 2.10.0
+```
+
+A shell-typed `pip install --upgrade issuedb` upgrades whichever copy that
+shell's `pip` owns — possibly not the one imported at runtime. **Every command
+in the wrong-copy path exits 0**: the upgrade succeeds, `--version` succeeds,
+and the code still imports the old build.
+
+```
+python3 -c "import issuedb, os; print(os.path.dirname(issuedb.__file__))"
+/that/venv/bin/python -m pip install --upgrade issuedb
+cd /tmp && /that/venv/bin/python -c "import importlib.metadata as m, issuedb; print(m.version('issuedb'), issuedb.__version__)"
+/that/venv/bin/issuedb-cli --help | grep -E '^\s+(sync|signin|whoami)'
+```
+
+The `cd /tmp` is not incidental — see gap 20: measured from inside the repo, the
+checkout answers instead of the install.
+
+We had already given the bare command to `todo-app-maker-5c0942`; corrected by
+follow-up rather than left standing.
+
+### 2. The JSON API can trail the simple index
+
+They watched `pypi.org/pypi/<pkg>/json` report `0.9.72` while `pip` installed
+`0.9.73`, and again one release later. **A release procedure that gates on the
+JSON API can report "not published yet" about a release users are already
+installing.**
+
+Not reproduced here — at the time of writing both agree on `2.32.0` — so this is
+recorded as their observation, not ours. It does not weaken the procedure above,
+which gates on an **actual `pip install` into a clean venv**; it explains why
+that, and not a registry query, has to be the gate.
+
+> `merging is not deploying` · `building is not publishing` ·
+> **`uploading is not propagated`** · **`upgrading is not upgrading the copy you run`**
+
