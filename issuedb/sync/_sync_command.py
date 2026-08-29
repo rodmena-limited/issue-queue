@@ -16,6 +16,7 @@ from __future__ import annotations
 import sqlite3
 import sys
 
+from issuedb.database import Database, NewerDatabaseError, apply_migrations
 from issuedb.sync import _apply, _coverage
 from issuedb.sync._auth_commands import DEFAULT_SERVER
 from issuedb.sync._client import SyncClient, SyncError
@@ -61,7 +62,45 @@ def sync(
         )
         return 1
 
+    # MIGRATE BEFORE CONNECTING. `sqlite3.connect` opens the file and nothing
+    # else — it does not run the ladder — so on a database created before the
+    # sync tables existed this used to reach the first INSERT and die with
+    # "no such table: sync_project". Every other command goes through
+    # `Database`, which runs `apply_migrations`; sync was the one path that did
+    # not, and the failure was NOT self-healing: sync never migrates, so every
+    # retry failed identically.
+    #
+    # Invisible to the whole suite because every test builds its database
+    # through the normal path, so the tables were always already there. The
+    # population that hits this — databases created by an EARLIER issuedb — was
+    # excluded from all of them. Reported from the field on 2.32.0 by
+    # `todo-app-maker-5c0942`.
+    # `Database` creates the file and its baseline schema when sync is the
+    # first thing to touch it. It is a PER-PATH SINGLETON, though, so in a
+    # process that has already built one for this path the constructor is a
+    # no-op — which is why the ladder is then run explicitly on our own
+    # connection below rather than left to a construction side effect.
+    try:
+        Database(db_path)
+    except NewerDatabaseError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
     conn = sqlite3.connect(db_path)
+    # RUN THE LADDER BEFORE ANY SYNC TABLE IS TOUCHED. `sqlite3.connect` opens
+    # the file and nothing else, so on a database created before the sync
+    # tables existed this used to reach the first INSERT and die with
+    # "no such table: sync_project". Every other command reaches the ladder
+    # through `Database`; sync was the one path that did not, and the failure
+    # did not self-heal — sync never migrated, so every retry failed the same
+    # way. Shipped in 2.32.0, reported from the field by
+    # `todo-app-maker-5c0942`.
+    try:
+        apply_migrations(conn)
+    except NewerDatabaseError as exc:
+        conn.close()
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     try:
         try:
             recorded = record_project_uid(conn, shake.project_uid, server)
