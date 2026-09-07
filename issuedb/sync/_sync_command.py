@@ -22,6 +22,13 @@ from issuedb.sync._auth_commands import DEFAULT_SERVER
 from issuedb.sync._client import SyncClient, SyncError
 from issuedb.sync._credentials import load
 from issuedb.sync._project import ProjectIdentityError, record_project_uid
+from issuedb.sync._project_file import (
+    PROJECT_FILE_NAME,
+    ProjectFileError,
+    project_file_path,
+    read_project_file,
+    write_project_file,
+)
 from issuedb.sync._state import load as load_state
 from issuedb.sync._state import save as save_state
 
@@ -102,6 +109,28 @@ def sync(
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     try:
+        # THE TRACKED FILE OUTRANKS THE SERVER. A clone arrives with
+        # `.issuedb-project.json` and an empty database, so without this the
+        # server would name the project and the checkout would adopt whatever
+        # the API key points at — which is how two repositories sharing one key
+        # merge into one backlog (reported by `tracker-fbe1b4`). The database's
+        # own write-once guard cannot help there: a fresh database has nothing
+        # to defend. The committed file is what it defends with.
+        try:
+            committed = read_project_file(db_path)
+        except ProjectFileError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        if committed is not None and committed != shake.project_uid:
+            print(
+                f"Error: this checkout is committed to project {committed} "
+                f"({project_file_path(db_path).name}), but the server reported "
+                f"{shake.project_uid}. Refusing to sync: the API key names a different "
+                f"project than this repository belongs to.",
+                file=sys.stderr,
+            )
+            return 1
+
         try:
             recorded = record_project_uid(conn, shake.project_uid, server)
         except ProjectIdentityError as exc:
@@ -110,6 +139,19 @@ def sync(
         if recorded:
             conn.commit()
             print(f"Recorded project {shake.project_uid} for this database.")
+
+        # Establish the lineage for every future clone. Written after the
+        # database agrees, so a refusal above never leaves a file behind.
+        if committed is None:
+            try:
+                written = write_project_file(db_path, shake.project_uid, server)
+            except (ProjectFileError, OSError) as exc:
+                print(f"Warning: could not write {PROJECT_FILE_NAME}: {exc}", file=sys.stderr)
+            else:
+                print(
+                    f"Wrote {written.name} — COMMIT THIS FILE so every clone of this "
+                    f"repository syncs to the same project."
+                )
 
         state = load_state(db_path, shake.project_uid, env)
 

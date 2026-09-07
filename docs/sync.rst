@@ -54,12 +54,31 @@ What a sync does, in order:
    (e.g. comments, audit logs), so "everything synced" is never silently
    assumed.
 
+What to commit
+--------------
+
+.. code-block:: text
+
+   .issuedb-project.json    COMMIT THIS   the project this repository belongs to
+   .issue.db                DO NOT COMMIT  your local replica
+
+``.issue.db`` is a binary SQLite file. Two developers each creating an issue
+produce a conflict git cannot merge, and sharing issues is what sync is *for* —
+a committed database and a synced one race over the same rows. Keep it in
+``.gitignore``.
+
+``.issuedb-project.json`` is written on your first successful sync and holds
+only the project id and server URL — nothing secret. **Commit it.** It is what
+makes a fresh clone sync to the same project with no setup, and it is what makes
+a clone REFUSE a server that names a different project: an API key pointing at
+somebody else's project would otherwise be adopted silently by a fresh
+database, merging two backlogs.
+
 State and identity
 ------------------
 
 The cursor and replica identity live **outside** the database, keyed to the
-project, so a fresh clone of a tracked repo knows which project it belongs to
-with zero setup. The project id itself is recorded inside the database and is
+project. The project id itself is recorded inside the database and is
 write-once: if the server ever reports a different project for a database that
 already holds one, sync refuses rather than merge two projects' rows.
 

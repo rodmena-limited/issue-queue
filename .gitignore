@@ -61,7 +61,10 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
-# IssueDB runtime database files and artifacts
+# IssueDB runtime database files and artifacts.
+# NOTE: .issuedb-project.json is deliberately NOT ignored — it carries the
+# project identity and must be committed so every clone syncs to the same
+# project. See docs/sync.rst "What to commit".
 .issue.db
 *.db-shm
 *.db-wal

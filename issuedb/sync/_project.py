@@ -4,9 +4,17 @@
 rather than beside it, and the reasoning is the mirror image of the cursor's.
 A cursor is per-replica and mutable, so a tracked file would make it
 time-travel with the branch. The project id is neither: it is the same for
-every clone forever, it is server-minted, and it carries nothing secret. So
-being committed is a FEATURE — a fresh clone of a tracked repo knows which
-project it belongs to with zero setup.
+every clone forever, it is server-minted, and it carries nothing secret.
+
+THIS TABLE IS THE RUNTIME COPY, NOT THE ONE THAT TRAVELS. An earlier version of
+this docstring said being committed was a feature — "a fresh clone of a tracked
+repo knows which project it belongs to with zero setup" — which assumed
+``.issue.db`` was itself committed. Nothing ever told users to commit it and
+issuedb's own ``.gitignore`` forbids it, so the promise was never kept
+(issuedb #28). The database is binary and unmergeable, and sharing issues is
+what sync is for, so committing it was the wrong mechanism for the right goal.
+The identity that travels now lives in a tracked ``.issuedb-project.json`` —
+see :mod:`issuedb.sync._project_file`.
 
 It is also load-bearing for correctness, not just convenience. From the frozen
 canonical form, ``project_uid`` is FIELD 1 of every derived uid::

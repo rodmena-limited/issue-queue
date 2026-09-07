@@ -269,6 +269,13 @@ issuedb-cli --json context ISSUE_ID [--compact]
 - The dependency field order is MEASURED against the live server, not yet
   specified in PROTOCOL.md. See docs/sync.rst.
 
+### Sync: what to commit
+- .issuedb-project.json  COMMIT IT — the project this repo belongs to.
+- .issue.db              DO NOT COMMIT — binary, unmergeable, and sync is how
+                         issues are shared.
+The project file makes a fresh clone sync to the same project, and makes it
+REFUSE a server naming a different one.
+
 ## DUPLICATE DETECTION
 
 ### Find Similar Issues
