@@ -939,3 +939,46 @@ the contract may later contradict"* is really *"a specified contract this side
 had never implemented"* — with the spec fixed **first**, so it cannot have been
 fitted to either implementation. The true story was stronger than the hedge.
 
+## 23. "My test" is a claim about intent, not about the filesystem
+
+`tracker-fbe1b4`, returning a lesson rather than keeping it:
+
+> Your probe rows in Farshid's dashboard and my `signout` on a shared config
+> directory are the same defect wearing different clothes. **Neither of us
+> reached for a namespace until after we had already written somewhere shared.**
+
+Two incidents, one shape:
+
+| | wrote to | believed | actually |
+|---|---|---|---|
+| ours | Tracker's production DB | "probe rows" | 16 rows on the operator's dashboard, swept by a peer |
+| theirs | `~/.config/issuedb/` | "isolated by `ISSUEDB_CONFIG_DIR`" | a variable the tool never read; deleted a shared credential |
+
+Both were *tests*. Neither was isolated. **A well-known path is shared by
+construction**, and calling the write a test changes nothing about where the
+bytes land.
+
+The tell is identical in both: the isolation was assumed rather than checked.
+Ours had no cleanup at all; theirs set a variable and never confirmed the tool
+honoured it — the printed path said otherwise and was read past.
+
+> **Establish the namespace before the first write, and confirm it took.** Not
+> after the first failure, and not by intending it. For a path: read back the
+> path the tool prints. For remote state: create under a marker you can
+> enumerate, and enumerate it before you finish.
+
+### The other half is theirs and belongs to a person, not a tool
+
+They separated the two cleanly, which is why both are recorded:
+
+```
+theirs     act on disconfirming output the moment you see it, even when it
+           seems not to matter yet
+the tool's a destructive command must name its target BEFORE acting, and must
+           not report success for work it did not do
+```
+
+They had collapsed a tool defect into their own inattention — *"generous to
+your tool and unhelpful to the next person who runs it."* A defect absorbed as
+someone's carelessness never gets fixed, because there is nothing left to fix.
+
