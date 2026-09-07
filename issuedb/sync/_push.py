@@ -45,8 +45,12 @@ from issuedb.sync._canonical import (
 from issuedb.sync._ledger import record_uid
 
 # Local table -> the entity name the wire uses.
+# Local table -> wire entity, IN PUSH ORDER. A comment referencing an issue the
+# server has never seen is rejected with "Push the issue before its comments",
+# so issues must go first; edges likewise need both endpoints.
 PUSHABLE = {
     "issues": "issue",
+    "comments": "comment",
     "issue_dependencies": "issue_dependency",
     "issue_relations": "issue_relation",
 }
@@ -60,6 +64,20 @@ BLOCKED = {
 }
 
 
+def _wire_name(table: str) -> str:
+    """The entity name a local table would travel under, if it could."""
+    # `tags` is the tag VOCABULARY. Tag names travel inside `issue_tag`, so the
+    # table itself has no entity of its own and must not be reported as one we
+    # are holding back — that would blame us for a row that was never meant to
+    # travel separately.
+    return {"issue_tags": "issue_tag"}.get(table, table.rstrip("s"))
+
+
+def _note(skipped: dict[str, tuple[int, str]], key: str, kind: str) -> None:
+    count, _ = skipped.get(key, (0, kind))
+    skipped[key] = (count + 1, kind)
+
+
 def _content_hash(*fields: object) -> str:
     import hashlib
 
@@ -67,13 +85,27 @@ def _content_hash(*fields: object) -> str:
     return "s256t128:" + hashlib.sha256(raw).hexdigest()[:32]
 
 
-def _uid_for_issue(conn: sqlite3.Connection, local_id: int) -> str:
-    """The stable uid of a local issue, minted once and remembered."""
-    existing = resolve_uid_by_local(conn, "issues", local_id)
+def _ledgered_uid(conn: sqlite3.Connection, table: str, local_id: int) -> str:
+    """A uid MINTED once and written down — for rows whose fields are not identity.
+
+    An issue_tag is the pair (issue, tag name), so its uid is derived: the
+    fields *are* the identity. A COMMENT IS NOT ITS TEXT. Two people writing
+    "+1" on one issue have written two comments, and so has one person writing
+    "+1" twice. Deriving from (project, issue, text) would give them one uid,
+    one stored row, and one comment back from the round trip — a comment
+    vanishing with nothing erroring anywhere. `tracker-fbe1b4` flagged this
+    before we could implement it wrongly: it is the tag-casefolding data loss
+    again, except duplicate comment text is not a corner case. It is "+1",
+    "done", "same here", "bump".
+
+    So mint from the stable local row id and record it. Neither side ever
+    recomputes the other's.
+    """
+    existing = resolve_uid_by_local(conn, table, local_id)
     if existing is not None:
         return existing
     uid = mint_uid()
-    record_uid(conn, "issues", local_id, uid)
+    record_uid(conn, table, local_id, uid)
     return uid
 
 
@@ -132,8 +164,12 @@ def unsent_rows(conn: sqlite3.Connection) -> dict[str, list[int]]:
 
 
 def build_entries(
-    conn: sqlite3.Connection, project_uid: str, since_seq: int, limit: int = 500
-) -> tuple[list[dict[str, Any]], int, dict[str, int]]:
+    conn: sqlite3.Connection,
+    project_uid: str,
+    since_seq: int,
+    limit: int = 500,
+    server_entities: frozenset[str] | None = None,
+) -> tuple[list[dict[str, Any]], int, dict[str, tuple[int, str]]]:
     """Build push entries from outbox rows after ``since_seq``.
 
     Returns the entries, the highest outbox seq they cover, and a count of what
@@ -141,6 +177,12 @@ def build_entries(
     sent: a skipped row is permanently skipped, so leaving it behind the mark
     would re-examine it on every push forever.
     """
+    # THE SERVER'S LIST, NOT OURS. Skipping from a module constant is how the
+    # push summary came to print "no sync entity on the wire" for `comment` in
+    # the same run whose coverage block listed `comment` among the entities the
+    # server advertises (`tracker-fbe1b4`). Two readings of one fact, one of
+    # them a hardcoded guess about somebody else's capabilities.
+    advertised = server_entities
     conn.row_factory = sqlite3.Row
     rows = list(
         conn.execute(
@@ -151,25 +193,34 @@ def build_entries(
     )
 
     highest = max(int(r["seq"]) for r in rows) if rows else since_seq
-    skipped: dict[str, int] = {}
+    skipped: dict[str, tuple[int, str]] = {}
     entries: list[dict[str, Any]] = []
     seen: set[tuple[str, int]] = set()
 
     for row in collapse_outbox(rows):
         table = str(row["entity"])
+        entity_name = PUSHABLE.get(table)
         if table in BLOCKED:
-            skipped[table] = skipped.get(table, 0) + 1
+            _note(skipped, table, "held")
             continue
-        if table not in PUSHABLE:
-            skipped[table] = skipped.get(table, 0) + 1
+        if entity_name is None:
+            # We cannot build it. Whether the SERVER could is a separate fact.
+            known = advertised is not None and _wire_name(table) in advertised
+            _note(skipped, table, "held" if known else "absent")
+            continue
+        if advertised is not None and entity_name not in advertised:
+            _note(skipped, table, "absent")
             continue
 
-        entity = PUSHABLE[table]
+        entity = entity_name
         local_id = int(row["local_id"])
         op = "delete" if str(row["op"]) == "delete" else "upsert"
         entry = _entry_for(conn, entity, table, local_id, op, project_uid)
         if entry is None:
-            skipped[f"{table} (row gone)"] = skipped.get(f"{table} (row gone)", 0) + 1
+            # The local row is gone, or its endpoints are not pushed yet.
+            # Neither is "the wire lacks this entity", and saying so would be a
+            # third source of truth disagreeing with the other two.
+            _note(skipped, table, "unbuildable")
             continue
         seen.add((table, local_id))
         entries.append(entry)
@@ -177,6 +228,8 @@ def build_entries(
     # BACKFILL: anything the ledger has never seen, whatever the outbox says.
     for table, local_ids in unsent_rows(conn).items():
         entity = PUSHABLE[table]
+        if advertised is not None and entity not in advertised:
+            continue
         for local_id in local_ids:
             if (table, local_id) in seen or len(entries) >= limit:
                 continue
@@ -210,7 +263,7 @@ def _entry_for(
         ).fetchone()
         if row is None:
             return None
-        uid = _uid_for_issue(conn, local_id)
+        uid = _ledgered_uid(conn, "issues", local_id)
         payload = {
             "title": row["title"],
             "description": row["description"],
@@ -222,6 +275,34 @@ def _entry_for(
             "entity": entity,
             "op": "upsert",
             "content_hash": _content_hash(*payload.values()),
+            "payload": payload,
+        }
+
+    if entity == "comment":
+        if op == "delete":
+            uid = resolve_uid_by_local(conn, table, local_id)
+            if uid is None:
+                return None
+            return {"uid": uid, "entity": entity, "op": "delete",
+                    "content_hash": _content_hash("delete", uid), "payload": {}}
+        row = conn.execute(
+            "SELECT issue_id, text FROM comments WHERE id = ?", (local_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        issue_uid = resolve_uid_by_local(conn, "issues", int(row["issue_id"]))
+        if issue_uid is None:
+            # The issue has never been pushed. Comments are ordered after
+            # issues so this is rare, but the server rejects an orphan by
+            # design and building one to be rejected helps nobody.
+            return None
+        uid = _ledgered_uid(conn, table, local_id)
+        payload = {"issue_uid": issue_uid, "text": row["text"], "author": ""}
+        return {
+            "uid": uid,
+            "entity": entity,
+            "op": "upsert",
+            "content_hash": _content_hash(issue_uid, row["text"]),
             "payload": payload,
         }
 

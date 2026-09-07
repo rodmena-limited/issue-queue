@@ -209,7 +209,10 @@ def sync(
         # both directions: what would come in AND what would go out. Sync that
         # only ever reported the inbound half is how "no issue can ever leave a
         # laptop" survived unnoticed (#14).
-        entries, outbox_seq, skipped = build_entries(conn, shake.project_uid, state.last_pushed_seq)
+        entries, outbox_seq, skipped = build_entries(
+            conn, shake.project_uid, state.last_pushed_seq,
+            server_entities=shake.entities,
+        )
         print()
         if entries:
             counts: dict[str, int] = {}
@@ -227,13 +230,26 @@ def sync(
         # — WE do, and for a reason in our schema. Attributing our own
         # limitation to the counterparty is the kind of thing that gets
         # reported to the wrong team.
-        for reason, count in sorted(skipped.items()):
+        for reason, (count, kind) in sorted(skipped.items()):
             note = BLOCKED.get(reason)
             if note:
                 print(
                     f"  HELD BACK BY ISSUEDB: {count} {reason} — {note}.\n"
                     f"    The server DOES accept this entity; this is our limitation, "
                     f"not Tracker's."
+                )
+            elif kind == "unbuildable":
+                print(
+                    f"  SKIP {count} {reason} — the local row is gone, or its issue has "
+                    f"not been pushed yet; retried on the next sync"
+                )
+            elif kind == "held":
+                # The server advertises it and WE cannot build it. Saying "no
+                # entity on the wire" here would blame the server for our gap —
+                # in the same output that lists the entity as advertised.
+                print(
+                    f"  HELD BACK BY ISSUEDB: {count} {reason} — the server advertises "
+                    f"this entity; issuedb does not build it yet."
                 )
             else:
                 print(f"  SKIP {count} {reason} — no sync entity on the wire")
@@ -269,6 +285,17 @@ def sync(
             # have substituted. What counts as "rejected" is part of the wire
             # contract; a stand-in client must not get to redefine it, or the
             # test proves only that the double agrees with itself.
+            # `gone` is NOT a failure. An upsert against a tombstoned row comes
+            # back gone/restorable, and a client that treats it as an error —
+            # or worse, retries it — resurrects deleted rows. Tracker shipped
+            # exactly that branch and found it by pushing at their own
+            # production server; they warned us before comments started
+            # travelling. It means "stop pushing this", so the mark advances.
+            gone = [r for r in results if r.get("outcome") == "gone"]
+            if gone:
+                print(
+                    f"  {len(gone)} row(s) are deleted on the server; not resurrecting them."
+                )
             rejected = _client_module.SyncClient.rejected(results)
             accepted = len(results) - len(rejected)
             print(f"Pushed {accepted} change(s).")

@@ -260,3 +260,82 @@ def test_a_row_already_in_the_ledger_is_not_offered_twice(db, wired, monkeypatch
     finally:
         c.close()
     assert second == [], "the backfill re-offered a row the server already has"
+
+
+def test_comments_push_with_a_ledgered_uid_not_a_derived_one(db, wired, monkeypatch):
+    """`tracker-fbe1b4`: a comment is not its text.
+
+    Two people writing "+1" on one issue have written two comments. Deriving a
+    uid from (project, issue, text) collapses them to one row and one comes
+    back from the round trip — a comment vanishing with nothing erroring. The
+    uid is minted per local row and written down instead.
+    """
+    conn = _conn(db)
+    conn.execute("INSERT INTO issues (title) VALUES ('has duplicate comments')")
+    conn.execute("INSERT INTO comments (issue_id, text) VALUES (1, '+1')")
+    conn.execute("INSERT INTO comments (issue_id, text) VALUES (1, '+1')")
+    conn.commit()
+    conn.close()
+
+    c = _conn(db)
+    try:
+        entries, _, _ = build_entries(
+            c, PROJECT, 0, server_entities=frozenset({"issue", "comment"})
+        )
+        c.commit()
+    finally:
+        c.close()
+
+    comments = [e for e in entries if e["entity"] == "comment"]
+    assert len(comments) == 2, "two identical comments collapsed into one entry"
+    assert comments[0]["uid"] != comments[1]["uid"], (
+        "identical text produced identical uids — one comment would be lost"
+    )
+    assert all(e["payload"]["issue_uid"] for e in comments)
+
+
+def test_a_comment_uid_is_stable_across_rebuilds(db, wired):
+    conn = _conn(db)
+    conn.execute("INSERT INTO issues (title) VALUES ('i')")
+    conn.execute("INSERT INTO comments (issue_id, text) VALUES (1, 'text')")
+    conn.commit()
+    conn.close()
+
+    def uids():
+        c = _conn(db)
+        try:
+            entries, _, _ = build_entries(
+                c, PROJECT, 0, server_entities=frozenset({"issue", "comment"})
+            )
+            c.commit()
+        finally:
+            c.close()
+        return [e["uid"] for e in entries if e["entity"] == "comment"]
+
+    assert uids() == uids(), "a comment's identity changed between builds"
+
+
+def test_a_skip_blames_the_server_only_when_the_server_lacks_it(db, wired):
+    """The contradiction `tracker-fbe1b4` found: the coverage block read the
+    handshake while the push summary read a module constant, so one run printed
+    `comment` as advertised AND "no sync entity on the wire" for comments."""
+    conn = _conn(db)
+    conn.execute("INSERT INTO issues (title) VALUES ('i')")
+    conn.execute("INSERT INTO comments (issue_id, text) VALUES (1, 'c')")
+    conn.execute("INSERT INTO code_references (issue_id, file_path) VALUES (1, 'a.py')")
+    conn.commit()
+    conn.close()
+
+    c = _conn(db)
+    try:
+        _, _, skipped = build_entries(
+            c, PROJECT, 0, server_entities=frozenset({"issue", "code_reference"})
+        )
+        c.commit()
+    finally:
+        c.close()
+
+    # comment is NOT advertised here, so it is genuinely absent from the wire.
+    assert skipped.get("comments", (0, ""))[1] == "absent"
+    # code_reference IS advertised and we cannot build it: that is ours.
+    assert skipped.get("code_references", (0, ""))[1] == "held"

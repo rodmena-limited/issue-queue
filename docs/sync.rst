@@ -154,6 +154,12 @@ What travels, and what does not:
    uid **derived** from the frozen canonical form, so two replicas that
    independently record the same edge converge with no conflict machinery.
 
+``comments``
+   uid **minted** per local comment and remembered, like an issue. A comment is
+   not its text: two people writing "+1" on one issue have written two
+   comments, so deriving from ``(project, issue, text)`` would collapse them
+   into one row and lose one with nothing erroring.
+
 ``issue_tags``
    **refused by issuedb, on purpose — not by the server.** The outbox trigger
    records ``issue_id`` as the local id and the ledger is keyed ``(entity,
