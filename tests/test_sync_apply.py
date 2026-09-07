@@ -30,11 +30,11 @@ from issuedb.sync._apply import (
     SKIP,
     UNSUPPORTED,
     already_applied,
-    apply,
     plan,
 )
 from issuedb.sync._ledger import record_uid, resolve_uid
 from issuedb.sync._render import render_plan
+from issuedb.sync._run import apply
 
 UID_A = "s256t128:" + "a" * 32
 UID_B = "s256t128:" + "b" * 32
@@ -228,7 +228,7 @@ def test_a_failure_stops_the_run_and_does_not_advance_past_it(repo, conn, monkey
     A cursor advanced past a failed apply means nothing ever asks for those
     rows again, and no error is raised at any later point.
     """
-    import issuedb.sync._apply as apply_module
+    import issuedb.sync._run as apply_module
 
     real = apply_module._apply_one
     calls = {"n": 0}
@@ -253,7 +253,7 @@ def test_a_failure_stops_the_run_and_does_not_advance_past_it(repo, conn, monkey
 
 
 def test_a_failed_action_leaves_no_partial_row(repo, conn, monkeypatch):
-    import issuedb.sync._apply as apply_module
+    import issuedb.sync._run as apply_module
 
     def always_fail(conn_, action):
         conn_.execute("INSERT INTO issues (title) VALUES ('half written')")
@@ -311,7 +311,7 @@ def test_re_running_after_an_interrupt_converges(repo, conn, monkeypatch):
     idempotency: the ledger entry written by the successful action is what
     makes the re-run see UPDATE instead of a second CREATE.
     """
-    import issuedb.sync._apply as apply_module
+    import issuedb.sync._run as apply_module
 
     real = apply_module._apply_one
     calls = {"n": 0}

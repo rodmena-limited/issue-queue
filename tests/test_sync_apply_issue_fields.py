@@ -27,7 +27,8 @@ import pytest
 
 from issuedb.database import Database
 from issuedb.repository import IssueRepository
-from issuedb.sync._apply import CREATE, MALFORMED, UPDATE, apply, plan
+from issuedb.sync._apply import CREATE, MALFORMED, UPDATE, plan
+from issuedb.sync._run import apply
 
 UID = "s256t128:" + "a" * 32
 ENTITIES = frozenset({"issue", "comment", "issue_tag", "issue_dependency", "issue_relation"})

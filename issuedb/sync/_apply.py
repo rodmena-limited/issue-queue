@@ -47,7 +47,6 @@ from issuedb.sync._kinds import (
     UPDATE,
 )
 from issuedb.sync._ledger import resolve_uid
-from issuedb.sync._write import _apply_one
 
 
 class Action(NamedTuple):
@@ -78,6 +77,14 @@ class Action(NamedTuple):
     # on UPDATE and takes the column default on CREATE.
     status: str = ""
     priority: str = ""
+    # A skip whose cause may RESOLVE LATER — a child whose parent has not
+    # arrived yet. Only these hold the cursor back, and the distinction is the
+    # whole point: a MALFORMED row can never be stored, so holding the cursor
+    # for it re-delivers the same unusable change forever and the sync never
+    # progresses. A deferred child, held, resolves on the sync where its parent
+    # lands. Permanent problems are reported and stepped over; transient ones
+    # are waited for.
+    deferred: bool = False
 
     def describe(self, uid_width: int = 12) -> str:
         target = f"#{self.local_id}" if self.local_id is not None else "(new)"
@@ -85,13 +92,7 @@ class Action(NamedTuple):
         return f"{self.kind.upper():<9} {target:<7} [{short}] {self.title}  — {self.reason}"
 
 
-class ApplyResult(NamedTuple):
-    applied: int
-    failed: int
-    cursor: str
-    stopped_at: str | None
-
-
+_APPLY_RANK = {"issue": 0}
 
 
 def plan(
@@ -287,7 +288,9 @@ def plan(
                 actions.append(
                     Action(
                         SKIP, uid, entity, seq, None, text[:60],
-                        f"the issue {parent_uid[:20]} it comments on is not present locally",
+                        f"the issue {parent_uid[:20]} it comments on has not arrived yet; "
+                        f"held for a later sync",
+                        deferred=True,
                     )
                 )
                 continue
@@ -352,7 +355,8 @@ def plan(
                     actions.append(
                         Action(
                             SKIP, uid, entity, seq, None, title,
-                            "an endpoint issue is not present locally",
+                            "an endpoint issue has not arrived yet; held for a later sync",
+                            deferred=True,
                         )
                     )
                     continue
@@ -387,7 +391,8 @@ def plan(
                     actions.append(
                         Action(
                             SKIP, uid, entity, seq, None, title,
-                            "an endpoint issue is not present locally",
+                            "an endpoint issue has not arrived yet; held for a later sync",
+                            deferred=True,
                         )
                     )
                     continue
@@ -456,67 +461,24 @@ def plan(
                 )
             )
 
-    return actions
-
-
-def apply(
-    conn: sqlite3.Connection,
-    actions: list[Action],
-    cursor: str,
-) -> ApplyResult:
-    """Apply planned actions, one transaction each.
-
-    Returns the cursor advanced ONLY to the last durably committed change. If
-    an action raises, the run stops: everything before it stays, nothing after
-    it is attempted, and the cursor names the last success rather than the
-    last attempt.
-
-    One transaction per action rather than one for the batch, deliberately.
-    A batch transaction would be all-or-nothing, which sounds safer and means
-    an interrupted sync re-does work it already did — and worse, it makes the
-    durable cursor unknowable for a partial page.
-    """
-    applied = 0
-    durable_seq: int | None = None
-    stopped_at: str | None = None
-
-    for action in actions:
-        if action.kind in (SKIP, AMBIGUOUS, UNSUPPORTED, MALFORMED):
-            # Not applied, and NOT counted as progress: advancing the cursor
-            # past an ambiguous change would mean never being asked about it
-            # again.
-            if action.kind == AMBIGUOUS:
-                stopped_at = (
-                    f"{action.uid}: ambiguous, and the cursor must not advance past a "
-                    f"change that was never applied"
-                )
-                break
-            continue
-
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            _apply_one(conn, action)
-            conn.execute("COMMIT")
-        except Exception as exc:  # noqa: BLE001 - any failure must stop the run
-            conn.execute("ROLLBACK")
-            stopped_at = f"{action.uid}: {exc}"
-            break
-
-        applied += 1
-        durable_seq = action.seq
-
-    final_cursor = cursor if durable_seq is None else f"c:{durable_seq}"
-    return ApplyResult(
-        applied=applied,
-        failed=1 if stopped_at else 0,
-        cursor=final_cursor,
-        stopped_at=stopped_at,
-    )
-
-
-# Server entity name -> local table. The ledger records the LOCAL table name as
-# its entity, so record_uid / tombstone must be called with the table, not the
-# wire name.
+    # APPLY PARENTS BEFORE CHILDREN, WHATEVER ORDER THE FEED USED.
+    #
+    # The feed is NOT parent-ordered and cannot be. It is ordered by seq, and a
+    # row's seq advances when it changes, so editing an issue moves it BEHIND
+    # its own comments permanently. `tracker-fbe1b4` measured the extreme case
+    # on production: of 100 comments on page 1, ONE HUNDRED had their issue in
+    # a later page.
+    #
+    # The plan's lookahead already knows the parent is coming — that is what
+    # `feed_issue_uids` is for — but the WRITE happened in feed order, so the
+    # child was inserted first, its endpoint resolved to nothing, and the whole
+    # batch aborted: 0 of 314 changes applied, a fresh clone left empty.
+    # Aborting is the worst of the three wrong answers here (the others being
+    # inventing the parent or dropping the child).
+    #
+    # Sorting is stable, so seq order is preserved WITHIN each rank and the
+    # only thing that moves is a child that would otherwise precede its parent.
+    return sorted(actions, key=lambda action: _APPLY_RANK.get(action.entity, 1))
 
 
 def already_applied(conn: sqlite3.Connection, uid: str) -> bool:

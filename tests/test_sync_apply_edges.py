@@ -20,8 +20,9 @@ import pytest
 from issuedb.database import Database
 from issuedb.models import Issue
 from issuedb.repository import IssueRepository
-from issuedb.sync._apply import CREATE, DELETE, MALFORMED, SKIP, UPDATE, apply, plan
+from issuedb.sync._apply import CREATE, DELETE, MALFORMED, SKIP, UPDATE, plan
 from issuedb.sync._ledger import record_uid, resolve_uid
+from issuedb.sync._run import apply
 
 UID_A = "s256t128:" + "a" * 32
 UID_B = "s256t128:" + "b" * 32
@@ -141,7 +142,7 @@ def test_plan_a_relation_with_a_missing_endpoint_is_skipped(repo, conn):
     _issue(repo, conn, UID_A, "A")  # B is absent
     actions = plan(conn, [_relation()])
     assert [x.kind for x in actions] == [SKIP]
-    assert "endpoint issue is not present" in actions[0].reason
+    assert "endpoint issue has not arrived yet" in actions[0].reason
 
 
 def test_plan_a_relation_with_a_bad_payload_is_malformed(repo, conn):
@@ -182,7 +183,7 @@ def test_plan_a_dependency_with_a_missing_endpoint_is_skipped(repo, conn):
     _issue(repo, conn, UID_A, "A")
     actions = plan(conn, [_dependency()])
     assert [x.kind for x in actions] == [SKIP]
-    assert "endpoint issue is not present" in actions[0].reason
+    assert "endpoint issue has not arrived yet" in actions[0].reason
 
 
 def test_plan_a_dependency_with_a_bad_payload_is_malformed(repo, conn):

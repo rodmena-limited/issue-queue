@@ -17,7 +17,7 @@ import sqlite3
 import sys
 
 from issuedb.database import Database, NewerDatabaseError, apply_migrations
-from issuedb.sync import _apply, _coverage, _render
+from issuedb.sync import _apply, _coverage, _render, _run
 from issuedb.sync import _client as _client_module
 from issuedb.sync._auth_commands import DEFAULT_SERVER
 from issuedb.sync._client import SyncClient, SyncError
@@ -309,7 +309,7 @@ def sync(
             return 0
 
         print()
-        result = _apply.apply(conn, actions, state.cursor)
+        result = _run.apply(conn, actions, state.cursor)
         conn.commit()
 
         # The cursor is saved AFTER the commit, and only to what was durably
