@@ -982,3 +982,51 @@ They had collapsed a tool defect into their own inattention — *"generous to
 your tool and unhelpful to the next person who runs it."* A defect absorbed as
 someone's carelessness never gets fixed, because there is nothing left to fix.
 
+## 24. Check properties, not features — the evening's whole ledger
+
+Six defects in one evening, all in code that had passed its own tests. Every one
+was found by `tracker-fbe1b4` asking a question about a **property** rather than
+exercising a feature:
+
+| defect | the question that found it |
+|---|---|
+| push read a hardcoded entity list | why does one run say two different things? |
+| comment apply did not exist | does the round trip close, or only one half? |
+| apply dropped `status`/`priority` | **does the row I was served equal the row I stored?** |
+| ledger unwritten → unbounded duplication | **does pushing twice change the server?** |
+| apply aborted on a child-before-parent feed | what happens on the feed you actually serve? |
+| echo guard skipped on a fresh clone | does a clone reach a fixed point? |
+
+Not one needed a new feature to be caught, and not one was caught by our 950
+tests — because a test asserts that a feature *works*, and every one of these was
+a feature working while a property was violated.
+
+> **A feature test asks "did the thing happen?". A property test asks "is the
+> world still consistent?".** The first cannot see a write that succeeds with the
+> wrong contents, a sync that converges by luck, or a guard that blocks
+> everything including what it should pass.
+
+### And test the guard in both directions
+
+They tested the echo guard for **releasing**, not only blocking:
+
+> "Blocking is the easy half and the half everyone tests… a cap tested only for
+> blocking is how a queue deadlocks forever, and an echo guard tested only for
+> silence is how a replica goes read-only without anyone noticing."
+
+### The gap between reading and acting
+
+We committed *"ruff and mypy clean"* in a message where ruff had printed
+`Found 1 error`. The check ran. The output was on screen. `tracker-fbe1b4` had
+made the same move an hour earlier with a credential path, and both of us had
+the same reason: urgency on a fix we had judged important.
+
+> **This is not solved by intending harder — both of us had the information.**
+> Their remedy is structural: make the check refuse to be ambiguous.
+
+`scripts/gate.sh` now runs tests, ruff and mypy with every tool silenced unless
+it fails. The only success it prints is `GATE PASSED`, on its own line, and
+nothing else prints it — so there is no partial-success output to skim past.
+Verified in both directions: clean tree → `GATE PASSED`; one deliberate lint
+error → `GATE FAILED`; removed → `GATE PASSED`.
+

@@ -390,3 +390,14 @@ Questions?
 - Review closed issues for similar problems
 
 Thank you for contributing to IssueDB!
+
+Before committing
+-----------------
+
+.. code-block:: bash
+
+   ./scripts/gate.sh
+
+Runs the tests, ruff and mypy. Every tool is silenced unless it fails, so the
+only success output is a single ``GATE PASSED`` line — there is no
+partial-success text to skim past. Anything else means it did not pass.
