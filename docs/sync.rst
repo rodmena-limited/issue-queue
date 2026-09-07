@@ -20,10 +20,17 @@ commands; they are statements about the machine, not about a project.
    # See which key is stored (the secret is never printed)
    issuedb-cli whoami
 
-   # Remove the stored key
+   # Remove the stored key. Prints the store path BEFORE removing anything —
+   # on a shared machine this is not private cleanup, and the path is the only
+   # way to see whose credential you are about to delete.
    issuedb-cli signout
 
 The key is stored in the XDG config directory with ``0600`` permissions.
+
+To isolate a test from your real credential, set **XDG_CONFIG_HOME** — that is
+the only override this tool honours. Then check the path each command prints:
+an env var it does not read fails silently, and the first sign that your
+isolation did not work is a path you did not expect.
 
 Running a sync
 --------------

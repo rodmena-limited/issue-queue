@@ -291,3 +291,38 @@ def test_the_secret_is_never_on_disk_at_a_wider_mode(env, tmp_path):
     path = credentials_path(env)
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert os.access(path, os.R_OK)
+
+
+def test_signout_names_the_store_before_removing_it(tmp_path, capsys):
+    """A destructive command must state its target at the moment it acts.
+
+    `tracker-fbe1b4` ran signout on a shared host believing they had isolated
+    it with ISSUEDB_CONFIG_DIR — a variable this tool has never honoured. The
+    isolation was a no-op and signout removed somebody else's credential.
+
+    `signin` had printed the real path several commands earlier, and that was
+    not enough: the reader is only in a position to stop at the moment of the
+    destructive act.
+    """
+    from issuedb.sync._auth_commands import signin, signout
+
+    env = {"XDG_CONFIG_HOME": str(tmp_path / "cfg")}
+    signin(server="https://example.invalid", token="trk_01abcdefghijklmnop_s3cret", env=env)
+    capsys.readouterr()
+
+    signout(server="https://example.invalid", env=env)
+    out = capsys.readouterr().out
+
+    assert "Credential store:" in out, "signout did not name the file it was about to act on"
+    assert str(tmp_path / "cfg") in out, "signout named a path that was not the one in use"
+
+
+def test_signout_on_a_missing_store_says_so_without_claiming_removal(tmp_path, capsys):
+    """Control: the announcement must not itself become a false success."""
+    from issuedb.sync._auth_commands import signout
+
+    env = {"XDG_CONFIG_HOME": str(tmp_path / "empty")}
+    assert signout(server="https://example.invalid", env=env) == 0
+    out = capsys.readouterr().out
+    assert "Nothing to remove" in out
+    assert "Signed out" not in out

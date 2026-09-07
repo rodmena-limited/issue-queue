@@ -103,6 +103,22 @@ def signout(
     nothing is left. A signout that leaves the token on disk while reporting
     success is the shape of every logout bug.
     """
+    # NAME THE STORE BEFORE TOUCHING IT. `tracker-fbe1b4` ran signout on a
+    # shared host believing they had isolated it with ISSUEDB_CONFIG_DIR — a
+    # variable this tool has never honoured; the only override is
+    # XDG_CONFIG_HOME. Their isolation was a no-op from the first command and
+    # signout removed somebody else's credential.
+    #
+    # `signin` had printed the real path, several commands earlier. That was
+    # not enough: a destructive command must state its own target at the moment
+    # it acts, because that is when the reader is in a position to stop. On a
+    # shared host, signout is not private cleanup.
+    store = credentials_path(env)
+    print(f"Credential store: {store}")
+    if not store.exists():
+        print("Nothing to remove — no credential store at that path.")
+        return 0
+
     target = None if all_servers else server
     try:
         removed = forget(target, env)
@@ -118,9 +134,9 @@ def signout(
         return 0
 
     if all_servers:
-        print("Signed out of all servers. Credential store removed.")
+        print(f"Signed out of all servers. Removed {store}.")
     else:
-        print(f"Signed out of {server}. Credential removed.")
+        print(f"Signed out of {server}. Credential removed from {store}.")
         remaining = list_servers(env)
         if remaining:
             print(f"Still signed in to: {', '.join(remaining)}")

@@ -1,6 +1,6 @@
 """IssueDB - A command-line issue tracking system for software development projects."""
 
-__version__ = "2.33.1"
+__version__ = "2.33.2"
 __author__ = "Farshid Ashouri"
 __email__ = "farsheed.ashouri@gmail.com"
 
