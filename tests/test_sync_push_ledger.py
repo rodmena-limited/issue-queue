@@ -154,3 +154,48 @@ def test_the_echo_guard_does_not_swallow_a_real_edit(db_with_local_row, wired, m
     third = RecordingClient(total=0)
     _sync(db_with_local_row, wired, monkeypatch, third)
     assert third.pushed, "a genuine local edit made after a sync was never pushed"
+
+
+@pytest.fixture
+def empty_clone(tmp_path):
+    """A fresh clone: project binding, empty database — the commonest first sync."""
+    path = tmp_path / ".issue.db"
+    IssueRepository(str(path))
+    Database._instances.clear()
+    write_project_file(str(path), PROJECT, "https://example.invalid")
+    return str(path)
+
+
+def test_a_fresh_clone_settles_on_the_first_sync(empty_clone, wired, monkeypatch):
+    """issuedb #33 — the echo guard never ran when there was nothing to push.
+
+    `_finish_push` sat inside `if entries:`. A fresh clone has nothing local, so
+    the guard was skipped entirely: apply wrote every row, the outbox triggers
+    recorded an echo for each, the mark never moved, and the NEXT sync offered
+    the whole project back.
+
+    `tracker-fbe1b4` measured it as "runs 1 and 2 each re-pushed the full 313".
+    Harmless — the uids are right and the server answers idempotently — but
+    every replica pays for the entire project on the wire before it settles.
+    """
+    _sync(empty_clone, wired, monkeypatch, RecordingClient(total=20))
+
+    second = RecordingClient(total=0)
+    _sync(empty_clone, wired, monkeypatch, second)
+    assert second.pushed == [], (
+        f"a fresh clone offered its freshly-applied rows back: {second.pushed}"
+    )
+
+
+def test_the_fresh_clone_guard_still_pushes_a_real_edit(empty_clone, wired, monkeypatch):
+    """Control: the guard above must not be 'never push after a clone'."""
+    _sync(empty_clone, wired, monkeypatch, RecordingClient(total=20))
+
+    conn = sqlite3.connect(empty_clone)
+    conn.execute("INSERT INTO issues (title) VALUES ('written after the clone')")
+    conn.commit()
+    conn.close()
+
+    second = RecordingClient(total=0)
+    _sync(empty_clone, wired, monkeypatch, second)
+    assert second.pushed, "an edit made after a fresh clone was never pushed"

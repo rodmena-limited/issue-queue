@@ -361,7 +361,19 @@ def sync(
                     file=sys.stderr,
                 )
                 return 1
-            _finish_push(conn, state, result.cursor, env)
+        # ADVANCE THE MARK WHETHER OR NOT ANYTHING WAS PUSHED. This used to sit
+        # inside `if entries:`, so a sync with nothing to send never ran it —
+        # which is exactly a FRESH CLONE. Apply wrote 313 rows, the outbox
+        # triggers recorded 313 echoes, nothing was pushed so the mark never
+        # moved, and the NEXT sync dutifully offered the whole project back.
+        # `tracker-fbe1b4` measured it as "runs 1 and 2 each re-pushed the full
+        # 313": harmless, since the uids are right and the server answers
+        # idempotently, but every replica pays for the entire project on the
+        # wire before it settles.
+        #
+        # Reached only when the push (if any) was accepted — a rejection
+        # returns above, so a rejected entry still holds the mark.
+        _finish_push(conn, state, result.cursor, env)
 
         if result.stopped_at:
             print(f"STOPPED: {result.stopped_at}", file=sys.stderr)
