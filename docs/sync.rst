@@ -185,3 +185,4 @@ Known limitation
 The apply path applies issues, relations and dependencies, but not tags — a
 sync reports tag changes as ``SKIP — issuedb does not apply entity 'issue_tag'
 yet`` — see "Pushing local changes" above for why tags are held back.
+Comments travel in **both** directions as of 2.36.0.

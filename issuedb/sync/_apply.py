@@ -34,15 +34,19 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, NamedTuple
 
-from issuedb.sync._endpoints import _endpoint_present, _resolve_endpoint
+from issuedb.sync._endpoints import _endpoint_present
 from issuedb.sync._feed import collapse_duplicate_uids
-from issuedb.sync._ledger import record_uid, resolve_uid, tombstone
-
-CREATE = "create"
-UPDATE = "update"
-DELETE = "delete"
-SKIP = "skip"
-AMBIGUOUS = "ambiguous"
+from issuedb.sync._kinds import (
+    AMBIGUOUS,
+    CREATE,
+    DELETE,
+    MALFORMED,
+    SKIP,
+    UNSUPPORTED,
+    UPDATE,
+)
+from issuedb.sync._ledger import resolve_uid
+from issuedb.sync._write import _apply_one
 
 
 class Action(NamedTuple):
@@ -75,8 +79,6 @@ class ApplyResult(NamedTuple):
     stopped_at: str | None
 
 
-UNSUPPORTED = "unsupported"
-MALFORMED = "malformed"
 
 
 def plan(
@@ -216,6 +218,58 @@ def plan(
                     )
                 )
                 continue
+
+        elif entity == "comment":
+            # A comment hangs off an issue the way an edge hangs off two, so it
+            # needs the same endpoint resolution: the payload names the parent
+            # by UID and the local row references it by LOCAL id.
+            #
+            # `tracker-fbe1b4` measured that this was missing while push
+            # worked: a comment written in the browser could not reach a
+            # laptop. Push is one direction of two, and the missing one is the
+            # one an operator notices when a colleague comments.
+            if payload is None:
+                actions.append(
+                    Action(
+                        MALFORMED, uid, entity, seq, None, title,
+                        f"payload is {type(raw_payload).__name__}, expected an object",
+                    )
+                )
+                continue
+            parent_uid = payload.get("issue_uid")
+            text = payload.get("text")
+            if not isinstance(parent_uid, str) or not parent_uid:
+                actions.append(
+                    Action(
+                        MALFORMED, uid, entity, seq, None, title,
+                        "a comment carries no issue_uid, so it belongs to no issue",
+                    )
+                )
+                continue
+            if not isinstance(text, str) or not text:
+                # comments.text is NOT NULL locally. A comment with no text is
+                # not a comment, and writing an empty one would be inventing
+                # content the server never sent.
+                actions.append(
+                    Action(
+                        MALFORMED, uid, entity, seq, None, title,
+                        "a comment carries no text, and comments.text is NOT NULL locally",
+                    )
+                )
+                continue
+            if not _endpoint_present(conn, parent_uid, feed_issue_uids):
+                actions.append(
+                    Action(
+                        SKIP, uid, entity, seq, None, text[:60],
+                        f"the issue {parent_uid[:20]} it comments on is not present locally",
+                    )
+                )
+                continue
+            # Both slots carry the parent: a comment has one endpoint, and
+            # reusing the pair keeps one resolution path for every entity that
+            # references an issue.
+            endpoints = (parent_uid, parent_uid)
+            title = text
 
         elif entity in ("issue_relation", "issue_dependency"):
             # A relation/dependency is defined by the issues it relates, so its
@@ -377,48 +431,6 @@ def plan(
     return actions
 
 
-def _distinguishing_width(actions: list[Action], minimum: int = 12) -> int:
-    """Shortest uid prefix that is unique across this plan, like git's sha abbreviation."""
-    hexes = [a.uid.split(":")[-1] for a in actions if a.uid]
-    longest = max((len(h) for h in hexes), default=minimum)
-    for width in range(minimum, longest + 1):
-        if len({h[:width] for h in hexes}) == len(set(hexes)):
-            return width
-    return longest
-
-
-def render_plan(actions: list[Action], applying: bool) -> str:
-    """The dry-run report. Says plainly that nothing has changed."""
-    if not actions:
-        return "Nothing to apply — no changes pulled."
-
-    counts: dict[str, int] = {}
-    for action in actions:
-        counts[action.kind] = counts.get(action.kind, 0) + 1
-
-    # Widen the uid prefix until every uid in THIS plan is distinguishable.
-    #
-    # A fixed 12 characters looked fine until a real pull returned uids sharing
-    # their first 12 hex chars — three rows displayed as [37cf85f2c974] and a
-    # reader could not tell them apart. The whole reason a plan shows uids is
-    # that the local number cannot distinguish rows, so a truncation that
-    # collides defeats the point exactly where it matters.
-    lines = [action.describe(_distinguishing_width(actions)) for action in actions]
-    summary = ", ".join(f"{count} {kind}" for kind, count in sorted(counts.items()))
-    lines.append("")
-    lines.append(f"{len(actions)} change(s): {summary}")
-
-    if not applying:
-        lines.append("")
-        lines.append("DRY RUN — nothing has been changed. Re-run with --apply to apply this.")
-    if counts.get(AMBIGUOUS):
-        lines.append(
-            f"{counts[AMBIGUOUS]} ambiguous reference(s) will NOT be applied: issuedb does not "
-            f"choose between candidates."
-        )
-    return "\n".join(lines)
-
-
 def apply(
     conn: sqlite3.Connection,
     actions: list[Action],
@@ -477,89 +489,6 @@ def apply(
 # Server entity name -> local table. The ledger records the LOCAL table name as
 # its entity, so record_uid / tombstone must be called with the table, not the
 # wire name.
-ENTITY_TABLE = {
-    "issue": "issues",
-    "issue_relation": "issue_relations",
-    "issue_dependency": "issue_dependencies",
-}
-
-
-def _apply_one(conn: sqlite3.Connection, action: Action) -> None:
-    """The single-row write. Called inside a transaction by :func:`apply`."""
-    table = ENTITY_TABLE[action.entity]
-
-    # A relation/dependency cannot be written without its endpoints. The plan
-    # always resolves them, so this is a guard against a programming error, not
-    # a server condition — and it lets mypy narrow the Optional.
-    endpoints = action.endpoints
-    if action.entity != "issue" and endpoints is None:
-        raise ValueError(f"{action.entity} action carries no resolved endpoints")
-    if action.entity != "issue":
-        assert endpoints is not None
-        endpoint_ids = (
-            _resolve_endpoint(conn, endpoints[0]),
-            _resolve_endpoint(conn, endpoints[1]),
-        )
-
-    if action.kind == DELETE:
-        # Tombstone the ledger entry BEFORE deleting the row: the ledger must
-        # outlive the row, and doing it after would lose the record if the
-        # delete succeeded and the process died.
-        tombstone(conn, table, action.local_id)  # type: ignore[arg-type]
-        conn.execute(f"DELETE FROM {table} WHERE id = ?", (action.local_id,))
-        return
-
-    if action.kind == UPDATE:
-        if action.entity == "issue":
-            conn.execute(
-                "UPDATE issues SET title = ?, updated_at = datetime('now','localtime') "
-                "WHERE id = ?",
-                (action.title, action.local_id),
-            )
-        else:
-            assert endpoints is not None  # the guard above guarantees it
-            if action.entity == "issue_relation":
-                # The uid is derived from the endpoints, so an UPDATE on the same
-                # uid normally means the same endpoints — but a symmetric
-                # relation can arrive with the endpoints in the opposite order,
-                # and the server's direction is authoritative. Converge to it.
-                conn.execute(
-                    "UPDATE issue_relations SET source_issue_id = ?, target_issue_id = ?, "
-                    "relation_type = ? WHERE id = ?",
-                    (endpoint_ids[0], endpoint_ids[1], action.relation_type, action.local_id),
-                )
-            elif action.entity == "issue_dependency":
-                conn.execute(
-                    "UPDATE issue_dependencies SET blocker_id = ?, blocked_id = ? WHERE id = ?",
-                    (endpoint_ids[0], endpoint_ids[1], action.local_id),
-                )
-        return
-
-    if action.kind == CREATE:
-        if action.entity == "issue":
-            cursor_ = conn.execute("INSERT INTO issues (title) VALUES (?)", (action.title,))
-        else:
-            assert endpoints is not None  # the guard above guarantees it
-            if action.entity == "issue_relation":
-                cursor_ = conn.execute(
-                    "INSERT INTO issue_relations (source_issue_id, target_issue_id, "
-                    "relation_type) VALUES (?, ?, ?)",
-                    (endpoint_ids[0], endpoint_ids[1], action.relation_type),
-                )
-            elif action.entity == "issue_dependency":
-                cursor_ = conn.execute(
-                    "INSERT INTO issue_dependencies (blocker_id, blocked_id) VALUES (?, ?)",
-                    (endpoint_ids[0], endpoint_ids[1]),
-                )
-            else:
-                raise ValueError(f"unhandled entity {action.entity!r}")
-        new_id = cursor_.lastrowid
-        if new_id is None:
-            raise RuntimeError("insert returned no rowid")
-        record_uid(conn, table, int(new_id), action.uid)
-        return
-
-    raise ValueError(f"unhandled action kind {action.kind!r}")
 
 
 def already_applied(conn: sqlite3.Connection, uid: str) -> bool:

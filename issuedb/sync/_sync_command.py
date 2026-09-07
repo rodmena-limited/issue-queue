@@ -17,7 +17,7 @@ import sqlite3
 import sys
 
 from issuedb.database import Database, NewerDatabaseError, apply_migrations
-from issuedb.sync import _apply, _coverage
+from issuedb.sync import _apply, _coverage, _render
 from issuedb.sync import _client as _client_module
 from issuedb.sync._auth_commands import DEFAULT_SERVER
 from issuedb.sync._client import SyncClient, SyncError
@@ -194,7 +194,7 @@ def sync(
                 file=sys.stderr,
             )
         print()
-        print(_apply.render_plan(actions, applying=do_apply))
+        print(_render.render_plan(actions, applying=do_apply))
 
         # Stated on EVERY sync, dry run included: data that cannot move is the
         # thing a user is least likely to discover on their own, because it

@@ -41,6 +41,12 @@ EXEMPT = {
 # The nine files already over the hard cap when #24 was filed. Each entry is the
 # line count AT THAT MOMENT: a grandfathered file may shrink, never grow.
 #
+# REMOVE AN ENTRY WHEN ITS FILE COMES UNDER THE CAP. `_apply.py` left this list
+# entirely at 506 lines, after the feed, endpoint, kind, render and write
+# concerns were extracted from it. `test_baseline_entries_are_real_breaches`
+# refuses a grandfathered entry that is no longer a breach, which is how that
+# was caught rather than left as a standing amnesty for a compliant file.
+#
 # TIGHTEN AN ENTRY WHEN ITS FILE SHRINKS. Leaving the old, larger number would
 # hand back the slack that was just recovered — `_apply.py` went 598 -> 577 when
 # the feed and endpoint helpers were extracted, and a stale 598 here would let
@@ -49,7 +55,6 @@ BASELINE = {
     "audit/evaluations/first_contact_probe.py": 746,
     "tests/test_git_integration.py": 676,
     "tests/test_similarity.py": 615,
-    "issuedb/sync/_apply.py": 577,
     "issuedb/cli/_main.py": 593,
     "tests/test_sync_apply.py": 591,
     "tests/test_web.py": 575,

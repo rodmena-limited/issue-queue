@@ -16,7 +16,7 @@ copyright = "2025, RODMENA LIMITED"
 author = "Farshid Ashouri"
 
 # The full version, including alpha/beta/rc tags
-release = "2.35.0"
+release = "2.36.0"
 
 # -- General configuration ---------------------------------------------------
 # Add any Sphinx extension module names here, as strings. They can be

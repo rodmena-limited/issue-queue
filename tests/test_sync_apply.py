@@ -32,9 +32,9 @@ from issuedb.sync._apply import (
     already_applied,
     apply,
     plan,
-    render_plan,
 )
 from issuedb.sync._ledger import record_uid, resolve_uid
+from issuedb.sync._render import render_plan
 
 UID_A = "s256t128:" + "a" * 32
 UID_B = "s256t128:" + "b" * 32
