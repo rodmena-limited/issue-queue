@@ -162,6 +162,25 @@ def test_issue_tags_are_refused_rather_than_pushed_wrongly(db, wired, monkeypatc
     assert "issue_tags" in skipped
 
 
+def test_a_held_back_entity_says_whose_limitation_it_is(db, wired, monkeypatch, capsys):
+    """`tracker-fbe1b4`: the coverage report says the server advertises issue_tag
+    four lines from our skip line, so a reader could blame Tracker for our own
+    schema limitation. The skip must name the owner."""
+    conn = _conn(db)
+    conn.execute("INSERT INTO issues (title) VALUES ('tagged')")
+    conn.execute("INSERT INTO tags (name) VALUES ('bug')")
+    conn.execute("INSERT INTO issue_tags (issue_id, tag_id) VALUES (1, 1)")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(_sync_command, "SyncClient", lambda *a, **k: PushRecordingClient())
+    _sync_command.sync(db, "https://example.invalid", do_apply=False, env=wired)
+
+    out = capsys.readouterr().out
+    assert "HELD BACK BY ISSUEDB" in out
+    assert "not Tracker's" in out
+
+
 def test_three_edits_collapse_to_one_entry():
     """The outbox is an event log; the server wants current state."""
     rows = [

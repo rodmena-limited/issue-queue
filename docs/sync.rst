@@ -148,11 +148,14 @@ What travels, and what does not:
    independently record the same edge converge with no conflict machinery.
 
 ``issue_tags``
-   **refused, on purpose.** The outbox trigger records ``issue_id`` as the
-   local id and the ledger is keyed ``(entity, local_id)``, so two tags on one
-   issue would collide on one key — one tag would be sent under another's
-   identity. Reported as a skip with its reason on every sync. Fixing it needs
-   a schema change (issuedb #13).
+   **refused by issuedb, on purpose — not by the server.** The outbox trigger
+   records ``issue_id`` as the local id and the ledger is keyed ``(entity,
+   local_id)``, so two tags on one issue would collide on one key and one tag
+   would be sent under another's identity. Tracker *does* accept ``issue_tag``;
+   this is our limitation. Sync says so in those words, because the coverage
+   report a few lines later lists ``issue_tag`` among the entities the server
+   advertises, and the two together could otherwise read as the server refusing
+   it. Fixing it needs a schema change (issuedb #13).
 
 everything else
    comments, templates, time entries and the rest have no entity on the wire.

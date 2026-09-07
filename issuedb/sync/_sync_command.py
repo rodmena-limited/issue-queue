@@ -220,9 +220,23 @@ def sync(
             print(f"{verb} {len(entries)} local change(s): {shape}")
         else:
             print("Nothing local to push.")
+        # SAY WHOSE LIMITATION EACH SKIP IS. `tracker-fbe1b4` pointed out that
+        # the coverage report four lines below states the server "advertises
+        # ['issue', ..., 'issue_tag']", so a reader seeing "SKIP issue_tags"
+        # nearby could reasonably conclude the server refuses them. It does not
+        # — WE do, and for a reason in our schema. Attributing our own
+        # limitation to the counterparty is the kind of thing that gets
+        # reported to the wrong team.
         for reason, count in sorted(skipped.items()):
             note = BLOCKED.get(reason)
-            print(f"  SKIP {count} {reason}" + (f" — {note}" if note else ""))
+            if note:
+                print(
+                    f"  HELD BACK BY ISSUEDB: {count} {reason} — {note}.\n"
+                    f"    The server DOES accept this entity; this is our limitation, "
+                    f"not Tracker's."
+                )
+            else:
+                print(f"  SKIP {count} {reason} — no sync entity on the wire")
 
         if not do_apply:
             return 0
