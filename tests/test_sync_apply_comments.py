@@ -203,7 +203,7 @@ def test_an_orphan_child_holds_the_cursor_so_it_is_redelivered(repo, conn):
     )
 
 
-def test_a_malformed_row_does_NOT_hold_the_cursor(repo, conn):
+def test_a_malformed_row_does_not_hold_the_cursor(repo, conn):
     """The distinction that makes deferral safe.
 
     A malformed row can never be stored, so holding the cursor for it would
