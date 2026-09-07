@@ -97,6 +97,40 @@ def collapse_outbox(rows: list[sqlite3.Row]) -> list[Any]:
     return [last[key] for key in order]
 
 
+def unsent_rows(conn: sqlite3.Connection) -> dict[str, list[int]]:
+    """Pushable rows the server has never seen, per local table.
+
+    THE OUTBOX IS NOT THE RECORD OF WHAT THE SERVER HAS SEEN — the LEDGER is.
+    The outbox is an event log written by triggers, so it only contains rows
+    touched SINCE those triggers were installed. Every issue that existed
+    before the sync migration ran has no outbox row at all, and a push driven
+    purely by the outbox skips them forever while reporting a healthy count.
+
+    Measured on this repository's own database: 28 issues, 26 in the outbox,
+    and issues #1 and #2 — created before the earliest outbox row — invisible
+    to push with nothing said about them (issuedb #29).
+
+    No test could have caught it, because a test database creates every row
+    AFTER the triggers exist. That shape only occurs in a database that
+    predates the feature, which is every existing user's.
+
+    A row with no ledger entry has never been pushed. That criterion is
+    complete for existence and says nothing about deletes — a deleted row has
+    no local row to enumerate, which is what the outbox is still for.
+    """
+    found: dict[str, list[int]] = {}
+    for table in PUSHABLE:
+        rows = conn.execute(
+            f"SELECT t.id FROM {table} t "  # noqa: S608 - table from a literal dict
+            "LEFT JOIN sync_row s ON s.entity = ? AND s.local_id = t.id "
+            "WHERE s.uid IS NULL ORDER BY t.id",
+            (table,),
+        ).fetchall()
+        if rows:
+            found[table] = [int(r[0]) for r in rows]
+    return found
+
+
 def build_entries(
     conn: sqlite3.Connection, project_uid: str, since_seq: int, limit: int = 500
 ) -> tuple[list[dict[str, Any]], int, dict[str, int]]:
@@ -115,12 +149,11 @@ def build_entries(
             (since_seq, limit),
         )
     )
-    if not rows:
-        return [], since_seq, {}
 
-    highest = max(int(r["seq"]) for r in rows)
+    highest = max(int(r["seq"]) for r in rows) if rows else since_seq
     skipped: dict[str, int] = {}
     entries: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
 
     for row in collapse_outbox(rows):
         table = str(row["entity"])
@@ -138,7 +171,18 @@ def build_entries(
         if entry is None:
             skipped[f"{table} (row gone)"] = skipped.get(f"{table} (row gone)", 0) + 1
             continue
+        seen.add((table, local_id))
         entries.append(entry)
+
+    # BACKFILL: anything the ledger has never seen, whatever the outbox says.
+    for table, local_ids in unsent_rows(conn).items():
+        entity = PUSHABLE[table]
+        for local_id in local_ids:
+            if (table, local_id) in seen or len(entries) >= limit:
+                continue
+            entry = _entry_for(conn, entity, table, local_id, "upsert", project_uid)
+            if entry is not None:
+                entries.append(entry)
 
     return entries, highest, skipped
 

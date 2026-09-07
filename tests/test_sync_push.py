@@ -192,3 +192,71 @@ def test_three_edits_collapse_to_one_entry():
     collapsed = collapse_outbox(rows)
     assert len(collapsed) == 2
     assert collapsed[0]["op"] == "update", "the last event for a row must win"
+
+
+def test_rows_predating_the_outbox_triggers_are_still_pushed(db, wired, monkeypatch):
+    """issuedb #29 — the bug no fixture in this suite could produce.
+
+    The outbox is an event log written by triggers, so it only holds rows
+    touched SINCE those triggers existed. Every issue in a database that
+    predates the sync migration has no outbox row, and a push driven purely by
+    the outbox skips them forever while reporting a healthy count.
+
+    Found by running against this repository's own `.issue.db` rather than a
+    fixture: 28 issues, 26 in the outbox, issues #1 and #2 invisible with
+    nothing said about them. A test database creates every row AFTER the
+    triggers exist, which is exactly why 921 passing tests never saw it.
+    """
+    conn = _conn(db)
+    conn.execute("INSERT INTO issues (title) VALUES ('created before sync existed')")
+    conn.commit()
+    # Erase every trace the triggers left: this row now looks like one written
+    # by an issuedb that had no outbox at all.
+    conn.execute("DELETE FROM sync_outbox")
+    conn.execute("DELETE FROM sync_row WHERE entity = 'issues'")
+    conn.commit()
+
+    # The control: without it this test would pass against a build that pushes
+    # from the outbox, because there would be nothing to push either way.
+    assert conn.execute("SELECT COUNT(*) FROM sync_outbox").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM issues").fetchone()[0] == 1
+    conn.close()
+
+    c = _conn(db)
+    try:
+        entries, _, _ = build_entries(c, PROJECT, 0)
+        c.commit()
+    finally:
+        c.close()
+
+    titles = [e["payload"].get("title") for e in entries if e["entity"] == "issue"]
+    assert "created before sync existed" in titles, (
+        "a row with no outbox entry was never offered to the server"
+    )
+
+
+def test_a_row_already_in_the_ledger_is_not_offered_twice(db, wired, monkeypatch):
+    """Control for the backfill: it must not re-push everything on every sync."""
+    conn = _conn(db)
+    conn.execute("INSERT INTO issues (title) VALUES ('already sent')")
+    conn.commit()
+    conn.close()
+
+    c = _conn(db)
+    try:
+        first, _, _ = build_entries(c, PROJECT, 0)
+        c.commit()
+    finally:
+        c.close()
+    assert len(first) == 1
+
+    # Same state, outbox consumed: the ledger now knows this row.
+    c = _conn(db)
+    try:
+        c.execute("DELETE FROM sync_outbox")
+        c.commit()
+        second, _, _ = build_entries(c, PROJECT, 0)
+        c.commit()
+    finally:
+        c.close()
+    assert second == [], "the backfill re-offered a row the server already has"
