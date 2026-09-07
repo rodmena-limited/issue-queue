@@ -119,10 +119,53 @@ be represented.
    divergence from the specified order fails a test rather than silently
    forking a row.
 
+Pushing local changes
+---------------------
+
+``sync`` is bidirectional. A dry run reports **both** directions — what would
+come in and what would go out — and ``--apply`` does both, pulling first so a
+local row the server already knows is reconciled before it is offered back.
+
+.. code-block:: text
+
+   $ issuedb-cli sync
+   Pulled 12 change(s) from cursor c:0.
+   ...
+   WOULD PUSH 3 local change(s): 1 issue_dependency · 2 issue
+
+   $ issuedb-cli sync --apply
+   Applied 12 change(s). Cursor now c:14.
+   Pushed 3 change(s).
+
+What travels, and what does not:
+
+``issues``
+   uid **minted** on first push and remembered in the ledger, so editing an
+   issue never changes its identity.
+
+``issue_dependencies``, ``issue_relations``
+   uid **derived** from the frozen canonical form, so two replicas that
+   independently record the same edge converge with no conflict machinery.
+
+``issue_tags``
+   **refused, on purpose.** The outbox trigger records ``issue_id`` as the
+   local id and the ledger is keyed ``(entity, local_id)``, so two tags on one
+   issue would collide on one key — one tag would be sent under another's
+   identity. Reported as a skip with its reason on every sync. Fixing it needs
+   a schema change (issuedb #13).
+
+everything else
+   comments, templates, time entries and the rest have no entity on the wire.
+   The coverage report names them on every sync rather than dropping them
+   silently.
+
+A per-uid rejection inside a ``200`` is **not** success: the outbox mark does
+not advance past a rejected entry, so the change is offered again next sync
+rather than lost.
+
 Known limitation
 ----------------
 
 The apply path applies issues, relations and dependencies, but not tags — a
 sync reports tag changes as ``SKIP — issuedb does not apply entity 'issue_tag'
-yet``. The push direction (sending local changes to the server) is not yet
-built.
+yet`` — see "Pushing local changes" above for why tags are held back.

@@ -18,6 +18,7 @@ import sys
 
 from issuedb.database import Database, NewerDatabaseError, apply_migrations
 from issuedb.sync import _apply, _coverage
+from issuedb.sync import _client as _client_module
 from issuedb.sync._auth_commands import DEFAULT_SERVER
 from issuedb.sync._client import SyncClient, SyncError
 from issuedb.sync._credentials import load
@@ -29,6 +30,7 @@ from issuedb.sync._project_file import (
     read_project_file,
     write_project_file,
 )
+from issuedb.sync._push import BLOCKED, build_entries
 from issuedb.sync._state import load as load_state
 from issuedb.sync._state import save as save_state
 
@@ -203,6 +205,25 @@ def sync(
             print()
             print(report)
 
+        # THE SEND HALF. Built before --apply is honoured so a dry run shows
+        # both directions: what would come in AND what would go out. Sync that
+        # only ever reported the inbound half is how "no issue can ever leave a
+        # laptop" survived unnoticed (#14).
+        entries, outbox_seq, skipped = build_entries(conn, shake.project_uid, state.last_pushed_seq)
+        print()
+        if entries:
+            counts: dict[str, int] = {}
+            for entry in entries:
+                counts[entry["entity"]] = counts.get(entry["entity"], 0) + 1
+            shape = " · ".join(f"{n} {name}" for name, n in sorted(counts.items()))
+            verb = "Pushing" if do_apply else "WOULD PUSH"
+            print(f"{verb} {len(entries)} local change(s): {shape}")
+        else:
+            print("Nothing local to push.")
+        for reason, count in sorted(skipped.items()):
+            note = BLOCKED.get(reason)
+            print(f"  SKIP {count} {reason}" + (f" — {note}" if note else ""))
+
         if not do_apply:
             return 0
 
@@ -216,6 +237,41 @@ def sync(
         save_state(state._replace(cursor=result.cursor), env)
 
         print(f"Applied {result.applied} change(s). Cursor now {result.cursor}.")
+
+        # PUSH AFTER APPLY. The inbound half runs first so a local row that the
+        # server already knows is reconciled before we offer it back, and the
+        # mark advances only on entries the server ACCEPTED — a per-uid
+        # rejection inside a 200 is not success, and advancing past it would
+        # lose the change with nothing erroring.
+        if entries:
+            try:
+                results = client.push(entries, replica_id=state.replica_id)
+            except SyncError as exc:
+                print(f"Error: push failed: {exc.code} — {exc}", file=sys.stderr)
+                print("Nothing local was marked as sent; re-running retries it.", file=sys.stderr)
+                return 1
+            # Deliberately the REAL protocol helper, reached through the module
+            # rather than through the module-level `SyncClient` name a test may
+            # have substituted. What counts as "rejected" is part of the wire
+            # contract; a stand-in client must not get to redefine it, or the
+            # test proves only that the double agrees with itself.
+            rejected = _client_module.SyncClient.rejected(results)
+            accepted = len(results) - len(rejected)
+            print(f"Pushed {accepted} change(s).")
+            for item in rejected:
+                print(
+                    f"  REJECTED {item.get('uid')}: {item.get('reason')}", file=sys.stderr
+                )
+            if rejected:
+                print(
+                    "The outbox mark has NOT advanced past a rejected entry, so those "
+                    "changes are retried on the next sync.",
+                    file=sys.stderr,
+                )
+                return 1
+            save_state(
+                state._replace(cursor=result.cursor, last_pushed_seq=outbox_seq), env
+            )
         if result.stopped_at:
             print(f"STOPPED: {result.stopped_at}", file=sys.stderr)
             print(
