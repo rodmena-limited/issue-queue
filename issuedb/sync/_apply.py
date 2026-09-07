@@ -36,6 +36,7 @@ from typing import Any, NamedTuple
 
 from issuedb.sync._endpoints import _endpoint_present
 from issuedb.sync._feed import collapse_duplicate_uids
+from issuedb.sync._fields import invalid_issue_field
 from issuedb.sync._kinds import (
     AMBIGUOUS,
     CREATE,
@@ -65,6 +66,18 @@ class Action(NamedTuple):
     endpoints: tuple[str, str] | None = None
     # For issue_relation: the relation type. Empty otherwise.
     relation_type: str = ""
+    # AN ISSUE IS MORE THAN ITS TITLE. Carrying only the title meant the write
+    # inserted one column and let `status` and `priority` fall to their SQL
+    # defaults — 'open' and 'medium' — so every issue pulled from the server was
+    # silently reset, and push then sent those defaults BACK. Measured by
+    # `tracker-fbe1b4` on one sync of a fresh clone: 25 issues reopened, 29
+    # re-prioritised, the server's own data overwritten by a client that had
+    # never been told the real values (issuedb #30).
+    #
+    # Empty means "the server did not say", which leaves the local value alone
+    # on UPDATE and takes the column default on CREATE.
+    status: str = ""
+    priority: str = ""
 
     def describe(self, uid_width: int = 12) -> str:
         target = f"#{self.local_id}" if self.local_id is not None else "(new)"
@@ -200,6 +213,8 @@ def plan(
         # both directions are asserted.
         endpoints: tuple[str, str] | None = None
         relation_type = ""
+        status = ""
+        priority = ""
 
         if entity == "issue":
             if payload is None:
@@ -217,6 +232,17 @@ def plan(
                         "an issue carries no title, and issues.title is NOT NULL locally",
                     )
                 )
+                continue
+
+            # A value we do not recognise must STOP, not fall back. Falling back
+            # is precisely how the fields were lost: a default is indis-
+            # tinguishable from a value the server actually sent, so a silent
+            # substitution corrupts the row and then pushes the corruption back.
+            status = str(payload.get("status") or "")
+            priority = str(payload.get("priority") or "")
+            bad = invalid_issue_field(status, priority)
+            if bad is not None:
+                actions.append(Action(MALFORMED, uid, entity, seq, None, title, bad))
                 continue
 
         elif entity == "comment":
@@ -417,6 +443,7 @@ def plan(
             actions.append(
                 Action(
                     CREATE, uid, entity, seq, None, title, "not present locally",
+                    status=status, priority=priority,
                     endpoints=endpoints, relation_type=relation_type,
                 )
             )
@@ -424,6 +451,7 @@ def plan(
             actions.append(
                 Action(
                     UPDATE, uid, entity, seq, local_id, title, "present locally",
+                    status=status, priority=priority,
                     endpoints=endpoints, relation_type=relation_type,
                 )
             )

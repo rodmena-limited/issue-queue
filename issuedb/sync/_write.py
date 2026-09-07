@@ -57,9 +57,11 @@ def _apply_one(conn: sqlite3.Connection, action: Action) -> None:
     if action.kind == UPDATE:
         if action.entity == "issue":
             conn.execute(
-                "UPDATE issues SET title = ?, updated_at = datetime('now','localtime') "
+                "UPDATE issues SET title = ?, status = COALESCE(NULLIF(?, ''), status), "
+                "priority = COALESCE(NULLIF(?, ''), priority), "
+                "updated_at = datetime('now','localtime') "
                 "WHERE id = ?",
-                (action.title, action.local_id),
+                (action.title, action.status, action.priority, action.local_id),
             )
         else:
             assert endpoints is not None  # the guard above guarantees it
@@ -90,7 +92,11 @@ def _apply_one(conn: sqlite3.Connection, action: Action) -> None:
 
     if action.kind == CREATE:
         if action.entity == "issue":
-            cursor_ = conn.execute("INSERT INTO issues (title) VALUES (?)", (action.title,))
+            cursor_ = conn.execute(
+                "INSERT INTO issues (title, status, priority) VALUES "
+                "(?, COALESCE(NULLIF(?, ''), 'open'), COALESCE(NULLIF(?, ''), 'medium'))",
+                (action.title, action.status, action.priority),
+            )
         else:
             assert endpoints is not None  # the guard above guarantees it
             if action.entity == "issue_relation":
