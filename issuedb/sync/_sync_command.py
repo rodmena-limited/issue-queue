@@ -31,6 +31,7 @@ from issuedb.sync._project_file import (
     write_project_file,
 )
 from issuedb.sync._push import BLOCKED, build_entries
+from issuedb.sync._state import SyncState
 from issuedb.sync._state import load as load_state
 from issuedb.sync._state import save as save_state
 
@@ -38,6 +39,40 @@ from issuedb.sync._state import save as save_state
 # cannot spin forever. Reaching it is reported to the user as a partial run,
 # never rounded up to a complete one.
 MAX_PULL_PAGES = 200
+
+
+def _outbox_high_water(conn: sqlite3.Connection) -> int:
+    """The newest outbox seq, or 0 when the outbox is empty."""
+    row = conn.execute("SELECT COALESCE(MAX(seq), 0) FROM sync_outbox").fetchone()
+    return int(row[0])
+
+
+def _finish_push(
+    conn: sqlite3.Connection,
+    state: SyncState,
+    cursor: str,
+    env: dict[str, str] | None,
+) -> None:
+    """Advance the outbox mark past this sync's own echoes.
+
+    APPLYING A SERVER CHANGE WRITES TO A LOCAL TABLE, AND THE OUTBOX TRIGGERS
+    FIRE ON THAT WRITE. So every row pulled from the server immediately looks
+    like a local change and is offered straight back on the next sync — a
+    feedback loop that costs a round trip and bumps the server's version on
+    rows nobody edited. `tracker-fbe1b4` measured it from the other side as 34
+    rows "moved" when nothing should move.
+
+    It is not a duplicate, because the uid is the server's own and the push is
+    idempotent. It is churn, and churn that makes a real edit indistinguishable
+    from an echo in the version history.
+
+    By this point everything in the outbox is one of two things: a local change
+    we have just pushed, or an echo of a change we have just applied. Neither
+    needs sending again, so the mark moves to the current high-water line.
+    """
+    save_state(
+        state._replace(cursor=cursor, last_pushed_seq=_outbox_high_water(conn)), env
+    )
 
 
 def sync(
@@ -213,6 +248,22 @@ def sync(
             conn, shake.project_uid, state.last_pushed_seq,
             server_entities=shake.entities,
         )
+        # COMMIT THE MINTED UIDS BEFORE ANYTHING ELSE TOUCHES THIS CONNECTION.
+        # `build_entries` writes to the ledger, which opens an implicit
+        # transaction. `apply` then issues its own BEGIN IMMEDIATE and sqlite
+        # raises "cannot start a transaction within a transaction" — the whole
+        # apply is rolled back, taking the ledger writes with it. So:
+        #
+        #   * NOTHING WAS EVER APPLIED on any sync that also had something to
+        #     push, while the run still reported "Pushed N";
+        #   * the ledger stayed empty, so the next push MINTED FRESH UIDS for
+        #     the same rows and the server grew a duplicate set every time.
+        #
+        # `tracker-fbe1b4` measured both: two pushes of one local row produced
+        # two server rows and left `sync_row` at 0. Recording BEFORE the send
+        # is also the safe order — a crash between send and record would
+        # otherwise duplicate on the next run.
+        conn.commit()
         print()
         if entries:
             counts: dict[str, int] = {}
@@ -310,9 +361,8 @@ def sync(
                     file=sys.stderr,
                 )
                 return 1
-            save_state(
-                state._replace(cursor=result.cursor, last_pushed_seq=outbox_seq), env
-            )
+            _finish_push(conn, state, result.cursor, env)
+
         if result.stopped_at:
             print(f"STOPPED: {result.stopped_at}", file=sys.stderr)
             print(
